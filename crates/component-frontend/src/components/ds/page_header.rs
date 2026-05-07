@@ -28,7 +28,7 @@ pub(crate) fn page_header_block(
     let title = title.to_owned();
     let tagline = tagline.to_owned();
     let mut div = Division::builder();
-    div.class("pb-8 border-b border-line");
+    div.class("pb-10 border-b border-line");
     div.division(|d| {
         d.class("flex items-center gap-2 text-[12px] text-ink-500 mono uppercase tracking-wider")
             .text(kicker_html)

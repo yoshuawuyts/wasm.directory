@@ -44,6 +44,7 @@ pub(crate) fn render(
 
     let command = format!("component install {display_name}@{version}");
     let run_command = format!("component run {display_name}@{version}");
+    let acp_command = format!("/install {display_name}@{version}");
 
     let copy_svg = concat!(
         r#"<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">"#,
@@ -61,11 +62,12 @@ pub(crate) fn render(
     let check_svg_js: String = check_svg.chars().filter(|c| *c != '\n').collect();
 
     let copy_script = format!(
-        r"<script>(function(){{var ci='{copy_svg_js}';var ch='{check_svg_js}';['copy-install-btn','copy-run-btn'].forEach(function(id){{var btn=document.getElementById(id);if(!btn)return;var cmd=btn.getAttribute('data-cmd');btn.addEventListener('click',function(){{navigator.clipboard.writeText(cmd).then(function(){{btn.innerHTML=ch;setTimeout(function(){{btn.innerHTML=ci}},2000)}})}})}})}})()</script>",
+        r"<script>(function(){{var ci='{copy_svg_js}';var ch='{check_svg_js}';['copy-install-btn','copy-run-btn','copy-acp-btn'].forEach(function(id){{var btn=document.getElementById(id);if(!btn)return;var cmd=btn.getAttribute('data-cmd');btn.addEventListener('click',function(){{navigator.clipboard.writeText(cmd).then(function(){{btn.innerHTML=ch;setTimeout(function(){{btn.innerHTML=ci}},2000)}})}})}})}})()</script>",
     );
 
     let install_panel = format!(
         "<div>\
+            <p class=\"mb-2 text-[12px] text-ink-500\">In a terminal, run:</p>\
             <div class=\"flex\">\
                 <span class=\"inline-flex items-center px-2.5 h-7 rounded-l-md border border-r-0 border-line bg-surfaceMuted text-[12.5px] text-ink-500 mono select-none\" aria-hidden=\"true\">$</span>\
                 <code class=\"inline-flex items-center px-2.5 h-7 flex-1 border border-line bg-surface mono text-[12.5px] text-ink-900 whitespace-nowrap\">{command}</code>\
@@ -79,6 +81,7 @@ pub(crate) fn render(
 
     let run_panel = format!(
         "<div>\
+            <p class=\"mb-2 text-[12px] text-ink-500\">In a terminal, run:</p>\
             <div class=\"flex\">\
                 <span class=\"inline-flex items-center px-2.5 h-7 rounded-l-md border border-r-0 border-line bg-surfaceMuted text-[12.5px] text-ink-500 mono select-none\" aria-hidden=\"true\">$</span>\
                 <code class=\"inline-flex items-center px-2.5 h-7 flex-1 border border-line bg-surface mono text-[12.5px] text-ink-900 whitespace-nowrap\">{run_command}</code>\
@@ -90,9 +93,24 @@ pub(crate) fn render(
         </div>",
     );
 
+    let acp_panel = format!(
+        "<div>\
+            <p class=\"mb-2 text-[12px] text-ink-500\">In a prompt window, write:</p>\
+            <div class=\"flex\">\
+                <span class=\"inline-flex items-center px-2.5 h-7 rounded-l-md border border-r-0 border-line bg-surfaceMuted text-[12.5px] text-ink-500 mono select-none\" aria-hidden=\"true\">&gt;</span>\
+                <code class=\"inline-flex items-center px-2.5 h-7 flex-1 border border-line bg-surface mono text-[12.5px] text-ink-900 whitespace-nowrap\">{acp_command}</code>\
+                <button type=\"button\" id=\"copy-acp-btn\" data-cmd=\"{acp_command}\" class=\"inline-flex items-center justify-center w-7 h-7 rounded-r-md border border-l-0 border-line bg-surface text-ink-500 hover:text-ink-900 hover:bg-surfaceMuted\" aria-label=\"Copy ACP command\">{copy_svg}</button>\
+            </div>\
+            <p class=\"mt-3 text-[12px] text-ink-500\">\
+                <a href=\"https://github.com/yoshuawuyts/playground-wasm-acp\" class=\"text-ink-700 underline decoration-line decoration-1 underline-offset-2 hover:text-ink-900\">Read more</a> about Agent Client Protocol support <span class=\"text-ink-400\">(coming soon)</span>.\
+            </p>\
+        </div>",
+    );
+
     let tabs_html = crate::components::ds::tabs::panel_tabs_switchable(&[
         ("Install", &install_panel),
         ("Run", &run_panel),
+        ("ACP", &acp_panel),
     ]);
 
     let install_meta = format!("{tabs_html}{copy_script}");
