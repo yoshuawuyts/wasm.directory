@@ -65,9 +65,9 @@ pub(crate) fn panel_tabs_switchable(items: &[(&str, &str)]) -> String {
     for (i, (label, body)) in items.iter().enumerate() {
         let active = i == 0;
         let tab_class = if active {
-            "id-lang-tab is-active"
+            "id-lang-tab is-clickable is-active"
         } else {
-            "id-lang-tab"
+            "id-lang-tab is-clickable"
         };
         let style = if active {
             " style=\"background: var(--c-canvas);\""
@@ -75,7 +75,7 @@ pub(crate) fn panel_tabs_switchable(items: &[(&str, &str)]) -> String {
             ""
         };
         tabs_html.push_str(&format!(
-            r#"<span class="{tab_class}"{style} data-ptabs-group="{group}" data-ptabs-target="{i}"><span class="dot"></span>{label}</span>"#,
+            r#"<span class="{tab_class}"{style} role="tab" tabindex="0" data-ptabs-group="{group}" data-ptabs-target="{i}"><span class="dot"></span>{label}</span>"#,
         ));
         let hidden = if active { "" } else { " hidden" };
         panels_html.push_str(&format!(
@@ -85,7 +85,7 @@ pub(crate) fn panel_tabs_switchable(items: &[(&str, &str)]) -> String {
     tabs_html.push_str("</div>");
 
     let script = format!(
-        r#"<script>(function(){{var g='{group}';var tabs=document.querySelectorAll('[data-ptabs-group="'+g+'"][data-ptabs-target]');var panels=document.querySelectorAll('[data-ptabs-group="'+g+'"][data-ptabs-panel]');tabs.forEach(function(t){{t.addEventListener('click',function(){{var target=t.getAttribute('data-ptabs-target');tabs.forEach(function(o){{var on=o===t;o.classList.toggle('is-active',on);o.style.background=on?'var(--c-canvas)':'';}});panels.forEach(function(p){{p.hidden=p.getAttribute('data-ptabs-panel')!==target;}});}});}});}})();</script>"#,
+        r#"<script>(function(){{var g='{group}';var tabs=document.querySelectorAll('[data-ptabs-group="'+g+'"][data-ptabs-target]');var panels=document.querySelectorAll('[data-ptabs-group="'+g+'"][data-ptabs-panel]');function activate(t){{var target=t.getAttribute('data-ptabs-target');tabs.forEach(function(o){{var on=o===t;o.classList.toggle('is-active',on);o.style.background=on?'var(--c-canvas)':'';}});panels.forEach(function(p){{p.hidden=p.getAttribute('data-ptabs-panel')!==target;}});}}tabs.forEach(function(t){{t.addEventListener('click',function(){{activate(t);}});t.addEventListener('keydown',function(e){{if(e.key==='Enter'||e.key===' '){{e.preventDefault();activate(t);}}}});}});}})();</script>"#,
     );
 
     format!(

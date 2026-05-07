@@ -755,8 +755,13 @@ fn render_document(title: &str, body_class: &str, body_children: &str) -> String
     .id-status-server {{ background: var(--c-cat-pink-ink); }}
     .id-status-cancelled {{ background: var(--c-cat-slate-ink); }}
     /* Language tabs */
-    .id-lang-tabs {{ display: flex; align-items: center; gap: 2px; border-bottom: 1px solid var(--c-line-soft); margin-bottom: -1px; }}
-    .id-lang-tab {{ display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; font-size: 12px; color: var(--c-ink-500); border: 1px solid transparent; border-bottom: none; border-top-left-radius: 4px; border-top-right-radius: 4px; position: relative; top: 1px; cursor: default; }}
+    .id-lang-tabs {{ display: flex; align-items: center; gap: 0; border-bottom: 1px solid var(--c-line-soft); margin-bottom: -1px; }}
+    .id-lang-tab {{ display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; font-size: 12px; color: var(--c-ink-500); border: 1px solid transparent; border-bottom: none; border-top-left-radius: 4px; border-top-right-radius: 4px; position: relative; top: 1px; cursor: default; transition: color 120ms ease, background 120ms ease, border-color 120ms ease; }}
+    .id-lang-tab + .id-lang-tab {{ margin-left: -1px; }}
+    .id-lang-tab.is-clickable {{ cursor: pointer; user-select: none; }}
+    .id-lang-tab.is-clickable:not(.is-active):hover {{ color: var(--c-ink-900); background: var(--c-surface-muted); border-color: var(--c-line-soft); }}
+    .id-lang-tab.is-clickable:not(.is-active):hover .dot {{ background: var(--c-ink-500); }}
+    .id-lang-tab.is-clickable:focus-visible {{ outline: 2px solid var(--c-ink-900); outline-offset: -2px; }}
     .id-lang-tab.is-active {{ color: var(--c-ink-900); background: var(--c-surface); border-color: var(--c-line-soft); }}
     .id-lang-tab.is-soon {{ color: var(--c-ink-400); }}
     .id-lang-tab .dot {{ display: inline-block; height: 6px; width: 6px; border-radius: 999px; background: var(--c-ink-300); }}

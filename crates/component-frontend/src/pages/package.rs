@@ -72,7 +72,7 @@ pub(crate) fn render(
                 <button type=\"button\" id=\"copy-install-btn\" data-cmd=\"{command}\" class=\"inline-flex items-center justify-center w-7 h-7 rounded-r-md border border-l-0 border-line bg-surface text-ink-500 hover:text-ink-900 hover:bg-surfaceMuted\" aria-label=\"Copy install command\">{copy_svg}</button>\
             </div>\
             <p class=\"mt-3 text-[12px] text-ink-500\">\
-                <a href=\"/downloads\" class=\"text-ink-700 underline decoration-line decoration-1 underline-offset-2 hover:text-ink-900\">Learn more</a> about installing the CLI.\
+                <a href=\"/downloads\" class=\"text-ink-700 underline decoration-line decoration-1 underline-offset-2 hover:text-ink-900\">Learn more</a> about the component CLI.\
             </p>\
         </div>",
     );
@@ -85,7 +85,7 @@ pub(crate) fn render(
                 <button type=\"button\" id=\"copy-run-btn\" data-cmd=\"{run_command}\" class=\"inline-flex items-center justify-center w-7 h-7 rounded-r-md border border-l-0 border-line bg-surface text-ink-500 hover:text-ink-900 hover:bg-surfaceMuted\" aria-label=\"Copy run command\">{copy_svg}</button>\
             </div>\
             <p class=\"mt-3 text-[12px] text-ink-500\">\
-                <a href=\"/downloads\" class=\"text-ink-700 underline decoration-line decoration-1 underline-offset-2 hover:text-ink-900\">Learn more</a> about running components.\
+                <a href=\"/downloads\" class=\"text-ink-700 underline decoration-line decoration-1 underline-offset-2 hover:text-ink-900\">Learn more</a> about the component CLI.\
             </p>\
         </div>",
     );
