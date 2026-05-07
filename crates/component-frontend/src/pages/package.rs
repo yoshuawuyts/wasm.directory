@@ -108,7 +108,7 @@ pub(crate) fn render(
         "<div>\
             <p class=\"mb-2 text-[12px] text-ink-500\">Ask your AI assistant to install it for you:</p>\
             <div class=\"flex items-center gap-2 px-2.5 h-9 rounded-md border border-line bg-surface\">\
-                <span class=\"bar-sm bg-cat-blue text-cat-blueInk mono font-semibold\"><span class=\"mr-[2px]\">/</span>install</span>\
+                <span class=\"bar-sm bg-cat-blue text-cat-blueInk mono\"><span class=\"mr-[2px]\">/</span>install</span>\
                 <code class=\"flex-1 mono text-[12.5px] text-ink-900 whitespace-nowrap\">{acp_arg}</code>\
                 <button type=\"button\" id=\"copy-acp-btn\" data-cmd=\"{acp_command}\" class=\"inline-flex items-center justify-center w-7 h-7 rounded-md text-ink-500 hover:text-ink-900 hover:bg-surfaceMuted\" aria-label=\"Copy ACP command\">{copy_svg}</button>\
             </div>\
