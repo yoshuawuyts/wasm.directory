@@ -3,6 +3,7 @@
 
 use crate::entities::{component_target, oci_layer, oci_manifest, wasm_component, wit_world};
 use sea_orm_migration::prelude::*;
+use sea_orm_migration::sea_orm::ConnectionTrait;
 
 #[derive(Debug, DeriveMigrationName)]
 pub struct Migration;
@@ -58,15 +59,16 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
+        // Unique index using COALESCE on the nullable oci_layer_id so
+        // multiple rows with NULL oci_layer_id for the same manifest are
+        // treated as duplicates. SeaORM's index builder doesn't expose
+        // expression indexes, so we hand-write SQL (SQLite and Postgres
+        // both support expression indexes with the same syntax).
         manager
-            .create_index(
-                Index::create()
-                    .name("uq_wasm_component")
-                    .table(wasm_component::Entity)
-                    .col(wasm_component::Column::OciManifestId)
-                    .col(wasm_component::Column::OciLayerId)
-                    .unique()
-                    .to_owned(),
+            .get_connection()
+            .execute_unprepared(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_wasm_component \
+                 ON wasm_component(oci_manifest_id, COALESCE(oci_layer_id, -1));",
             )
             .await?;
         manager
@@ -138,17 +140,13 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
+        // See note above on COALESCE-based expression unique indexes.
         manager
-            .create_index(
-                Index::create()
-                    .name("uq_component_target")
-                    .table(component_target::Entity)
-                    .col(component_target::Column::WasmComponentId)
-                    .col(component_target::Column::DeclaredPackage)
-                    .col(component_target::Column::DeclaredWorld)
-                    .col(component_target::Column::DeclaredVersion)
-                    .unique()
-                    .to_owned(),
+            .get_connection()
+            .execute_unprepared(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_component_target \
+                 ON component_target(wasm_component_id, declared_package, declared_world, \
+                 COALESCE(declared_version, ''));",
             )
             .await?;
         manager

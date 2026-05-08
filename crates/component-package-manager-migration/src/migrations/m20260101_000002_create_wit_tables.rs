@@ -7,6 +7,7 @@ use crate::entities::{
     wit_world_import,
 };
 use sea_orm_migration::prelude::*;
+use sea_orm_migration::sea_orm::ConnectionTrait;
 
 #[derive(Debug, DeriveMigrationName)]
 pub struct Migration;
@@ -60,16 +61,15 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
+        // Unique index using COALESCE on nullable columns so NULLs are
+        // treated as equal. SeaORM's index builder doesn't expose
+        // expression indexes, so we hand-write SQL (SQLite and Postgres
+        // both support expression indexes with the same syntax).
         manager
-            .create_index(
-                Index::create()
-                    .name("uq_wit_packages")
-                    .table(wit_package::Entity)
-                    .col(wit_package::Column::PackageName)
-                    .col(wit_package::Column::Version)
-                    .col(wit_package::Column::OciLayerId)
-                    .unique()
-                    .to_owned(),
+            .get_connection()
+            .execute_unprepared(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_wit_packages \
+                 ON wit_package(package_name, COALESCE(version, ''), COALESCE(oci_layer_id, -1));",
             )
             .await?;
         manager
@@ -198,17 +198,13 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
+        // See note above on COALESCE-based expression unique indexes.
         manager
-            .create_index(
-                Index::create()
-                    .name("uq_wit_world_import")
-                    .table(wit_world_import::Entity)
-                    .col(wit_world_import::Column::WitWorldId)
-                    .col(wit_world_import::Column::DeclaredPackage)
-                    .col(wit_world_import::Column::DeclaredInterface)
-                    .col(wit_world_import::Column::DeclaredVersion)
-                    .unique()
-                    .to_owned(),
+            .get_connection()
+            .execute_unprepared(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_wit_world_import \
+                 ON wit_world_import(wit_world_id, declared_package, \
+                 COALESCE(declared_interface, ''), COALESCE(declared_version, ''));",
             )
             .await?;
         manager
@@ -280,17 +276,13 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
+        // See note above on COALESCE-based expression unique indexes.
         manager
-            .create_index(
-                Index::create()
-                    .name("uq_wit_world_export")
-                    .table(wit_world_export::Entity)
-                    .col(wit_world_export::Column::WitWorldId)
-                    .col(wit_world_export::Column::DeclaredPackage)
-                    .col(wit_world_export::Column::DeclaredInterface)
-                    .col(wit_world_export::Column::DeclaredVersion)
-                    .unique()
-                    .to_owned(),
+            .get_connection()
+            .execute_unprepared(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_wit_world_export \
+                 ON wit_world_export(wit_world_id, declared_package, \
+                 COALESCE(declared_interface, ''), COALESCE(declared_version, ''));",
             )
             .await?;
         manager
@@ -364,16 +356,13 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
+        // See note above on COALESCE-based expression unique indexes.
         manager
-            .create_index(
-                Index::create()
-                    .name("uq_wit_package_dependency")
-                    .table(wit_package_dependency::Entity)
-                    .col(wit_package_dependency::Column::DependentId)
-                    .col(wit_package_dependency::Column::DeclaredPackage)
-                    .col(wit_package_dependency::Column::DeclaredVersion)
-                    .unique()
-                    .to_owned(),
+            .get_connection()
+            .execute_unprepared(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_wit_package_dependency \
+                 ON wit_package_dependency(dependent_id, declared_package, \
+                 COALESCE(declared_version, ''));",
             )
             .await?;
         manager
