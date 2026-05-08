@@ -140,6 +140,65 @@ async fn apply_sqlite_pragmas(db: &DatabaseConnection) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Fixed advisory-lock key for serializing Postgres schema migrations.
+///
+/// This value was generated once from the ASCII bytes `b"cmpmigr!"` interpreted
+/// as a big-endian signed 64-bit integer. It is intentionally hardcoded and
+/// MUST NOT change, or different binaries could contend on different lock keys.
+const POSTGRES_MIGRATION_ADVISORY_LOCK_KEY: i64 = 7_164_506_197_438_460_449;
+
+const POSTGRES_MIGRATION_SET_TIMEOUT_SQL: &str =
+    "SET lock_timeout = '60s'; SET statement_timeout = '60s';";
+
+/// Run SeaORM migrations for Postgres while holding a session-scoped advisory
+/// lock on a dedicated single-connection pool.
+async fn run_postgres_migrations_with_advisory_lock(
+    cfg: &super::db_config::DbConfig,
+) -> anyhow::Result<()> {
+    // Advisory locks are session-scoped, so lock/unlock + Migrator::up must
+    // happen on the exact same physical connection. A one-connection pool
+    // guarantees that.
+    let mut migration_opts = cfg.to_connect_options();
+    migration_opts.max_connections(1);
+    migration_opts.min_connections(1);
+    let db = Database::connect(migration_opts)
+        .await
+        .with_context(|| format!("failed to connect to database at {}", cfg.redacted_url()))?;
+
+    db.execute_unprepared(POSTGRES_MIGRATION_SET_TIMEOUT_SQL)
+        .await
+        .context("failed to configure Postgres migration lock timeouts")?;
+
+    let lock_stmt = Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "SELECT pg_advisory_lock($1);",
+        [POSTGRES_MIGRATION_ADVISORY_LOCK_KEY.into()],
+    );
+    db.execute_raw(lock_stmt)
+        .await
+        .with_context(|| "failed to acquire Postgres migration advisory lock")?;
+
+    let migration_result = Migrator::up(&db, None)
+        .await
+        .context("failed to run database migrations");
+    let unlock_stmt = Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "SELECT pg_advisory_unlock($1);",
+        [POSTGRES_MIGRATION_ADVISORY_LOCK_KEY.into()],
+    );
+    let unlock_result = db
+        .execute_raw(unlock_stmt)
+        .await
+        .with_context(|| "failed to release Postgres migration advisory lock");
+
+    if let Err(migration_err) = migration_result {
+        unlock_result?;
+        return Err(migration_err);
+    }
+    unlock_result?;
+    Ok(())
+}
+
 /// Try to parse a tag as semver, accepting an optional leading `v` prefix.
 fn parse_tag_as_semver(tag: &str) -> Option<semver::Version> {
     if let Ok(v) = semver::Version::parse(tag) {
@@ -1098,28 +1157,23 @@ impl Store {
             .with_context(|| format!("failed to connect to database at {}", cfg.redacted_url()))?;
         apply_sqlite_pragmas(&db).await?;
 
-        match cfg.backend {
-            super::db_config::Backend::Sqlite => {
+        match db.get_database_backend() {
+            DbBackend::Sqlite => {
                 // SQLite is single-user; auto-migrate matches the legacy
                 // rusqlite behaviour.
                 Migrator::up(&db, None)
                     .await
                     .context("failed to run database migrations")?;
             }
-            super::db_config::Backend::Postgres => {
-                // Postgres deploys must run migrations explicitly via
-                // `component admin migrate` to avoid races between replicas.
-                if Migrations::has_pending(&db).await {
-                    let snap = Migrations::snapshot(&db).await;
-                    anyhow::bail!(
-                        "database at {} has pending migrations \
-                         ({} of {} applied). Run `component admin migrate` \
-                         (or apply via sea-orm-cli) before starting.",
-                        cfg.redacted_url(),
-                        snap.current,
-                        snap.total
-                    );
-                }
+            DbBackend::Postgres => {
+                run_postgres_migrations_with_advisory_lock(&cfg).await?;
+            }
+            other => {
+                anyhow::bail!(
+                    "unsupported database backend {:?} for {} (expected sqlite:// or postgres://)",
+                    other,
+                    cfg.redacted_url()
+                );
             }
         }
 
@@ -2891,5 +2945,47 @@ mod smoke_tests {
             redact_url("postgres://alice:secret@db.example.com/wasm"),
             "postgres://alice:[REDACTED]@db.example.com/wasm"
         );
+    }
+
+    #[tokio::test]
+    async fn open_at_runs_sqlite_migrations_on_disk() {
+        // Exercises the on-disk `Store::open_at` -> `open_inner` path, which
+        // is otherwise only reached via `Manager::open_at` in production
+        // code. Confirms the SQLite auto-migration arm runs to completion
+        // and produces a fully-applied migration snapshot.
+        let tmp = tempfile::tempdir().expect("create temp data dir");
+        let store = Store::open_at(tmp.path().to_path_buf())
+            .await
+            .expect("Store::open_at should succeed for sqlite default");
+        let snapshot = Migrations::snapshot(store.db()).await;
+        assert!(snapshot.total > 0);
+        assert_eq!(snapshot.current, snapshot.total);
+        assert!(tmp.path().join("db").join("metadata-v2.db3").exists());
+    }
+
+    #[tokio::test]
+    async fn postgres_concurrent_open_succeeds() {
+        let Ok(url) = std::env::var("COMPONENT_DATABASE_URL") else {
+            return;
+        };
+        let lower = url.to_ascii_lowercase();
+        if !(lower.starts_with("postgres:") || lower.starts_with("postgresql:")) {
+            return;
+        }
+
+        let data_dir_a = tempfile::tempdir().expect("create temp dir A");
+        let data_dir_b = tempfile::tempdir().expect("create temp dir B");
+        let (a, b) = tokio::join!(
+            Store::open_at(data_dir_a.path().to_path_buf()),
+            Store::open_at(data_dir_b.path().to_path_buf())
+        );
+        let store_a = a.expect("first concurrent Store::open_at should succeed");
+        let store_b = b.expect("second concurrent Store::open_at should succeed");
+
+        let snapshot_a = Migrations::snapshot(store_a.db()).await;
+        let snapshot_b = Migrations::snapshot(store_b.db()).await;
+        assert_eq!(snapshot_a.current, snapshot_a.total);
+        assert_eq!(snapshot_b.current, snapshot_b.total);
+        assert_eq!(snapshot_a.current, snapshot_b.current);
     }
 }

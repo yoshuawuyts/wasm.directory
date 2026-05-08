@@ -63,10 +63,4 @@ impl Migrations {
             total: Self::total_count(),
         }
     }
-
-    /// True when the database has fewer migrations applied than are
-    /// defined. Used to refuse start-up against a stale Postgres.
-    pub(crate) async fn has_pending(db: &DatabaseConnection) -> bool {
-        Self::current_count(db).await < Self::total_count()
-    }
 }

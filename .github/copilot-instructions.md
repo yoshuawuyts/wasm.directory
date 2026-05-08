@@ -69,9 +69,9 @@ a database backend at runtime via the `COMPONENT_DATABASE_URL` env var:
 - Default (no var set): SQLite file under the platform data directory.
   Migrations are applied automatically on startup.
 - `sqlite://path/to/file.db?mode=rwc`: explicit SQLite file.
-- `postgres://user:pass@host:port/db`: PostgreSQL. Migrations are NOT
-  applied automatically; run `component admin migrate` once during deploy.
-  `Manager::open` refuses to start with pending migrations.
+- `postgres://user:pass@host:port/db`: PostgreSQL. Migrations are applied
+  automatically on startup too; `Manager::open` serializes the migration
+  step with a Postgres advisory lock so concurrent replicas are safe.
 
 Optional tuning vars:
 - `COMPONENT_DATABASE_MAX_CONNECTIONS` (Postgres pool size, default 8)

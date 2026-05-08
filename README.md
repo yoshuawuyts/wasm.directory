@@ -51,7 +51,6 @@ Commands:
   local     Detect and manage local WASM files
   registry  Manage Wasm Components and WIT interfaces in OCI registries
   self      Configure the `component(1)` tool, generate completions, & manage state
-  admin     Administrative commands (database migrations, etc.)
   help      Print this message or the help of the given subcommand(s)
 
 Options:

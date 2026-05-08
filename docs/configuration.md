@@ -158,10 +158,9 @@ support both SQLite and PostgreSQL.
 
 - **SQLite** (default): migrations are applied automatically when
   opening the database.
-- **PostgreSQL**: migrations are applied explicitly via
-  `component admin migrate` to avoid races between replicas. The
-  package manager refuses to start when the database has pending
-  migrations.
+- **PostgreSQL**: migrations are also applied automatically when
+  opening the database. The migration step is serialized with a
+  Postgres advisory lock so concurrent replicas can boot safely.
 
 ## Environment Variables
 

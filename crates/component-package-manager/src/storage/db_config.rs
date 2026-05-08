@@ -4,10 +4,9 @@
 //!
 //! * `sqlite://...` — local file or `sqlite::memory:`. Default if no URL
 //!   is configured. Auto-migrates on `Store::open`.
-//! * `postgres://...` — remote PostgreSQL. Production deploys must run
-//!   migrations manually via `component admin migrate` before starting;
-//!   `Store::open` refuses to start with pending migrations to avoid
-//!   races between replicas.
+//! * `postgres://...` — remote PostgreSQL. Auto-migrates on `Store::open`
+//!   too, with the migration step serialized by a Postgres advisory lock
+//!   to avoid races between replicas.
 //!
 //! Configuration sources, in order of precedence:
 //! 1. `COMPONENT_DATABASE_URL` environment variable.

@@ -1,7 +1,6 @@
 //! Component CLI command
 //!
 
-mod admin;
 mod compose;
 mod init;
 mod install;
@@ -57,7 +56,6 @@ impl Cli {
             Some(Command::Install(opts)) => opts.run(self.offline).await?,
             Some(Command::Publish(opts)) => opts.run(self.offline).await.map_err(into_miette)?,
             Some(Command::Self_(opts)) => opts.run().await.map_err(into_miette)?,
-            Some(Command::Admin(opts)) => opts.run().await.map_err(into_miette)?,
             None => {
                 // Apply the parsed color choice when printing help
                 Cli::command()
@@ -92,9 +90,6 @@ enum Command {
     #[clap(name = "self")]
     #[command(subcommand)]
     Self_(self_::Opts),
-    /// Administrative commands (database migrations, etc.)
-    #[command(subcommand)]
-    Admin(admin::Opts),
 }
 
 /// Compute the log directory for the application.
@@ -207,9 +202,7 @@ fn quarantine_run_trailing_args(args: Vec<String>) -> Vec<String> {
     /// Host flags that consume the next argument as a value.
     const VALUED: &[&str] = &[
         // `run`-specific flags.
-        "--env",
-        "--dir",
-        "--listen",
+        "--env", "--dir", "--listen",
         // Global flags clap allows after the `run` subcommand token.
         "--color",
     ];
