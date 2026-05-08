@@ -252,6 +252,9 @@ pub(crate) struct FunctionDoc {
     /// The return type, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result: Option<TypeRef>,
+    /// Whether this function is declared `async` in WIT.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_async: bool,
     /// API stability information.
     #[serde(default)]
     pub stability: Stability,

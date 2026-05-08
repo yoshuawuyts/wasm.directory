@@ -552,6 +552,7 @@ impl Converter<'_> {
                 })
                 .collect(),
             result: func.result.map(|t| self.convert_type(t)),
+            is_async: func.kind.is_async(),
             stability: convert_stability(&func.stability),
             url,
         }

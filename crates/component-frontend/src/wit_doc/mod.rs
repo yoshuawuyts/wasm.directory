@@ -260,6 +260,30 @@ interface api {
     }
 
     #[test]
+    fn async_freestanding_function() {
+        let wit = r#"
+package test:asyncfns@1.0.0;
+
+interface api {
+    /// Sync function.
+    sync-fn: func() -> u32;
+    /// Async function.
+    async-fn: async func() -> u32;
+}
+"#;
+        let doc = parse_wit_doc(wit, "/test/asyncfns/1.0.0", &empty_deps()).unwrap();
+        let iface = &doc.interfaces[0];
+        let sync_fn = iface.functions.iter().find(|f| f.name == "sync-fn").unwrap();
+        let async_fn = iface
+            .functions
+            .iter()
+            .find(|f| f.name == "async-fn")
+            .unwrap();
+        assert!(!sync_fn.is_async);
+        assert!(async_fn.is_async);
+    }
+
+    #[test]
     fn cross_interface_type_ref() {
         let wit = r#"
 package test:cross@1.0.0;
