@@ -257,7 +257,7 @@ fn render_type_body(kind: &TypeKind) -> Division {
             constructor,
             methods,
             statics,
-        } => render_resource_body(constructor.as_ref(), methods, statics),
+        } => render_resource_body(constructor.as_deref(), methods, statics),
         TypeKind::Alias(type_ref) => render_alias(type_ref),
     }
 }

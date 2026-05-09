@@ -282,7 +282,7 @@ impl Converter<'_> {
                     .collect(),
             },
             TypeDefKind::Resource => TypeKind::Resource {
-                constructor: constructors.remove(&type_id),
+                constructor: constructors.remove(&type_id).map(Box::new),
                 methods: methods.remove(&type_id).unwrap_or_default(),
                 statics: statics.remove(&type_id).unwrap_or_default(),
             },

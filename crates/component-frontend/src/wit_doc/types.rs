@@ -101,7 +101,7 @@ pub(crate) enum TypeKind {
     Resource {
         /// The resource constructor, if defined.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        constructor: Option<FunctionDoc>,
+        constructor: Option<Box<FunctionDoc>>,
         /// Instance methods (first parameter is implicitly `borrow<self>`).
         methods: Vec<FunctionDoc>,
         /// Static functions associated with this resource.
