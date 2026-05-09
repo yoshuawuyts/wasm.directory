@@ -301,16 +301,21 @@ interface api {
 "#;
         let doc = parse_wit_doc(wit, "/test/asyncresource/1.0.0", &empty_deps()).unwrap();
         let iface = &doc.interfaces[0];
-        let run = iface.functions.iter().find(|f| f.name == "run").unwrap();
-        let fetch = iface.functions.iter().find(|f| f.name == "fetch").unwrap();
-        let create = iface
-            .functions
-            .iter()
-            .find(|f| f.name == "create")
-            .unwrap();
-        assert!(!run.is_async);
-        assert!(fetch.is_async);
-        assert!(create.is_async);
+        let worker = iface.types.iter().find(|t| t.name == "worker").unwrap();
+
+        match &worker.kind {
+            TypeKind::Resource {
+                methods, statics, ..
+            } => {
+                let run = methods.iter().find(|f| f.name == "run").unwrap();
+                let fetch = methods.iter().find(|f| f.name == "fetch").unwrap();
+                let create = statics.iter().find(|f| f.name == "create").unwrap();
+                assert!(!run.is_async);
+                assert!(fetch.is_async);
+                assert!(create.is_async);
+            }
+            _ => panic!("expected `worker` to be a resource"),
+        }
     }
 
     #[test]
