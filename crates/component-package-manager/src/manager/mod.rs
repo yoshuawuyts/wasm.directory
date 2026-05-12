@@ -362,17 +362,29 @@ impl Manager {
         })
     }
 
-    /// Hard-link a cached layer to a destination path.
+    /// Reflink a cached layer to a destination path.
     ///
-    /// Uses `cacache::hard_link` to create a hard-link from the global cache
-    /// to the specified destination, saving disk space.
+    /// Looks up the cached layer by `layer_digest` and creates a reflink
+    /// (copy-on-write clone) at `dest` from the content-addressed file inside
+    /// the global store.
     ///
     /// # Errors
     ///
-    /// Returns an error if the hard-link operation fails (e.g., layer not
-    /// found in cache, or destination path is invalid).
+    /// Returns an error if the layer is not present in the cache, if the
+    /// destination and the cache are on different filesystems, if the
+    /// filesystem does not support reflinks (known-working: APFS, XFS, btrfs,
+    /// ReFS/Windows DevDrive), or if the destination path is invalid.
     pub async fn vendor(&self, layer_digest: &str, dest: &Path) -> anyhow::Result<()> {
-        cacache::hard_link(self.store.state_info.store_dir(), layer_digest, dest).await?;
+        use anyhow::Context as _;
+        let cache = self.store.state_info.store_dir();
+        cacache::reflink(cache, layer_digest, dest)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to reflink layer {layer_digest} to {}",
+                    dest.display()
+                )
+            })?;
         Ok(())
     }
 
@@ -381,7 +393,7 @@ impl Manager {
     /// This high-level method:
     /// 1. Pulls the package from the registry (or uses the cache)
     /// 2. Filters the manifest's layers for `application/wasm` media type
-    /// 3. Hard-links each wasm layer to the vendor directory
+    /// 3. Reflinks each wasm layer to the vendor directory
     /// 4. Returns an `InstallResult` with metadata for updating manifest/lockfile
     ///
     /// # Errors
@@ -424,7 +436,7 @@ impl Manager {
                 // Ensure vendor directory exists
                 tokio::fs::create_dir_all(vendor_dir).await?;
 
-                // Remove existing file if present (hard-link requires non-existent target)
+                // Remove existing file if present before reflinking
                 let _ = tokio::fs::remove_file(&dest).await;
 
                 self.vendor(&layer.digest, &dest).await?;
@@ -503,7 +515,7 @@ impl Manager {
                 // Ensure vendor directory exists
                 tokio::fs::create_dir_all(vendor_dir).await?;
 
-                // Remove existing file if present (hard-link requires non-existent target)
+                // Remove existing file if present before reflinking
                 let _ = tokio::fs::remove_file(&dest).await;
 
                 self.vendor(&layer.digest, &dest).await?;

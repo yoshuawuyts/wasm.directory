@@ -47,6 +47,33 @@ expression: "crate::components::ds::pretty_html(&render(\"tabs\", \"06\", \"Tabs
           </button>
         </div>
       </div>
+      <div>
+        <h3 class="text-[13px] mono uppercase tracking-wider text-ink-500 mb-3">
+          Panel tabs
+        </h3>
+        <div class="flex flex-col">
+          <div class="id-lang-tabs">
+            <span class="id-lang-tab is-active" style="background: var(--c-canvas);">
+              <span class="dot">
+              </span>
+              CLI
+            </span>
+          </div>
+          <div class="border border-lineSoft rounded-md rounded-tl-none bg-canvas p-4">
+            <div class="flex">
+              <span aria-hidden class="inline-flex items-center px-2.5 h-7 rounded-l-md border border-r-0 border-line bg-surfaceMuted text-[12.5px] text-ink-500 mono select-none">
+                $
+              </span>
+              <code class="inline-flex items-center px-2.5 h-7 rounded-r-md border border-line bg-surface mono text-[12.5px] text-ink-900 whitespace-nowrap">
+                component install wasi:http@0.2.4
+              </code>
+            </div>
+          </div>
+        </div>
+        <p class="mt-3 text-[12px] text-ink-500">
+          Tabbed surface for grouping a primary action with related content. Active tab fuses with the padded panel below; the panel can host a copy box, prose, or additional controls. Used for the install section on package pages.
+        </p>
+      </div>
     </div>
   </div>
 </section>

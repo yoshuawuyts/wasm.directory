@@ -96,6 +96,13 @@ pub(crate) struct NavLink {
     pub href: &'static str,
 }
 
+/// Inline "alpha" badge rendered next to the brand mark in the navbar.
+///
+/// The Component Registry is in its alpha phase — not yet beta — so every
+/// page advertises that fact in the header. Orange is used to draw the eye
+/// without competing with the purple accent reserved for primary actions.
+const ALPHA_BADGE: &str = r#"<span class="inline-flex items-center h-5 px-1.5 rounded text-[10px] font-semibold uppercase tracking-wider text-orange-700 bg-orange-100 border border-orange-200 whitespace-nowrap" title="This service is in alpha — expect breaking changes." aria-label="Alpha release">alpha</span>"#;
+
 /// SVG icons for the theme dropdown (14px, currentColor).
 const THEME_SUN: &str = r#"<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>"#;
 const THEME_MOON: &str = concat!(
@@ -145,6 +152,7 @@ pub(crate) fn render_bar(crumbs: &[Crumb], links: &[NavLink]) -> String {
                 .class("text-[13px] font-semibold text-ink-900 no-underline hover:text-ink-700 transition-colors whitespace-nowrap")
                 .text("Component Registry")
         })
+        .text(ALPHA_BADGE)
         .division(|d| d.class("w-px h-4 bg-line flex-shrink-0"))
         .text(breadcrumb_html)
         .build()
@@ -200,6 +208,7 @@ pub(crate) fn render_bar_grid(crumbs: &[Crumb], links: &[NavLink]) -> String {
                 .class("text-[13px] font-semibold text-ink-900 no-underline hover:text-ink-700 transition-colors whitespace-nowrap")
                 .text("Component Registry")
         })
+        .text(ALPHA_BADGE)
         .division(|d| d.class("w-px h-4 bg-line flex-shrink-0"))
         .text(breadcrumb_html)
         .build()
@@ -698,5 +707,27 @@ mod tests {
             DRAWER_LINKS,
             ANATOMY_ITEMS,
         )));
+    }
+
+    #[test]
+    fn render_bar_grid_includes_alpha_badge() {
+        let html = render_bar_grid(&[], &[]);
+        assert!(
+            html.contains(">alpha</span>"),
+            "expected alpha badge text in navbar: {html}",
+        );
+        assert!(
+            html.contains("text-orange-700"),
+            "expected orange styling on alpha badge: {html}",
+        );
+    }
+
+    #[test]
+    fn render_bar_includes_alpha_badge() {
+        let html = render_bar(&[], &[]);
+        assert!(
+            html.contains(">alpha</span>"),
+            "expected alpha badge text in navbar: {html}",
+        );
     }
 }

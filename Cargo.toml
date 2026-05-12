@@ -132,7 +132,7 @@ dirs = "6.0.0"
 insta = "1.44.3"
 serde_json = { version = "1.0.145", features = ["alloc"] }
 termcolor = "1.4.1"
-wasm-metadata = "0.247.0"
+wasm-metadata = "0.248.0"
 wasmtime = "44.0.0"
 wasmtime-wasi = "44.0.0"
 wasmtime-wasi-http = "44.0.0"

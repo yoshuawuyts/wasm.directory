@@ -174,12 +174,18 @@ fn add_param_args(
                 if !seen.insert(flag.clone()) {
                     return Err(CliError::FlagCollision { flag });
                 }
-                let arg = Arg::new(flag.clone())
+                let mut arg = Arg::new(flag.clone())
                     .long(flag)
                     .required(true)
-                    .num_args(1)
                     .help(format!("field `{fname}` of `{}`", param.name));
-                cmd = cmd.arg(attach_value_parser(arg, fty));
+                // list<T> fields are repeatable flags: --flag v1 --flag v2
+                if let WitTy::List(inner) = fty {
+                    arg = arg.action(ArgAction::Append).num_args(1).required(false);
+                    cmd = cmd.arg(attach_value_parser(arg, inner));
+                } else {
+                    arg = arg.num_args(1);
+                    cmd = cmd.arg(attach_value_parser(arg, fty));
+                }
             }
             Ok(cmd)
         }
@@ -631,6 +637,11 @@ fn collect_typed(matches: &ArgMatches, id: &str, ty: &WitTy) -> Result<Val, CliE
             let raw: &String = matches.get_one::<String>(id).ok_or_else(missing)?;
             primitive_from_str(ty, raw, id)
         }
+        // list<T> stored as repeated values — collect all occurrences.
+        WitTy::List(inner) => {
+            let elems = collect_typed_many(matches, id, inner)?;
+            Ok(Val::List(elems))
+        }
         other => Err(CliError::UnsupportedArg {
             param: id.to_string(),
             reason: format!("cannot collect {}", debug_kind(other)),
@@ -960,6 +971,69 @@ mod tests {
             panic!("expected record");
         };
         assert!(matches!(br[0].1, Val::U32(2)));
+    }
+
+    // r[verify run.library-args]
+    #[test]
+    fn record_with_list_field() {
+        let rec_ty = WitTy::Record(vec![
+            ("name".to_string(), WitTy::String),
+            (
+                "group-columns".to_string(),
+                WitTy::List(Box::new(WitTy::String)),
+            ),
+        ]);
+        let s = surface(vec![LibraryItem::Func(func(
+            "transform",
+            vec![("config", rec_ty)],
+        ))]);
+        let inv = parse(
+            &s,
+            &[
+                "transform",
+                "--name",
+                "test",
+                "--group-columns",
+                "col1",
+                "--group-columns",
+                "col2",
+            ],
+        )
+        .unwrap();
+        let Val::Record(pairs) = &inv.args[0] else {
+            panic!("expected record");
+        };
+        assert_eq!(pairs[0].0, "name");
+        assert!(matches!(&pairs[0].1, Val::String(s) if s == "test"));
+        assert_eq!(pairs[1].0, "group-columns");
+        let Val::List(elems) = &pairs[1].1 else {
+            panic!("expected list");
+        };
+        assert_eq!(elems.len(), 2);
+        assert!(matches!(&elems[0], Val::String(s) if s == "col1"));
+        assert!(matches!(&elems[1], Val::String(s) if s == "col2"));
+    }
+
+    // r[verify run.library-args]
+    #[test]
+    fn record_with_empty_list_field() {
+        let rec_ty = WitTy::Record(vec![
+            ("name".to_string(), WitTy::String),
+            ("tags".to_string(), WitTy::List(Box::new(WitTy::U32))),
+        ]);
+        let s = surface(vec![LibraryItem::Func(func(
+            "create",
+            vec![("item", rec_ty)],
+        ))]);
+        let inv = parse(&s, &["create", "--name", "hello"]).unwrap();
+        let Val::Record(pairs) = &inv.args[0] else {
+            panic!("expected record");
+        };
+        assert_eq!(pairs[1].0, "tags");
+        let Val::List(elems) = &pairs[1].1 else {
+            panic!("expected list");
+        };
+        assert!(elems.is_empty());
     }
 
     // r[verify run.library-args]

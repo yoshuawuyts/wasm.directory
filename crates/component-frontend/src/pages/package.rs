@@ -43,6 +43,12 @@ pub(crate) fn render(
         .unwrap_or("No description available.");
 
     let command = format!("component install {display_name}@{version}");
+    let run_command = format!("component run {display_name}@{version}");
+    let acp_command = format!("/install {display_name}@{version}");
+
+    let command_attr = html_escape_attr(&command);
+    let run_command_attr = html_escape_attr(&run_command);
+    let acp_command_attr = html_escape_attr(&acp_command);
 
     let copy_svg = concat!(
         r#"<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">"#,
@@ -60,37 +66,75 @@ pub(crate) fn render(
     let check_svg_js: String = check_svg.chars().filter(|c| *c != '\n').collect();
 
     let copy_script = format!(
-        r"<script>(function(){{var btn=document.getElementById('copy-install-btn');var ci='{copy_svg_js}';var ch='{check_svg_js}';btn.addEventListener('click',function(){{navigator.clipboard.writeText('{command}').then(function(){{btn.innerHTML=ch;setTimeout(function(){{btn.innerHTML=ci}},2000)}})}})}})()</script>",
+        r"<script>(function(){{var ci='{copy_svg_js}';var ch='{check_svg_js}';['copy-install-btn','copy-run-btn','copy-acp-btn'].forEach(function(id){{var btn=document.getElementById(id);if(!btn)return;var cmd=btn.getAttribute('data-cmd');btn.addEventListener('click',function(){{navigator.clipboard.writeText(cmd).then(function(){{btn.innerHTML=ch;setTimeout(function(){{btn.innerHTML=ci}},2000)}})}})}})}})()</script>",
     );
 
-    let install_meta = Division::builder()
-        .class("inline-flex items-center gap-2")
-        .span(|s| {
-            s.class("text-[11px] mono uppercase tracking-wider text-ink-500")
-                .text("Install")
-        })
-        .division(|cmd| {
-            cmd.class("flex")
-                .span(|s| {
-                    s.class("inline-flex items-center px-2.5 h-7 rounded-l-md border border-r-0 border-line bg-surfaceMuted text-[12.5px] text-ink-500 mono select-none")
-                        .aria_hidden(true)
-                        .text("$")
-                })
-                .code(|c| {
-                    c.class("inline-flex items-center px-2.5 h-7 border border-line bg-surface mono text-[12.5px] text-ink-900 whitespace-nowrap")
-                        .text(command.clone())
-                })
-                .button(|b| {
-                    b.type_("button")
-                        .id("copy-install-btn".to_owned())
-                        .class("inline-flex items-center justify-center w-7 h-7 rounded-r-md border border-l-0 border-line bg-surface text-ink-500 hover:text-ink-900 hover:bg-surfaceMuted")
-                        .aria_label("Copy install command".to_owned())
-                        .text(copy_svg)
-                })
-        })
-        .text(copy_script)
-        .build()
-        .to_string();
+    let install_intro = match pkg.kind {
+        Some(component_meta_registry_client::PackageKind::Interface) => {
+            "Add these interface types to your project:"
+        }
+        Some(component_meta_registry_client::PackageKind::Component) => {
+            "Add this component to your project:"
+        }
+        _ => "Add this package to your project:",
+    };
+
+    let install_panel = format!(
+        "<div>\
+            <p class=\"mb-2 text-[12px] text-ink-500\">{install_intro}</p>\
+            <div class=\"flex\">\
+                <span class=\"inline-flex items-center px-2.5 h-7 rounded-l-md border border-r-0 border-line bg-surfaceMuted text-[12.5px] text-ink-500 mono select-none\" aria-hidden=\"true\">\u{276f}</span>\
+                <code class=\"inline-flex items-center px-2.5 h-7 flex-1 border border-line bg-surface mono text-[12.5px] text-ink-900 whitespace-nowrap\">{command}</code>\
+                <button type=\"button\" id=\"copy-install-btn\" data-cmd=\"{command_attr}\" class=\"inline-flex items-center justify-center w-7 h-7 rounded-r-md border border-l-0 border-line bg-surface text-ink-500 hover:text-ink-900 hover:bg-surfaceMuted\" aria-label=\"Copy install command\">{copy_svg}</button>\
+            </div>\
+            <p class=\"mt-3 text-[12px] text-ink-500\">\
+                <a href=\"/downloads\" class=\"text-ink-700 underline decoration-line decoration-1 underline-offset-2 hover:text-ink-900\">Learn more</a> about the component CLI.\
+            </p>\
+        </div>",
+    );
+
+    let run_panel = format!(
+        "<div>\
+            <p class=\"mb-2 text-[12px] text-ink-500\">Run this component without installing it:</p>\
+            <div class=\"flex\">\
+                <span class=\"inline-flex items-center px-2.5 h-7 rounded-l-md border border-r-0 border-line bg-surfaceMuted text-[12.5px] text-ink-500 mono select-none\" aria-hidden=\"true\">\u{276f}</span>\
+                <code class=\"inline-flex items-center px-2.5 h-7 flex-1 border border-line bg-surface mono text-[12.5px] text-ink-900 whitespace-nowrap\">{run_command}</code>\
+                <button type=\"button\" id=\"copy-run-btn\" data-cmd=\"{run_command_attr}\" class=\"inline-flex items-center justify-center w-7 h-7 rounded-r-md border border-l-0 border-line bg-surface text-ink-500 hover:text-ink-900 hover:bg-surfaceMuted\" aria-label=\"Copy run command\">{copy_svg}</button>\
+            </div>\
+            <p class=\"mt-3 text-[12px] text-ink-500\">\
+                <a href=\"/downloads\" class=\"text-ink-700 underline decoration-line decoration-1 underline-offset-2 hover:text-ink-900\">Learn more</a> about the component CLI.\
+            </p>\
+        </div>",
+    );
+
+    let acp_arg = format!("{display_name}@{version}");
+    let acp_panel = format!(
+        "<div>\
+            <p class=\"mb-2 text-[12px] text-ink-500\">Ask your AI assistant to install it for you:</p>\
+            <div class=\"flex items-center gap-2 px-2.5 h-9 rounded-md border border-line bg-surface\">\
+                <span class=\"bar-sm bg-cat-blue text-cat-blueInk mono\"><span class=\"mr-[2px]\">/</span>install</span>\
+                <code class=\"flex-1 mono text-[12.5px] text-ink-900 whitespace-nowrap\">{acp_arg}</code>\
+                <button type=\"button\" id=\"copy-acp-btn\" data-cmd=\"{acp_command_attr}\" class=\"inline-flex items-center justify-center w-7 h-7 rounded-md text-ink-500 hover:text-ink-900 hover:bg-surfaceMuted\" aria-label=\"Copy ACP command\">{copy_svg}</button>\
+            </div>\
+            <p class=\"mt-3 text-[12px] text-ink-500\">\
+                <a href=\"https://github.com/yoshuawuyts/playground-wasm-acp\" class=\"text-ink-700 underline decoration-line decoration-1 underline-offset-2 hover:text-ink-900\">Read more</a> about Agent Client Protocol support.\
+            </p>\
+        </div>",
+    );
+
+    let mut tab_panels: Vec<(&str, &str)> = Vec::with_capacity(3);
+    tab_panels.push(("Install", &install_panel));
+    if matches!(
+        pkg.kind,
+        Some(component_meta_registry_client::PackageKind::Component)
+    ) {
+        tab_panels.push(("CLI", &run_panel));
+        tab_panels.push(("ACP", &acp_panel));
+    }
+
+    let tabs_html = crate::components::ds::tabs::panel_tabs_switchable(&tab_panels);
+
+    let install_meta = format!("{tabs_html}{copy_script}");
     let header =
         page_header::page_header_block(&kicker, &display_name, tagline, Some(&install_meta))
             .to_string();
@@ -136,6 +180,22 @@ pub(crate) fn render(
         importers,
         exporters,
     })
+}
+
+/// Escape a string for safe inclusion in an HTML attribute value.
+fn html_escape_attr(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#x27;"),
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 /// Render the WIT content section for a package version.

@@ -1,5 +1,5 @@
 [namespace]
-name = "yoshuawuyts"
+name = "yosh"
 registry = "ghcr.io/yoshuawuyts"
 
 [[component]]

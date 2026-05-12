@@ -142,7 +142,7 @@ pub(crate) fn render() -> String {
         "tabs",
         "06",
         "Tabs & Pills",
-        "Segmented controls for binary scoping; underline tabs for sub-views; pills for filterable chips.",
+        "Segmented controls for binary scoping; underline tabs for sub-views; panel tabs for grouping a primary action with related content; pills for filterable chips.",
     ));
     html.push_str(RULE_MT);
     html.push_str(&ds::navigation::render(

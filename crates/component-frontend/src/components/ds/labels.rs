@@ -33,12 +33,29 @@ pub(crate) fn render(
     bars: &[(&str, &str, &str)],
 ) -> String {
     let mut col = Division::builder();
-    col.class("flex flex-col items-start gap-2");
-    for (bg, ink, text) in bars {
-        let class = format!("bar {bg} {ink}");
-        let text = (*text).to_owned();
-        col.division(|d| d.class(class).text(text));
-    }
+    col.class("flex flex-col items-start gap-4");
+    col.division(|group| {
+        let mut group = group.class("flex flex-col items-start gap-2");
+        for (bg, ink, text) in bars {
+            let class = format!("bar {bg} {ink}");
+            let text = (*text).to_owned();
+            group = group.division(|d| d.class(class).text(text));
+        }
+        group
+    });
+    col.division(|group| {
+        let mut group = group.class("flex flex-col items-start gap-2");
+        group = group.division(|d| {
+            d.class("text-[12px] text-ink-500 mb-1")
+                .text("Small \u{00b7} for inline use inside compact rows")
+        });
+        for (bg, ink, text) in bars {
+            let class = format!("bar-sm {bg} {ink}");
+            let text = (*text).to_owned();
+            group = group.division(|d| d.class(class).text(text));
+        }
+        group
+    });
     let content = col.build().to_string();
 
     super::section(section_id, num, title, desc, &content)

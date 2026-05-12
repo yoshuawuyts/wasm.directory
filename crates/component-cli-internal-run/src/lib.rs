@@ -151,7 +151,7 @@ pub fn execute_cli_component(
     permissions: &component_manifest::ResolvedPermissions,
     argv: &[String],
 ) -> miette::Result<Result<(), ()>> {
-    let engine = Engine::default();
+    let engine = build_engine()?;
     let component = Component::new(&engine, bytes)
         .map_err(into_miette)
         .wrap_err("failed to compile Wasm Component")?;
@@ -199,7 +199,7 @@ pub fn execute_library_function(
     func: &str,
     args: &[Val],
 ) -> miette::Result<Vec<Val>> {
-    let engine = Engine::default();
+    let engine = build_engine()?;
     let component = Component::new(&engine, bytes)
         .map_err(into_miette)
         .wrap_err("failed to compile Wasm Component")?;
@@ -271,7 +271,46 @@ fn display_path(interface: Option<&str>, func: &str) -> String {
     }
 }
 
+/// Build a [`wasmtime::Engine`] with component-model-async enabled so that
+/// WASI 0.3 components using `stream` / `future` types can be compiled.
+///
+/// In wasmtime 44, async support is unconditional (the legacy
+/// `Config::async_support` toggle is a no-op), so the same engine is usable
+/// from the HTTP run path which relies on `add_to_linker_async` and
+/// `instantiate_async`.
+pub fn build_engine() -> miette::Result<Engine> {
+    let mut config = wasmtime::Config::new();
+    config.wasm_component_model_async(true);
+    Engine::new(&config)
+        .map_err(into_miette)
+        .wrap_err("failed to create Wasmtime engine")
+}
+
 /// Convert an error into a [`miette::Report`], preserving the cause chain.
 fn into_miette(err: impl std::fmt::Display) -> miette::Report {
     miette::miette!("{err:#}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression test for WASI 0.3 `stream` / `future` support.
+    ///
+    /// Without `wasm_component_model_async(true)` on the engine, parsing a
+    /// component that contains a `stream` type fails with:
+    ///
+    /// > failed to parse WebAssembly module: `stream` requires the component
+    /// > model async feature
+    ///
+    /// See PR #359.
+    #[test]
+    fn build_engine_compiles_component_with_stream_type() {
+        let engine = build_engine().expect("build_engine should succeed");
+        // Minimal component containing a `stream` type — the construct that
+        // requires the component-model-async feature to even parse.
+        let wat = r#"(component (type (stream u8)))"#;
+        Component::new(&engine, wat)
+            .expect("component using `stream` should compile when async features are enabled");
+    }
 }

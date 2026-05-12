@@ -11,8 +11,8 @@ use std::sync::Arc;
 use hyper::server::conn::http1;
 use miette::Context;
 use wasmparser::{Parser, Payload};
+use wasmtime::Store;
 use wasmtime::component::{Component, Linker, ResourceTable};
-use wasmtime::{Engine, Store};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 use wasmtime_wasi_http::io::TokioIo;
 use wasmtime_wasi_http::p2::bindings::ProxyPre;
@@ -101,8 +101,8 @@ pub(super) async fn serve(
     permissions: &component_manifest::ResolvedPermissions,
     addr: SocketAddr,
 ) -> miette::Result<()> {
-    // Wasmtime 42+ enables async support by default.
-    let engine = Engine::default();
+    // Enable component-model-async so WASI 0.3 stream/future types are accepted.
+    let engine = component_cli_internal_run::build_engine()?;
 
     let component = Component::new(&engine, bytes)
         .map_err(crate::util::into_miette)
