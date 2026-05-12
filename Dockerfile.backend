@@ -1,4 +1,4 @@
-# ───── Stage 1: Build wasm-meta-registry ─────
+# ───── Stage 1: Build component-meta-registry ─────
 FROM rust:1-slim-bookworm AS builder
 
 WORKDIR /build
@@ -11,7 +11,8 @@ COPY .cargo/ .cargo/
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
 
-RUN cargo build --package wasm-meta-registry --release
+RUN cargo build --package component-meta-registry --release \
+ && cargo build --package component --release
 
 # ───── Stage 2: Runtime ─────
 FROM debian:bookworm-slim AS runtime
@@ -20,7 +21,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /build/target/release/wasm-meta-registry /usr/local/bin/wasm-meta-registry
+COPY --from=builder /build/target/release/component-meta-registry /usr/local/bin/component-meta-registry
+COPY --from=builder /build/target/release/component /usr/local/bin/component
+
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Bake the registry namespace TOML files into the image.
 # To add a new namespace, add a .toml file to registry/ and rebuild this image.
@@ -30,4 +35,5 @@ VOLUME ["/data"]
 
 EXPOSE 8081
 
-CMD ["wasm-meta-registry", "/registry", "--bind", "0.0.0.0:8081", "--data-dir", "/data"]
+ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["component-meta-registry", "/registry", "--bind", "0.0.0.0:8081", "--data-dir", "/data"]

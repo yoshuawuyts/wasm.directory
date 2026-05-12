@@ -23,8 +23,13 @@ services:
       dockerfile: Dockerfile.backend
     ports:
       - "127.0.0.1:8081:8081"
-    volumes:
-      - backend-data:/data
+    environment:
+      COMPONENT_DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      COMPONENT_DATABASE_MAX_CONNECTIONS: ${COMPONENT_DATABASE_MAX_CONNECTIONS:-8}
+      COMPONENT_DATABASE_CONNECT_TIMEOUT_SECS: ${COMPONENT_DATABASE_CONNECT_TIMEOUT_SECS:-10}
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8081/v1/health"]
       interval: 5s
@@ -32,8 +37,7 @@ services:
       retries: 10
       start_period: 5s
 
-  # Postgres is included now so it is ready when the backend migrates from SQLite.
-  # The backend does not connect to it yet.
+  # Migrations run automatically on startup via docker-entrypoint.sh when COMPONENT_DATABASE_URL is set.
   postgres:
     image: postgres:17-alpine
     environment:
@@ -52,5 +56,4 @@ services:
       start_period: 5s
 
 volumes:
-  backend-data:
   postgres-data:
