@@ -586,7 +586,26 @@ async fn insert_wit_world_iface(
     declared_version: Option<&str>,
     is_import: bool,
 ) -> anyhow::Result<()> {
+    // The unique indexes on these tables are expression-based (use
+    // COALESCE on nullable columns), so SQLite can't match them via
+    // ON CONFLICT(columns). Do a manual find-then-insert instead.
     if is_import {
+        let existing = wit_world_import::Entity::find()
+            .filter(wit_world_import::Column::WitWorldId.eq(wit_world_id))
+            .filter(wit_world_import::Column::DeclaredPackage.eq(declared_package))
+            .filter(match declared_interface {
+                Some(v) => wit_world_import::Column::DeclaredInterface.eq(v),
+                None => wit_world_import::Column::DeclaredInterface.is_null(),
+            })
+            .filter(match declared_version {
+                Some(v) => wit_world_import::Column::DeclaredVersion.eq(v),
+                None => wit_world_import::Column::DeclaredVersion.is_null(),
+            })
+            .one(db)
+            .await?;
+        if existing.is_some() {
+            return Ok(());
+        }
         let am = wit_world_import::ActiveModel {
             wit_world_id: Set(wit_world_id),
             declared_package: Set(declared_package.to_owned()),
@@ -594,21 +613,24 @@ async fn insert_wit_world_iface(
             declared_version: Set(declared_version.map(str::to_owned)),
             ..Default::default()
         };
-        wit_world_import::Entity::insert(am)
-            .on_conflict(
-                OnConflict::columns([
-                    wit_world_import::Column::WitWorldId,
-                    wit_world_import::Column::DeclaredPackage,
-                    wit_world_import::Column::DeclaredInterface,
-                    wit_world_import::Column::DeclaredVersion,
-                ])
-                .do_nothing()
-                .to_owned(),
-            )
-            .do_nothing()
-            .exec(db)
-            .await?;
+        wit_world_import::Entity::insert(am).exec(db).await?;
     } else {
+        let existing = wit_world_export::Entity::find()
+            .filter(wit_world_export::Column::WitWorldId.eq(wit_world_id))
+            .filter(wit_world_export::Column::DeclaredPackage.eq(declared_package))
+            .filter(match declared_interface {
+                Some(v) => wit_world_export::Column::DeclaredInterface.eq(v),
+                None => wit_world_export::Column::DeclaredInterface.is_null(),
+            })
+            .filter(match declared_version {
+                Some(v) => wit_world_export::Column::DeclaredVersion.eq(v),
+                None => wit_world_export::Column::DeclaredVersion.is_null(),
+            })
+            .one(db)
+            .await?;
+        if existing.is_some() {
+            return Ok(());
+        }
         let am = wit_world_export::ActiveModel {
             wit_world_id: Set(wit_world_id),
             declared_package: Set(declared_package.to_owned()),
@@ -616,20 +638,7 @@ async fn insert_wit_world_iface(
             declared_version: Set(declared_version.map(str::to_owned)),
             ..Default::default()
         };
-        wit_world_export::Entity::insert(am)
-            .on_conflict(
-                OnConflict::columns([
-                    wit_world_export::Column::WitWorldId,
-                    wit_world_export::Column::DeclaredPackage,
-                    wit_world_export::Column::DeclaredInterface,
-                    wit_world_export::Column::DeclaredVersion,
-                ])
-                .do_nothing()
-                .to_owned(),
-            )
-            .do_nothing()
-            .exec(db)
-            .await?;
+        wit_world_export::Entity::insert(am).exec(db).await?;
     }
     Ok(())
 }
@@ -641,25 +650,27 @@ async fn insert_wit_package_dependency(
     declared_package: &str,
     declared_version: Option<&str>,
 ) -> anyhow::Result<()> {
+    // Unique index on this table uses COALESCE(declared_version, ''),
+    // which SQLite won't accept as an ON CONFLICT target. Find-then-insert.
+    let existing = wit_package_dependency::Entity::find()
+        .filter(wit_package_dependency::Column::DependentId.eq(dependent_id))
+        .filter(wit_package_dependency::Column::DeclaredPackage.eq(declared_package))
+        .filter(match declared_version {
+            Some(v) => wit_package_dependency::Column::DeclaredVersion.eq(v),
+            None => wit_package_dependency::Column::DeclaredVersion.is_null(),
+        })
+        .one(db)
+        .await?;
+    if existing.is_some() {
+        return Ok(());
+    }
     let am = wit_package_dependency::ActiveModel {
         dependent_id: Set(dependent_id),
         declared_package: Set(declared_package.to_owned()),
         declared_version: Set(declared_version.map(str::to_owned)),
         ..Default::default()
     };
-    wit_package_dependency::Entity::insert(am)
-        .on_conflict(
-            OnConflict::columns([
-                wit_package_dependency::Column::DependentId,
-                wit_package_dependency::Column::DeclaredPackage,
-                wit_package_dependency::Column::DeclaredVersion,
-            ])
-            .do_nothing()
-            .to_owned(),
-        )
-        .do_nothing()
-        .exec(db)
-        .await?;
+    wit_package_dependency::Entity::insert(am).exec(db).await?;
     Ok(())
 }
 

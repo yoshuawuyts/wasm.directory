@@ -27,7 +27,7 @@ struct Cli {
     sync_interval: u64,
 
     /// HTTP server bind address.
-    #[arg(long, default_value = "0.0.0.0:8080")]
+    #[arg(long, default_value = "0.0.0.0:8081")]
     bind: String,
 
     /// Re-index cached WIT packages during startup.

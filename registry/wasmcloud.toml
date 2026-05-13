@@ -11,3 +11,7 @@ repository = "components/hello-world"
 [[component]]
 name = "blobby-ui"
 repository = "components/blobby-ui"
+
+[[interface]]
+name = "secrets"
+repository = "interfaces/wasmcloud/secrets"
