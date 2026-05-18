@@ -208,9 +208,13 @@ pub(crate) fn render_func_in_code(
 ) {
     c.text(indent.to_owned())
         .span(|s| s.class("text-wit-func font-medium").text(func.name.clone()))
-        .text(": ".to_owned())
-        .span(|s| s.class("text-ink-500").text("func"))
-        .text("(".to_owned());
+        .text(": ".to_owned());
+    if func.is_async {
+        c.span(|s| s.class("text-ink-500").text("async func"));
+    } else {
+        c.span(|s| s.class("text-ink-500").text("func"));
+    }
+    c.text("(".to_owned());
 
     let visible: Vec<_> = func.params.iter().filter(|p| p.name != "self").collect();
     for (i, p) in visible.iter().enumerate() {
