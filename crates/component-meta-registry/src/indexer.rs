@@ -145,12 +145,27 @@ impl Indexer {
                     );
                 }
                 Err(e) => {
-                    error!(
-                        registry = %source.registry,
-                        repository = %source.repository,
-                        error = %e,
-                        "Failed to discover package"
-                    );
+                    // Packages whose tags are all non-semver (e.g. `vX.Y.Z`)
+                    // are expected and noisy — demote to debug.
+                    if e.downcast_ref::<component_package_manager::manager::ManagerError>()
+                        .is_some_and(|m| matches!(
+                            m,
+                            component_package_manager::manager::ManagerError::NoSemverTags { .. }
+                        ))
+                    {
+                        tracing::debug!(
+                            registry = %source.registry,
+                            repository = %source.repository,
+                            "Skipping package — no semver-tagged versions"
+                        );
+                    } else {
+                        error!(
+                            registry = %source.registry,
+                            repository = %source.repository,
+                            error = %e,
+                            "Failed to discover package"
+                        );
+                    }
                 }
             }
         }

@@ -1069,7 +1069,7 @@ impl Manager {
                 discovered = tags.len(),
                 "Skipping package — no tags parse as strict semver"
             );
-            return Err(ManagerError::NoTagsFound {
+            return Err(ManagerError::NoSemverTags {
                 registry: reference.registry().to_string(),
                 repository: reference.repository().to_string(),
             }

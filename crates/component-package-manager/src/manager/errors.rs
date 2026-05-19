@@ -74,6 +74,19 @@ pub enum ManagerError {
         repository: String,
     },
 
+    /// The package has tags in the registry, but none of them parse as
+    /// strict semver (e.g. all tags are `latest`, `vX.Y.Z`, or hashes).
+    #[diagnostic(
+        code(component::manager::no_semver_tags),
+        help("none of the tags for '{registry}/{repository}' parse as strict semver")
+    )]
+    NoSemverTags {
+        /// The registry host.
+        registry: String,
+        /// The repository path.
+        repository: String,
+    },
+
     /// The requested tag does not exist in the registry.
     #[diagnostic(
         code(component::manager::manifest_not_found),
@@ -111,6 +124,15 @@ impl std::fmt::Display for ManagerError {
                 repository,
             } => {
                 write!(f, "no tags found for {registry}/{repository}")
+            }
+            ManagerError::NoSemverTags {
+                registry,
+                repository,
+            } => {
+                write!(
+                    f,
+                    "no semver-tagged versions found for {registry}/{repository}"
+                )
             }
             ManagerError::ManifestNotFound {
                 tag,
