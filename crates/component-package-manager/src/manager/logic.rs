@@ -48,23 +48,6 @@ pub fn vendor_filename(name: &str, version: Option<&str>) -> String {
     }
 }
 
-/// Compute a fallback vendor filename when no WIT package name is
-/// available (e.g. for components without an embedded WIT package
-/// declaration).  The filename is derived from the last segment of the
-/// repository path together with the tag.
-#[must_use]
-pub fn vendor_filename_from_reference(repository: &str, tag: Option<&str>) -> String {
-    let last_segment = repository.rsplit('/').next().unwrap_or(repository);
-    let base: String = last_segment
-        .chars()
-        .map(|c| if matches!(c, ':' | '/') { '-' } else { c })
-        .collect();
-    match tag.filter(|t| !t.is_empty()) {
-        Some(t) => format!("{base}-{t}.wasm"),
-        None => format!("{base}.wasm"),
-    }
-}
-
 /// Determine whether a sync from the meta-registry should proceed.
 ///
 /// Returns `true` when enough time has elapsed since `last_synced_epoch`,
@@ -367,18 +350,6 @@ mod tests {
     fn vendor_filename_strips_slashes() {
         let name = vendor_filename("org:nested/component", Some("1.0.0"));
         assert_eq!(name, "org-nested-component-1.0.0.wasm");
-    }
-
-    #[test]
-    fn vendor_filename_from_reference_basic() {
-        let name = vendor_filename_from_reference("yoshuawuyts/components/acp", Some("3.0.0"));
-        assert_eq!(name, "acp-3.0.0.wasm");
-    }
-
-    #[test]
-    fn vendor_filename_from_reference_no_tag() {
-        let name = vendor_filename_from_reference("user/repo", None);
-        assert_eq!(name, "repo.wasm");
     }
 
     // ── should_sync ─────────────────────────────────────────────────────

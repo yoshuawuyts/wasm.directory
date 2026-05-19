@@ -20,7 +20,7 @@ use component_meta_registry_types::PackageKind;
 pub use errors::ManagerError;
 pub use logic::{
     derive_component_name, filter_tag_suggestions, pick_latest_stable_tag,
-    sanitize_to_wit_identifier, should_sync, vendor_filename, vendor_filename_from_reference,
+    sanitize_to_wit_identifier, should_sync, vendor_filename,
 };
 pub use models::{InstallResult, PullResult, SyncPolicy, SyncResult};
 
@@ -438,19 +438,26 @@ impl Manager {
                 }
             }
 
-            let filename = pick_vendor_filename(package_name.as_deref(), &reference);
+            if !wasm_layers.is_empty() {
+                let name = package_name.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "could not determine WIT package name from `{reference}`"
+                    )
+                })?;
+                let filename = vendor_filename(name, reference.tag());
 
-            for layer in &wasm_layers {
-                let dest = vendor_dir.join(&filename);
+                for layer in &wasm_layers {
+                    let dest = vendor_dir.join(&filename);
 
-                // Ensure vendor directory exists
-                tokio::fs::create_dir_all(vendor_dir).await?;
+                    // Ensure vendor directory exists
+                    tokio::fs::create_dir_all(vendor_dir).await?;
 
-                // Remove existing file if present before reflinking
-                let _ = tokio::fs::remove_file(&dest).await;
+                    // Remove existing file if present before reflinking
+                    let _ = tokio::fs::remove_file(&dest).await;
 
-                self.vendor(&layer.digest, &dest).await?;
-                vendored_files.push(dest);
+                    self.vendor(&layer.digest, &dest).await?;
+                    vendored_files.push(dest);
+                }
             }
         }
 
@@ -517,19 +524,26 @@ impl Manager {
                 }
             }
 
-            let filename = pick_vendor_filename(package_name.as_deref(), &reference);
+            if !wasm_layers.is_empty() {
+                let name = package_name.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "could not determine WIT package name from `{reference}`"
+                    )
+                })?;
+                let filename = vendor_filename(name, reference.tag());
 
-            for layer in &wasm_layers {
-                let dest = vendor_dir.join(&filename);
+                for layer in &wasm_layers {
+                    let dest = vendor_dir.join(&filename);
 
-                // Ensure vendor directory exists
-                tokio::fs::create_dir_all(vendor_dir).await?;
+                    // Ensure vendor directory exists
+                    tokio::fs::create_dir_all(vendor_dir).await?;
 
-                // Remove existing file if present before reflinking
-                let _ = tokio::fs::remove_file(&dest).await;
+                    // Remove existing file if present before reflinking
+                    let _ = tokio::fs::remove_file(&dest).await;
 
-                self.vendor(&layer.digest, &dest).await?;
-                vendored_files.push(dest);
+                    self.vendor(&layer.digest, &dest).await?;
+                    vendored_files.push(dest);
+                }
             }
         }
 
@@ -1710,17 +1724,6 @@ impl Manager {
         // the canonical source — the next `tags` call will refetch it.
         tracing::debug!(reference = %plan.reference, "published artifact");
         Ok(plan)
-    }
-}
-
-/// Choose the vendor filename for a wasm artifact, preferring the
-/// `namespace:package@version` derived from the embedded WIT metadata
-/// and falling back to a name derived from the OCI reference when no
-/// WIT package name is available.
-fn pick_vendor_filename(package_name: Option<&str>, reference: &Reference) -> String {
-    match package_name {
-        Some(name) => vendor_filename(name, reference.tag()),
-        None => vendor_filename_from_reference(reference.repository(), reference.tag()),
     }
 }
 
