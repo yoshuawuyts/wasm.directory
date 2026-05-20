@@ -36,18 +36,6 @@ pub(crate) enum RunError {
         name: String,
     },
 
-    /// The lockfile `registry` field is not in the expected `host/repository` format.
-    #[diagnostic(
-        code(component::run::invalid_registry_path),
-        help("registry path '{path}' for '{name}' should have format 'host/repository'")
-    )]
-    InvalidRegistryPath {
-        /// The registry path that was found.
-        path: String,
-        /// The component key.
-        name: String,
-    },
-
     /// The vendored file for a manifest component does not exist on disk.
     #[diagnostic(
         code(component::run::vendored_file_missing),
@@ -110,9 +98,6 @@ impl std::fmt::Display for RunError {
                     "component '{name}' is in the manifest but not in the lockfile",
                 )
             }
-            RunError::InvalidRegistryPath { path, name } => {
-                write!(f, "invalid registry path '{path}' in lockfile for '{name}'")
-            }
             RunError::VendoredFileMissing { path, name } => {
                 write!(f, "vendored file '{path}' not found for component '{name}'")
             }
@@ -145,10 +130,6 @@ mod tests {
             Box::new(RunError::NotInLockfile {
                 name: "test".to_string(),
             }),
-            Box::new(RunError::InvalidRegistryPath {
-                path: "test".to_string(),
-                name: "test".to_string(),
-            }),
             Box::new(RunError::VendoredFileMissing {
                 path: "test".to_string(),
                 name: "test".to_string(),
@@ -166,7 +147,6 @@ mod tests {
             "component::run::no_manifest",
             "component::run::no_wasm_layer",
             "component::run::not_in_lockfile",
-            "component::run::invalid_registry_path",
             "component::run::vendored_file_missing",
             "component::run::http_bind_failed",
             "component::run::http_accept_failed",

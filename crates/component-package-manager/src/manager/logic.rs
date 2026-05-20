@@ -4,39 +4,48 @@
 
 use std::collections::HashSet;
 
-/// Truncated digest length used in vendor filenames.
-const DIGEST_PREFIX_LEN: usize = 12;
-
-/// Compute the vendor filename for a cached layer.
+/// Compute the vendor filename for a cached layer from a WIT-style
+/// `namespace:package` name and an optional version.
 ///
-/// The filename encodes the registry, repository, optional tag, and a
-/// truncated image digest so that vendored files are human-identifiable.
+/// The filename has the form `<namespace>-<package>-<version>.wasm`
+/// (or `<namespace>-<package>.wasm` when no version is known).  Any
+/// `:` or `/` characters in the name are replaced with `-` so the
+/// result is a single path segment.  A trailing `@version` suffix in
+/// `name` (as produced by `wit_parser::PackageName`'s `Display` impl)
+/// takes precedence over the explicit `version` argument.
+///
+/// The content digest is intentionally **not** included — it lives in
+/// the lockfile, so the on-disk filenames stay short and readable.
 ///
 /// # Example
 ///
 /// ```
 /// use component_package_manager::manager::vendor_filename;
 ///
-/// let name = vendor_filename("ghcr.io", "user/repo", Some("v1.0"), "sha256:abcdef1234567890");
-/// assert_eq!(name, "ghcr-io-user-repo-v1.0-abcdef123456.wasm");
+/// let name = vendor_filename("yoshuawuyts:acp", Some("3.0.0"));
+/// assert_eq!(name, "yoshuawuyts-acp-3.0.0.wasm");
 /// ```
 // r[impl manager.vendor-filename.basic]
-// r[impl manager.vendor-filename.nested]
-// r[impl manager.vendor-filename.no-tag]
-// r[impl manager.vendor-filename.short-digest]
+// r[impl manager.vendor-filename.no-version]
+// r[impl manager.vendor-filename.embedded-version]
 #[must_use]
-pub fn vendor_filename(
-    registry: &str,
-    repository: &str,
-    tag: Option<&str>,
-    digest: &str,
-) -> String {
-    let registry_part = registry.replace('.', "-");
-    let repo_part = repository.replace('/', "-");
-    let tag_part = tag.map(|t| format!("-{t}")).unwrap_or_default();
-    let sha_part = digest.strip_prefix("sha256:").unwrap_or(digest);
-    let short_sha = sha_part.get(..DIGEST_PREFIX_LEN).unwrap_or(sha_part);
-    format!("{registry_part}-{repo_part}{tag_part}-{short_sha}.wasm")
+pub fn vendor_filename(name: &str, version: Option<&str>) -> String {
+    // `wit_parser::PackageName`'s Display impl appends `@<version>` when a
+    // version is present.  Prefer that embedded version over the explicit
+    // argument so callers can pass the WIT package name verbatim.
+    let (bare_name, embedded_version) = match name.rsplit_once('@') {
+        Some((n, v)) => (n, Some(v)),
+        None => (name, None),
+    };
+    let version = embedded_version.or(version).filter(|v| !v.is_empty());
+    let base: String = bare_name
+        .chars()
+        .map(|c| if matches!(c, ':' | '/') { '-' } else { c })
+        .collect();
+    match version {
+        Some(v) => format!("{base}-{v}.wasm"),
+        None => format!("{base}.wasm"),
+    }
 }
 
 /// Determine whether a sync from the meta-registry should proceed.
@@ -311,51 +320,36 @@ mod tests {
     // r[verify manager.vendor-filename.basic]
     #[test]
     fn vendor_filename_basic() {
-        let name = vendor_filename(
-            "ghcr.io",
-            "user/repo",
-            Some("v1.0"),
-            "sha256:abcdef1234567890",
-        );
-        assert_eq!(name, "ghcr-io-user-repo-v1.0-abcdef123456.wasm");
+        let name = vendor_filename("yoshuawuyts:acp", Some("3.0.0"));
+        assert_eq!(name, "yoshuawuyts-acp-3.0.0.wasm");
     }
 
-    // r[verify manager.vendor-filename.no-tag]
+    // r[verify manager.vendor-filename.no-version]
     #[test]
-    fn vendor_filename_no_tag() {
-        let name = vendor_filename("ghcr.io", "user/repo", None, "sha256:abcdef1234567890");
-        assert_eq!(name, "ghcr-io-user-repo-abcdef123456.wasm");
+    fn vendor_filename_no_version() {
+        let name = vendor_filename("wasi:http", None);
+        assert_eq!(name, "wasi-http.wasm");
     }
 
-    // r[verify manager.vendor-filename.short-digest]
+    // r[verify manager.vendor-filename.embedded-version]
     #[test]
-    fn vendor_filename_short_digest() {
-        let name = vendor_filename("ghcr.io", "user/repo", Some("latest"), "sha256:abc");
-        assert_eq!(name, "ghcr-io-user-repo-latest-abc.wasm");
+    fn vendor_filename_embedded_version_wins() {
+        // `wit_parser::PackageName` Display renders as `ns:name@version`.
+        let name = vendor_filename("yoshuawuyts:acp@3.0.0", Some("ignored"));
+        assert_eq!(name, "yoshuawuyts-acp-3.0.0.wasm");
     }
 
     #[test]
-    fn vendor_filename_no_sha256_prefix() {
-        let name = vendor_filename("docker.io", "lib/hello", Some("1.0"), "rawdigest123456");
-        assert_eq!(name, "docker-io-lib-hello-1.0-rawdigest123.wasm");
-    }
-
-    // r[verify manager.vendor-filename.nested]
-    #[test]
-    fn vendor_filename_nested_repository() {
-        let name = vendor_filename(
-            "ghcr.io",
-            "org/team/component",
-            Some("v2"),
-            "sha256:0123456789abcdef",
-        );
-        assert_eq!(name, "ghcr-io-org-team-component-v2-0123456789ab.wasm");
+    fn vendor_filename_empty_version_falls_back() {
+        // Empty version string is treated as "no version".
+        let name = vendor_filename("wasi:http", Some(""));
+        assert_eq!(name, "wasi-http.wasm");
     }
 
     #[test]
-    fn vendor_filename_unknown_digest() {
-        let name = vendor_filename("ghcr.io", "user/repo", None, "unknown");
-        assert_eq!(name, "ghcr-io-user-repo-unknown.wasm");
+    fn vendor_filename_strips_slashes() {
+        let name = vendor_filename("org:nested/component", Some("1.0.0"));
+        assert_eq!(name, "org-nested-component-1.0.0.wasm");
     }
 
     // ── should_sync ─────────────────────────────────────────────────────

@@ -420,28 +420,13 @@ impl Manager {
             .and_then(|m| m.annotations.as_ref())
             .and_then(|a| a.get("org.opencontainers.image.title").cloned());
 
-        // Pre-compute vendor filename from the OCI reference and image digest.
-        let digest_for_name = pull_result.digest.as_deref().unwrap_or("unknown");
-        let filename = vendor_filename(
-            reference.registry(),
-            reference.repository(),
-            reference.tag(),
-            digest_for_name,
-        );
-
         if let Some(ref manifest) = pull_result.manifest {
-            for layer in filter_wasm_layers(&manifest.layers) {
-                let dest = vendor_dir.join(&filename);
+            let wasm_layers = filter_wasm_layers(&manifest.layers);
 
-                // Ensure vendor directory exists
-                tokio::fs::create_dir_all(vendor_dir).await?;
-
-                // Remove existing file if present before reflinking
-                let _ = tokio::fs::remove_file(&dest).await;
-
-                self.vendor(&layer.digest, &dest).await?;
-                vendored_files.push(dest);
-
+            // Inspect cached wasm layers up-front to learn the WIT package
+            // name; this lets us name the vendored artifact after
+            // `namespace:package@version` rather than the OCI reference.
+            for layer in &wasm_layers {
                 if package_name.is_none() {
                     self.try_extract_layer_metadata(
                         &layer.digest,
@@ -450,6 +435,26 @@ impl Manager {
                         &mut dependencies,
                     )
                     .await;
+                }
+            }
+
+            if !wasm_layers.is_empty() {
+                let name = package_name.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!("could not determine WIT package name from `{reference}`")
+                })?;
+                let filename = vendor_filename(name, reference.tag());
+
+                for layer in &wasm_layers {
+                    let dest = vendor_dir.join(&filename);
+
+                    // Ensure vendor directory exists
+                    tokio::fs::create_dir_all(vendor_dir).await?;
+
+                    // Remove existing file if present before reflinking
+                    let _ = tokio::fs::remove_file(&dest).await;
+
+                    self.vendor(&layer.digest, &dest).await?;
+                    vendored_files.push(dest);
                 }
             }
         }
@@ -499,28 +504,13 @@ impl Manager {
             .and_then(|m| m.annotations.as_ref())
             .and_then(|a| a.get("org.opencontainers.image.title").cloned());
 
-        // Pre-compute vendor filename from the OCI reference and image digest.
-        let digest_for_name = pull_result.digest.as_deref().unwrap_or("unknown");
-        let filename = vendor_filename(
-            reference.registry(),
-            reference.repository(),
-            reference.tag(),
-            digest_for_name,
-        );
-
         if let Some(ref manifest) = pull_result.manifest {
-            for layer in filter_wasm_layers(&manifest.layers) {
-                let dest = vendor_dir.join(&filename);
+            let wasm_layers = filter_wasm_layers(&manifest.layers);
 
-                // Ensure vendor directory exists
-                tokio::fs::create_dir_all(vendor_dir).await?;
-
-                // Remove existing file if present before reflinking
-                let _ = tokio::fs::remove_file(&dest).await;
-
-                self.vendor(&layer.digest, &dest).await?;
-                vendored_files.push(dest);
-
+            // Inspect cached wasm layers up-front to learn the WIT package
+            // name; this lets us name the vendored artifact after
+            // `namespace:package@version` rather than the OCI reference.
+            for layer in &wasm_layers {
                 if package_name.is_none() {
                     self.try_extract_layer_metadata(
                         &layer.digest,
@@ -529,6 +519,26 @@ impl Manager {
                         &mut dependencies,
                     )
                     .await;
+                }
+            }
+
+            if !wasm_layers.is_empty() {
+                let name = package_name.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!("could not determine WIT package name from `{reference}`")
+                })?;
+                let filename = vendor_filename(name, reference.tag());
+
+                for layer in &wasm_layers {
+                    let dest = vendor_dir.join(&filename);
+
+                    // Ensure vendor directory exists
+                    tokio::fs::create_dir_all(vendor_dir).await?;
+
+                    // Remove existing file if present before reflinking
+                    let _ = tokio::fs::remove_file(&dest).await;
+
+                    self.vendor(&layer.digest, &dest).await?;
+                    vendored_files.push(dest);
                 }
             }
         }

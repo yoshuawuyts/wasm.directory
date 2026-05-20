@@ -271,22 +271,12 @@ fn resolve_manifest_key(input: &str) -> miette::Result<Option<PathBuf>> {
             name: input.to_string(),
         })?;
 
-    // Reconstruct the vendor filename from lockfile data.
-    // The lockfile `registry` field is "host/repository" (e.g., "ghcr.io/user/repo").
-    let (registry_host, repository) =
-        package
-            .registry
-            .split_once('/')
-            .ok_or_else(|| RunError::InvalidRegistryPath {
-                path: package.registry.clone(),
-                name: input.to_string(),
-            })?;
-
+    // Reconstruct the vendor filename from lockfile data.  The on-disk
+    // file is named after the `namespace:package@version` declared in
+    // the WIT metadata (e.g. `yoshuawuyts-acp-3.0.0.wasm`).
     let filename = component_package_manager::manager::vendor_filename(
-        registry_host,
-        repository,
+        &package.name,
         Some(package.version.as_str()),
-        &package.digest,
     );
 
     let vendored_path = PathBuf::from("vendor/wasm").join(filename);
