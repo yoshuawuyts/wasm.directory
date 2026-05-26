@@ -4,17 +4,43 @@ param tags object = {}
 
 param containerAppsEnvironmentId string
 
-// Placeholder until the real image is built and pushed.
-// `azd deploy` will replace this with the actual image reference.
+// Image is passed from resources.bicep; defaults to a placeholder.
+// Set FRONTEND_IMAGE via `azd env set` to use a real ghcr.io image.
 // Note: API_BASE_URL is baked into the WASM binary at build time (Docker build arg),
 // not consumed at runtime. The placeholder image ignores this env var.
 param image string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 
+@description('Container registry server (e.g. ghcr.io). Empty string skips registry config.')
+param registryServer string = ''
+
+@description('Container registry username.')
+param registryUsername string = ''
+
+@secure()
+@description('Container registry password or token.')
+param registryPassword string = ''
+
+var useRegistry = !empty(registryServer)
+
+var registrySecrets = useRegistry ? [
+  {
+    name: 'registry-password'
+    value: registryPassword
+  }
+] : []
+
+var registries = useRegistry ? [
+  {
+    server: registryServer
+    username: registryUsername
+    passwordSecretRef: 'registry-password'
+  }
+] : []
+
 resource frontendApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: name
   location: location
-  // azd-service-name tag links this resource to the 'frontend' service in azure.yaml
-  tags: union(tags, { 'azd-service-name': 'frontend' })
+  tags: tags
   properties: {
     environmentId: containerAppsEnvironmentId
     configuration: {
@@ -24,6 +50,8 @@ resource frontendApp 'Microsoft.App/containerApps@2024-03-01' = {
         targetPort: 8080
         transport: 'http'
       }
+      registries: registries
+      secrets: registrySecrets
     }
     template: {
       containers: [

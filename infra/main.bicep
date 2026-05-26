@@ -21,6 +21,22 @@ param postgresDatabaseName string = 'componentregistry'
 @description('Optional override for the resource group name. Defaults to "rg-<environmentName>".')
 param resourceGroupName string = ''
 
+@description('Backend container image. Defaults to a placeholder; override with a real image from ghcr.io.')
+param backendImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+
+@description('Frontend container image. Defaults to a placeholder; override with a real image from ghcr.io.')
+param frontendImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+
+@description('Container registry server (e.g. ghcr.io). Leave empty when using public MCR images.')
+param registryServer string = ''
+
+@description('Container registry username (e.g. GitHub username for ghcr.io).')
+param registryUsername string = ''
+
+@secure()
+@description('Container registry password or PAT (e.g. GitHub PAT with read:packages scope).')
+param registryPassword string = ''
+
 var rgName = empty(resourceGroupName) ? 'rg-${environmentName}' : resourceGroupName
 var tags = { 'azd-env-name': environmentName }
 
@@ -40,6 +56,11 @@ module resources './resources.bicep' = {
     postgresAdminLogin: postgresAdminLogin
     postgresAdminPassword: postgresAdminPassword
     postgresDatabaseName: postgresDatabaseName
+    backendImage: backendImage
+    frontendImage: frontendImage
+    registryServer: registryServer
+    registryUsername: registryUsername
+    registryPassword: registryPassword
   }
 }
 

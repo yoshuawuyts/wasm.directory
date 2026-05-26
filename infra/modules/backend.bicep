@@ -8,15 +8,41 @@ param containerAppsEnvironmentId string
 @description('Full postgres:// connection string including credentials.')
 param databaseUrl string
 
-// Placeholder until the real image is built and pushed.
-// `azd deploy` will replace this with the actual image reference.
+// Image is passed from resources.bicep; defaults to a placeholder.
+// Set BACKEND_IMAGE via `azd env set` to use a real ghcr.io image.
 param image string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+
+@description('Container registry server (e.g. ghcr.io). Empty string skips registry config.')
+param registryServer string = ''
+
+@description('Container registry username.')
+param registryUsername string = ''
+
+@secure()
+@description('Container registry password or token.')
+param registryPassword string = ''
+
+var useRegistry = !empty(registryServer)
+
+var registrySecrets = useRegistry ? [
+  {
+    name: 'registry-password'
+    value: registryPassword
+  }
+] : []
+
+var registries = useRegistry ? [
+  {
+    server: registryServer
+    username: registryUsername
+    passwordSecretRef: 'registry-password'
+  }
+] : []
 
 resource backendApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: name
   location: location
-  // azd-service-name tag links this resource to the 'backend' service in azure.yaml
-  tags: union(tags, { 'azd-service-name': 'backend' })
+  tags: tags
   properties: {
     environmentId: containerAppsEnvironmentId
     configuration: {
@@ -26,12 +52,13 @@ resource backendApp 'Microsoft.App/containerApps@2024-03-01' = {
         targetPort: 8081
         transport: 'http'
       }
-      secrets: [
+      registries: registries
+      secrets: union([
         {
           name: 'database-url'
           value: databaseUrl
         }
-      ]
+      ], registrySecrets)
     }
     template: {
       containers: [

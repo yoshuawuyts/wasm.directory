@@ -67,8 +67,10 @@ via `readEnvironmentVariable(...)`.
 | ------------------------- | -------- | ---------------------------------------------------------------------------------------------------- |
 | `AZURE_ENV_NAME`          | yes      | Logical environment name. Drives resource-group and resource naming. Set automatically by `azd env new`. |
 | `AZURE_LOCATION`          | yes      | Azure region (e.g. `centralus`, `westus3`). See note on region restrictions below.                   |
-| `AZURE_SUBSCRIPTION_ID`   | yes      | Target subscription ID. Set automatically when you run `azd auth login`.                             |
+| `AZURE_SUBSCRIPTION_ID`   | yes      | Target subscription ID. Set it explicitly with `azd env set` (see below).                            |
 | `POSTGRES_ADMIN_PASSWORD` | yes      | Postgres admin password. Min 8 chars, must include upper, lower, digit, and symbol.                  |
+| `BACKEND_IMAGE`           | no       | Backend container image. Defaults to a placeholder. Set to a ghcr.io image for real deployments.     |
+| `FRONTEND_IMAGE`          | no       | Frontend container image. Defaults to a placeholder. Set to a ghcr.io image for real deployments.    |
 | `AZURE_RESOURCE_GROUP`    | no       | Override the default resource group name (`rg-${AZURE_ENV_NAME}`).                                   |
 | `POSTGRES_ADMIN_LOGIN`    | no       | Postgres admin user. Defaults to `pgadmin`.                                                          |
 | `POSTGRES_DB`             | no       | Postgres database name. Defaults to `componentregistry`.                                             |
@@ -76,8 +78,11 @@ via `readEnvironmentVariable(...)`.
 Set them with `azd env set`:
 
 ```sh
+azd env set AZURE_SUBSCRIPTION_ID '<your-subscription-id>'
 azd env set AZURE_LOCATION centralus
 azd env set POSTGRES_ADMIN_PASSWORD '<a-strong-password>'
+azd env set BACKEND_IMAGE 'ghcr.io/<owner>/component-cli/backend:latest'
+azd env set FRONTEND_IMAGE 'ghcr.io/<owner>/component-cli/frontend:latest'
 ```
 
 Confirm what's stored:
@@ -134,19 +139,41 @@ First-time provider registration on a fresh subscription can take 10–15
 minutes for `Microsoft.App`. Subsequent deploys reuse the existing
 registration and skip the wait.
 
-## 5. Build and deploy the services
+## 5. Build and push container images
 
-After `azd provision` succeeds, build container images for the `backend`
-and `frontend` services and roll them out to Container Apps:
+Container images are built locally with Docker and pushed to GitHub
+Container Registry (`ghcr.io`). The images must be public (or you must
+add registry credentials to the Container Apps configuration).
 
 ```sh
-azd deploy
+# Authenticate to ghcr.io
+echo $GITHUB_TOKEN | docker login ghcr.io -u <USERNAME> --password-stdin
+
+# Build and push backend
+docker build -f Dockerfile.backend -t ghcr.io/<OWNER>/component-cli/backend:latest --platform linux/amd64 .
+docker push ghcr.io/<OWNER>/component-cli/backend:latest
+
+# Build and push frontend (API_BASE_URL is baked in at compile time)
+docker build -f Dockerfile.frontend -t ghcr.io/<OWNER>/component-cli/frontend:latest \
+  --platform linux/amd64 --build-arg API_BASE_URL=http://backend .
+docker push ghcr.io/<OWNER>/component-cli/frontend:latest
 ```
 
-Or do both in one shot:
+Then point `azd` at the published images:
 
 ```sh
-azd up
+azd env set BACKEND_IMAGE 'ghcr.io/<OWNER>/component-cli/backend:latest'
+azd env set FRONTEND_IMAGE 'ghcr.io/<OWNER>/component-cli/frontend:latest'
+```
+
+## 6. Deploy
+
+Run `azd provision` (or re-run it if you already provisioned the
+infrastructure). It picks up `BACKEND_IMAGE` and `FRONTEND_IMAGE` from
+the environment and deploys the Container Apps with those images:
+
+```sh
+azd provision
 ```
 
 The service URLs are printed at the end. You can also retrieve them later:
@@ -155,7 +182,7 @@ The service URLs are printed at the end. You can also retrieve them later:
 azd env get-values | grep _URL
 ```
 
-## 6. Tear down
+## 7. Tear down
 
 To delete everything provisioned by this template:
 

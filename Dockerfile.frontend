@@ -1,4 +1,4 @@
-# ───── Stage 1: Build wasm-frontend as a wasm32-wasip2 component ─────
+# ───── Stage 1: Build component-frontend as a wasm32-wasip2 component ─────
 FROM rust:1-slim-bookworm AS builder
 
 ARG API_BASE_URL=http://backend:8081
@@ -14,9 +14,11 @@ RUN rustup target add wasm32-wasip2
 COPY .cargo/ .cargo/
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
+COPY vendor/ vendor/
+COPY docs/ docs/
 
 ENV API_BASE_URL=${API_BASE_URL}
-RUN cargo build --package wasm-frontend --target wasm32-wasip2 --release
+RUN cargo build --package component-frontend --target wasm32-wasip2 --release
 
 # ───── Stage 2: Runtime with wasmtime v44.0.0 ─────
 FROM debian:bookworm-slim AS runtime
@@ -43,8 +45,8 @@ RUN DETECTED_ARCH="${TARGETARCH:-$(dpkg --print-architecture 2>/dev/null || unam
     && chmod +x /usr/local/bin/wasmtime \
     && rm -rf "/tmp/${WASMTIME_TARBALL}" "/tmp/wasmtime-${WASMTIME_VERSION}-${ARCH}-linux"
 
-COPY --from=builder /build/target/wasm32-wasip2/release/wasm_frontend.wasm /app/wasm_frontend.wasm
+COPY --from=builder /build/target/wasm32-wasip2/release/component_frontend.wasm /app/component_frontend.wasm
 
 EXPOSE 8080
 
-CMD ["wasmtime", "serve", "--addr", "0.0.0.0:8080", "-Scli", "-Sinherit-network", "-Sallow-ip-name-lookup", "/app/wasm_frontend.wasm"]
+CMD ["wasmtime", "serve", "--addr", "0.0.0.0:8080", "-Scli", "-Sinherit-network", "-Sallow-ip-name-lookup", "/app/component_frontend.wasm"]

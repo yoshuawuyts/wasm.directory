@@ -1,9 +1,7 @@
 #!/bin/sh
 set -e
 
-if [ -n "$COMPONENT_DATABASE_URL" ]; then
-    echo "Running database migrations..."
-    component admin migrate
-fi
+# Migrations run automatically on startup via SeaORM (Store::open_inner).
+# No explicit migration command is needed.
 
 exec "$@"

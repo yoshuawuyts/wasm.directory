@@ -19,6 +19,22 @@ param postgresAdminPassword string
 @description('PostgreSQL database name.')
 param postgresDatabaseName string
 
+@description('Backend container image.')
+param backendImage string
+
+@description('Frontend container image.')
+param frontendImage string
+
+@description('Container registry server.')
+param registryServer string
+
+@description('Container registry username.')
+param registryUsername string
+
+@secure()
+@description('Container registry password.')
+param registryPassword string
+
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 
 // ── Observability ────────────────────────────────────────────────────────────
@@ -68,7 +84,11 @@ module backend './modules/backend.bicep' = {
     location: location
     tags: tags
     containerAppsEnvironmentId: containerAppsEnv.outputs.id
+    image: backendImage
     databaseUrl: 'postgres://${postgresAdminLogin}:${postgresAdminPassword}@${postgresql.outputs.fqdn}:5432/${postgresDatabaseName}?sslmode=require'
+    registryServer: registryServer
+    registryUsername: registryUsername
+    registryPassword: registryPassword
   }
 }
 
@@ -79,6 +99,10 @@ module frontend './modules/frontend.bicep' = {
     location: location
     tags: tags
     containerAppsEnvironmentId: containerAppsEnv.outputs.id
+    image: frontendImage
+    registryServer: registryServer
+    registryUsername: registryUsername
+    registryPassword: registryPassword
   }
 }
 

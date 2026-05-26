@@ -15,24 +15,3 @@ hooks:
     windows:
       shell: pwsh
       run: infra/hooks/preprovision.ps1
-
-services:
-  backend:
-    project: .
-    language: docker
-    host: containerapp
-    docker:
-      path: ./Dockerfile.backend
-      context: .
-      platform: linux/amd64
-
-  frontend:
-    project: .
-    language: docker
-    host: containerapp
-    docker:
-      path: ./Dockerfile.frontend
-      context: .
-      platform: linux/amd64
-      buildArgs:
-        - API_BASE_URL=http://backend
