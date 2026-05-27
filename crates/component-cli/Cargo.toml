@@ -62,7 +62,7 @@ oci-client = { workspace = true }
 semver = { workspace = true }
 tempfile = { workspace = true }
 component-detector = { workspace = true }
-wasm-encoder = "0.248"
+wasm-encoder = "0.250"
 component-package-manager = { workspace = true }
 wit-component = { workspace = true }
 wit-parser = { workspace = true }
