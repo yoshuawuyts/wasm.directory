@@ -179,7 +179,7 @@ pub fn derive_component_name<S: std::hash::BuildHasher>(
 
 /// Try to parse a tag as a semantic version, accepting an optional leading
 /// `v` prefix (e.g. `v1.2.3`) while leaving the original tag string untouched.
-pub(super) fn parse_tag_as_semver(tag: &str) -> Option<semver::Version> {
+pub(crate) fn parse_tag_as_semver(tag: &str) -> Option<semver::Version> {
     if let Ok(version) = semver::Version::parse(tag) {
         return Some(version);
     }

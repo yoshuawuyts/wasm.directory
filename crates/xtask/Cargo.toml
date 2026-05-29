@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 clap = { workspace = true }
 anyhow = { workspace = true }
+dirs = { workspace = true }
 ctrlc = "3"
 notify = "8"
 tempfile = { workspace = true }

@@ -234,8 +234,9 @@ async fn known_package_from_repo(
 }
 
 /// Fetch a repository's tags from `oci_tag`, sorted by semver descending.
-/// Only tags that parse as STRICT semver are returned (e.g. `1.2.3`); tags
-/// like `latest`, `vX.Y.Z`, or `sha256-...` are excluded.
+/// Only tags that parse as semver are returned (accepting an optional leading
+/// `v` prefix, e.g. `1.2.3` or `v1.2.3`); tags like `latest` or `sha256-...`
+/// are excluded.
 async fn fetch_repo_tags(db: &DatabaseConnection, repo_id: i64) -> anyhow::Result<Vec<String>> {
     let rows = oci_tag::Entity::find()
         .filter(oci_tag::Column::OciRepositoryId.eq(repo_id))
@@ -243,7 +244,7 @@ async fn fetch_repo_tags(db: &DatabaseConnection, repo_id: i64) -> anyhow::Resul
         .await?;
     let mut versioned: Vec<(semver::Version, String)> = rows
         .into_iter()
-        .filter_map(|t| semver::Version::parse(&t.tag).ok().map(|v| (v, t.tag)))
+        .filter_map(|t| crate::manager::parse_tag_as_semver(&t.tag).map(|v| (v, t.tag)))
         .collect();
     versioned.sort_by(|(a, _), (b, _)| b.cmp(a));
     Ok(versioned.into_iter().map(|(_, t)| t).collect())
@@ -461,7 +462,10 @@ impl Store {
             .await?;
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
-            out.push(known_package_from_repo(&self.db, r).await?);
+            let pkg = known_package_from_repo(&self.db, r).await?;
+            if !pkg.tags.is_empty() {
+                out.push(pkg);
+            }
         }
         Ok(out)
     }

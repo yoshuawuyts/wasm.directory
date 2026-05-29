@@ -18,6 +18,7 @@ use crate::types::WitPackage;
 use component_meta_registry_types::PackageKind;
 
 pub use errors::ManagerError;
+pub(crate) use logic::parse_tag_as_semver;
 pub use logic::{
     derive_component_name, filter_tag_suggestions, pick_latest_stable_tag,
     sanitize_to_wit_identifier, should_sync, vendor_filename,
@@ -1052,15 +1053,15 @@ impl Manager {
             .as_ref()
             .and_then(|a| a.get("org.opencontainers.image.description").cloned());
 
-        // Filter to tags that parse as STRICT semver (e.g. `1.2.3`). Tags
-        // like `latest`, `vX.Y.Z`, `nightly`, or `sha256-...` are excluded
-        // here: they cannot be resolved by the version solver and cause
-        // garbled rendering in the frontend. If no tags are valid, skip
-        // indexing this package entirely so it does not pollute search
-        // results.
+        // Filter to tags that parse as semver (accepting an optional leading
+        // `v` prefix, e.g. `1.2.3` or `v1.2.3`). Tags like `latest`,
+        // `nightly`, or `sha256-...` are excluded here: they cannot be
+        // resolved by the version solver and cause garbled rendering in the
+        // frontend. If no tags are valid, skip indexing this package entirely
+        // so it does not pollute search results.
         let valid_tags: Vec<&String> = tags
             .iter()
-            .filter(|t| semver::Version::parse(t).is_ok())
+            .filter(|t| parse_tag_as_semver(t).is_some())
             .collect();
         if valid_tags.is_empty() {
             tracing::debug!(
@@ -1107,7 +1108,7 @@ impl Manager {
         // r[impl server.index.dependencies]
         let mut semver_tags: Vec<(&String, semver::Version)> = Vec::with_capacity(tags.len());
         for tag in &tags {
-            match logic::parse_tag_as_semver(tag) {
+            match parse_tag_as_semver(tag) {
                 Some(v) => semver_tags.push((tag, v)),
                 None => {
                     tracing::debug!(

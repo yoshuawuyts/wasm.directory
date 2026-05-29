@@ -98,9 +98,7 @@ async fn run_async(dry_run: bool) -> Result<()> {
 }
 
 /// Find repositories with zero tags AND zero manifests.
-async fn find_orphan_repositories(
-    db: &DatabaseConnection,
-) -> Result<Vec<oci_repository::Model>> {
+async fn find_orphan_repositories(db: &DatabaseConnection) -> Result<Vec<oci_repository::Model>> {
     let backend = db.get_database_backend();
     let sql = "SELECT r.* FROM oci_repository r \
                WHERE NOT EXISTS (SELECT 1 FROM oci_tag t WHERE t.oci_repository_id = r.id) \
@@ -118,8 +116,8 @@ fn database_url() -> Result<String> {
         return Ok(url);
     }
     // Default: SQLite file in the platform data dir, matching what
-    // `component-package-manager` uses.
-    let dir = dirs_data_dir().context("locating platform data directory")?;
+    // `component-package-manager` uses (`dirs::data_local_dir()`).
+    let dir = dirs::data_local_dir().context("locating platform data directory")?;
     // The meta-registry server uses `wasm-registry`; the CLI uses `wasm`.
     // Default to the registry's database since that's what feeds search.
     let db_dir = dir.join("wasm-registry").join("db");
@@ -139,28 +137,6 @@ fn database_url() -> Result<String> {
         "sqlite://{}?mode=rwc",
         path.to_str().context("non-UTF-8 database path")?
     ))
-}
-
-fn dirs_data_dir() -> Option<std::path::PathBuf> {
-    // Minimal stand-in for the `dirs` crate to avoid adding a new dep.
-    // Matches `dirs::data_dir()` on the common platforms.
-    #[cfg(target_os = "macos")]
-    {
-        let home = std::env::var_os("HOME")?;
-        Some(std::path::PathBuf::from(home).join("Library/Application Support"))
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        if let Some(xdg) = std::env::var_os("XDG_DATA_HOME") {
-            return Some(std::path::PathBuf::from(xdg));
-        }
-        let home = std::env::var_os("HOME")?;
-        Some(std::path::PathBuf::from(home).join(".local/share"))
-    }
-    #[cfg(windows)]
-    {
-        std::env::var_os("APPDATA").map(std::path::PathBuf::from)
-    }
 }
 
 fn redact_url(url: &str) -> String {
