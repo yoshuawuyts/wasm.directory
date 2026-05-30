@@ -79,7 +79,7 @@ pub(super) fn exports_http_incoming_handler(bytes: &[u8]) -> bool {
             }
             Payload::ComponentExportSection(reader) if depth == 1 => {
                 for export in reader.into_iter().flatten() {
-                    if export.name.0.starts_with("wasi:http/incoming-handler") {
+                    if export.name.name.starts_with("wasi:http/incoming-handler") {
                         return true;
                     }
                 }
