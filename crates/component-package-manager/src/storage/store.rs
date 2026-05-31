@@ -36,15 +36,16 @@ use tracing::warn;
 use component_package_manager_migration::Migrator;
 use component_package_manager_migration::MigratorTrait;
 use component_package_manager_migration::entities::{
-    fetch_queue, oci_layer, oci_layer_annotation, oci_manifest, oci_manifest_annotation,
-    oci_referrer, oci_repository, oci_tag, sync_meta, wasm_component, wit_package,
-    wit_package_dependency, wit_world, wit_world_export, wit_world_import,
+    component_target, fetch_queue, oci_layer, oci_layer_annotation, oci_manifest,
+    oci_manifest_annotation, oci_referrer, oci_repository, oci_tag, sync_meta, wasm_component,
+    wit_package, wit_package_dependency, wit_world, wit_world_export, wit_world_import,
 };
 
 use super::config::StateInfo;
 use super::known_package::KnownPackageParams;
 use super::models::Migrations;
 use crate::oci::{InsertResult, RawImageEntry};
+use crate::types::WitMetadata;
 use crate::types::extract_wit_metadata;
 
 // -- Public types --------------------------------------------------------
@@ -276,10 +277,8 @@ async fn fetch_repo_description(
 impl Store {
     /// Build a [`PackageVersion`] from a manifest row + an optional tag.
     ///
-    /// Currently populates annotations, layers, dependencies, referrers, and
-    /// `wit_text`. Worlds, components, and `type_docs` are left empty — the
-    /// rich extraction code is a follow-up; the registry server tolerates
-    /// these empty fields.
+    /// Populates annotations, layers, dependencies, referrers, `wit_text`,
+    /// worlds, components, and cross-package `type_docs`.
     async fn build_package_version(
         &self,
         m: &oci_manifest::Model,
@@ -412,6 +411,13 @@ impl Store {
             .await?
             .and_then(|p| p.wit_text);
 
+        // Worlds, components, and cross-package type docs (rich extraction).
+        let worlds = self.get_wit_worlds_for_manifest(m.id).await?;
+        let components = self
+            .get_components_for_manifest(m.id, tag.as_deref())
+            .await?;
+        let type_docs = self.build_type_docs(&dependencies).await;
+
         Ok(PackageVersion {
             tag,
             digest: m.digest.clone(),
@@ -419,14 +425,290 @@ impl Store {
             created_at: m.oci_created.clone(),
             synced_at: Some(m.created_at.to_rfc3339()),
             annotations,
-            worlds: Vec::new(),
-            components: Vec::new(),
+            worlds,
+            components,
             dependencies,
             referrers,
             layers,
             wit_text,
-            type_docs: HashMap::new(),
+            type_docs,
         })
+    }
+
+    /// Return all WIT worlds (with enriched imports/exports) for a manifest.
+    async fn get_wit_worlds_for_manifest(
+        &self,
+        manifest_id: i64,
+    ) -> anyhow::Result<Vec<component_meta_registry_types::WitWorldSummary>> {
+        use component_meta_registry_types::WitWorldSummary;
+
+        let pkg_ids: Vec<i64> = wit_package::Entity::find()
+            .filter(wit_package::Column::OciManifestId.eq(manifest_id))
+            .all(&self.db)
+            .await?
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+
+        let mut worlds = Vec::new();
+        for pkg_id in pkg_ids {
+            let db_worlds = wit_world::Entity::find()
+                .filter(wit_world::Column::WitPackageId.eq(pkg_id))
+                .order_by_asc(wit_world::Column::Name)
+                .all(&self.db)
+                .await?;
+            for w in db_worlds {
+                let mut imports = self.get_world_imports(w.id).await?;
+                let mut exports = self.get_world_exports(w.id).await?;
+                self.enrich_iface_docs(&mut imports).await;
+                self.enrich_iface_docs(&mut exports).await;
+                worlds.push(WitWorldSummary {
+                    name: w.name,
+                    description: w.description,
+                    imports,
+                    exports,
+                });
+            }
+        }
+        Ok(worlds)
+    }
+
+    /// Return all imports for a WIT world.
+    async fn get_world_imports(
+        &self,
+        world_id: i64,
+    ) -> anyhow::Result<Vec<component_meta_registry_types::WitInterfaceRef>> {
+        let rows = wit_world_import::Entity::find()
+            .filter(wit_world_import::Column::WitWorldId.eq(world_id))
+            .order_by_asc(wit_world_import::Column::DeclaredPackage)
+            .all(&self.db)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| component_meta_registry_types::WitInterfaceRef {
+                package: r.declared_package,
+                interface: r.declared_interface,
+                version: r.declared_version,
+                docs: None,
+                is_native: false,
+            })
+            .collect())
+    }
+
+    /// Return all exports for a WIT world.
+    async fn get_world_exports(
+        &self,
+        world_id: i64,
+    ) -> anyhow::Result<Vec<component_meta_registry_types::WitInterfaceRef>> {
+        let rows = wit_world_export::Entity::find()
+            .filter(wit_world_export::Column::WitWorldId.eq(world_id))
+            .order_by_asc(wit_world_export::Column::DeclaredPackage)
+            .all(&self.db)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| component_meta_registry_types::WitInterfaceRef {
+                package: r.declared_package,
+                interface: r.declared_interface,
+                version: r.declared_version,
+                docs: None,
+                is_native: false,
+            })
+            .collect())
+    }
+
+    /// Return all Wasm components (with targets) found in the given manifest.
+    ///
+    /// `parent_version` is the package version tag this manifest is being
+    /// served as; it is used to stamp a version onto native interface/world
+    /// refs that lack one, so URLs to same-package items resolve correctly.
+    async fn get_components_for_manifest(
+        &self,
+        manifest_id: i64,
+        parent_version: Option<&str>,
+    ) -> anyhow::Result<Vec<component_meta_registry_types::ComponentSummary>> {
+        let components = wasm_component::Entity::find()
+            .filter(wasm_component::Column::OciManifestId.eq(manifest_id))
+            .order_by_asc(wasm_component::Column::Name)
+            .all(&self.db)
+            .await?;
+
+        let parent_pkg = parent_pkg_for_manifest(&self.db, manifest_id).await;
+
+        let mut result = Vec::new();
+        for component in components {
+            let summary = self
+                .component_to_summary(component, parent_version, parent_pkg.as_deref())
+                .await?;
+            result.push(summary);
+        }
+        Ok(result)
+    }
+
+    /// Build a [`ComponentSummary`](component_meta_registry_types::ComponentSummary)
+    /// from a stored `wasm_component` row plus its targets.
+    async fn component_to_summary(
+        &self,
+        component: wasm_component::Model,
+        parent_version: Option<&str>,
+        parent_pkg: Option<&str>,
+    ) -> anyhow::Result<component_meta_registry_types::ComponentSummary> {
+        use component_meta_registry_types::{ComponentSummary, ComponentTargetRef};
+
+        let targets = component_target::Entity::find()
+            .filter(component_target::Column::WasmComponentId.eq(component.id))
+            .all(&self.db)
+            .await?;
+        let target_refs: Vec<ComponentTargetRef> = targets
+            .into_iter()
+            .map(|t| ComponentTargetRef {
+                version: if t.is_native_package && t.declared_version.is_none() {
+                    parent_version.map(str::to_owned)
+                } else {
+                    t.declared_version
+                },
+                package: t.declared_package,
+                world: t.declared_world,
+                is_native: t.is_native_package,
+            })
+            .collect();
+
+        // Try to deserialize the full ComponentSummary tree from JSON. If
+        // available, merge in the DB-stored targets. Otherwise fall back to
+        // a basic summary.
+        let mut summary: ComponentSummary = component
+            .producers_json
+            .as_deref()
+            .and_then(|json| serde_json::from_str(json).ok())
+            .unwrap_or_else(|| ComponentSummary {
+                name: component.name.clone(),
+                description: component.description.clone(),
+                targets: vec![],
+                producers: vec![],
+                kind: None,
+                size_bytes: None,
+                range_start: None,
+                range_end: None,
+                languages: vec![],
+                children: vec![],
+                source: None,
+                homepage: None,
+                licenses: None,
+                authors: None,
+                revision: None,
+                component_version: None,
+                bill_of_materials: vec![],
+                imports: vec![],
+                exports: vec![],
+            });
+
+        summary.targets = target_refs;
+
+        // Enrich imports/exports with docs from stored WIT packages.
+        self.enrich_iface_docs(&mut summary.imports).await;
+        self.enrich_iface_docs(&mut summary.exports).await;
+
+        // Mark interfaces as native when their package matches the parent
+        // OCI repository's WIT package. Recurses into children so nested
+        // components are flagged consistently. Native refs also inherit the
+        // parent's version when they lack one, so generated URLs include the
+        // version segment.
+        if let Some(pkg) = parent_pkg {
+            mark_native_iface_refs(&mut summary, pkg, parent_version);
+        }
+
+        Ok(summary)
+    }
+
+    /// Enrich `WitInterfaceRef` entries with docs from stored WIT packages.
+    ///
+    /// For each import/export that has a package name and version but no docs,
+    /// look up the stored `wit_text` for that WIT package, parse it, and
+    /// extract the interface's doc comment.
+    async fn enrich_iface_docs(&self, refs: &mut [component_meta_registry_types::WitInterfaceRef]) {
+        for iface_ref in refs.iter_mut() {
+            if iface_ref.docs.is_some() {
+                continue;
+            }
+            let Some(iface_name) = iface_ref.interface.clone() else {
+                continue;
+            };
+
+            let Some(wit_text) = self
+                .latest_wit_text(&iface_ref.package, iface_ref.version.as_deref())
+                .await
+            else {
+                continue;
+            };
+
+            if let Ok(pkg) = wit_parser::UnresolvedPackageGroup::parse("lookup.wit", &wit_text) {
+                for (_, iface) in &pkg.main.interfaces {
+                    if iface.name.as_deref() == Some(iface_name.as_str())
+                        && let Some(doc) = &iface.docs.contents
+                    {
+                        iface_ref.docs = Some(first_doc_sentence(doc));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Look up the most relevant stored `wit_text` for a package, preferring
+    /// an exact version match and falling back to the most recently inserted.
+    async fn latest_wit_text(&self, package: &str, version: Option<&str>) -> Option<String> {
+        let rows = wit_package::Entity::find()
+            .filter(wit_package::Column::PackageName.eq(package))
+            .filter(wit_package::Column::WitText.is_not_null())
+            .order_by_desc(wit_package::Column::Id)
+            .all(&self.db)
+            .await
+            .ok()?;
+
+        let want = version.unwrap_or("");
+        rows.iter()
+            .find(|p| p.version.as_deref().unwrap_or("") == want)
+            .or_else(|| rows.first())
+            .and_then(|p| p.wit_text.clone())
+    }
+
+    /// Build a map of cross-package type documentation.
+    ///
+    /// For each dependency that has stored WIT text, parse it and extract
+    /// docs for all types in all interfaces. Returns a map from
+    /// `"package/interface/type"` → doc string.
+    async fn build_type_docs(
+        &self,
+        deps: &[component_meta_registry_types::PackageDependencyRef],
+    ) -> HashMap<String, String> {
+        let mut result = HashMap::new();
+
+        for dep in deps {
+            let Some(wit_text) = self
+                .latest_wit_text(&dep.package, dep.version.as_deref())
+                .await
+            else {
+                continue;
+            };
+            let Ok(pkg) = wit_parser::UnresolvedPackageGroup::parse("dep.wit", &wit_text) else {
+                continue;
+            };
+
+            for (_, iface) in &pkg.main.interfaces {
+                let Some(iface_name) = &iface.name else {
+                    continue;
+                };
+                for (type_name, type_id) in &iface.types {
+                    if let Some(type_def) = pkg.main.types.get(*type_id)
+                        && let Some(docs) = &type_def.docs.contents
+                        && !docs.is_empty()
+                    {
+                        let key = format!("{}/{iface_name}/{type_name}", dep.package);
+                        result.insert(key, first_doc_sentence(docs));
+                    }
+                }
+            }
+        }
+        result
     }
 }
 
@@ -672,6 +954,421 @@ async fn insert_wit_package_dependency(
     };
     wit_package_dependency::Entity::insert(am).exec(db).await?;
     Ok(())
+}
+
+/// Insert a `wasm_component` row, returning its id.
+///
+/// The unique index on (`oci_manifest_id`, COALESCE(`oci_layer_id`, -1)) is
+/// expression-based, so we do a manual find-then-insert.
+async fn insert_wasm_component(
+    db: &DatabaseConnection,
+    oci_manifest_id: i64,
+    oci_layer_id: Option<i64>,
+    name: Option<&str>,
+    description: Option<&str>,
+    producers_json: Option<&str>,
+) -> anyhow::Result<i64> {
+    if let Some(existing) = wasm_component::Entity::find()
+        .filter(wasm_component::Column::OciManifestId.eq(oci_manifest_id))
+        .filter(match oci_layer_id {
+            Some(id) => wasm_component::Column::OciLayerId.eq(id),
+            None => wasm_component::Column::OciLayerId.is_null(),
+        })
+        .one(db)
+        .await?
+    {
+        return Ok(existing.id);
+    }
+    let am = wasm_component::ActiveModel {
+        oci_manifest_id: Set(oci_manifest_id),
+        oci_layer_id: Set(oci_layer_id),
+        name: Set(name.map(str::to_owned)),
+        description: Set(description.map(str::to_owned)),
+        producers_json: Set(producers_json.map(str::to_owned)),
+        ..Default::default()
+    };
+    let res = wasm_component::Entity::insert(am).exec(db).await?;
+    Ok(res.last_insert_id)
+}
+
+/// Insert a `component_target` row (idempotent).
+///
+/// The unique index uses COALESCE(`declared_version`, ''), so we do a manual
+/// find-then-insert.
+async fn insert_component_target(
+    db: &DatabaseConnection,
+    wasm_component_id: i64,
+    declared_package: &str,
+    declared_world: &str,
+    declared_version: Option<&str>,
+    wit_world_id: Option<i64>,
+    is_native_package: bool,
+) -> anyhow::Result<()> {
+    let existing = component_target::Entity::find()
+        .filter(component_target::Column::WasmComponentId.eq(wasm_component_id))
+        .filter(component_target::Column::DeclaredPackage.eq(declared_package))
+        .filter(component_target::Column::DeclaredWorld.eq(declared_world))
+        .filter(match declared_version {
+            Some(v) => component_target::Column::DeclaredVersion.eq(v),
+            None => component_target::Column::DeclaredVersion.is_null(),
+        })
+        .one(db)
+        .await?;
+    if existing.is_some() {
+        return Ok(());
+    }
+    let am = component_target::ActiveModel {
+        wasm_component_id: Set(wasm_component_id),
+        declared_package: Set(declared_package.to_owned()),
+        declared_world: Set(declared_world.to_owned()),
+        declared_version: Set(declared_version.map(str::to_owned)),
+        wit_world_id: Set(wit_world_id),
+        is_native_package: Set(is_native_package),
+        ..Default::default()
+    };
+    component_target::Entity::insert(am).exec(db).await?;
+    Ok(())
+}
+
+/// Return the parent package name (`"namespace:name"`) for a manifest, derived
+/// from its OCI repository's WIT namespace/name.
+async fn parent_pkg_for_manifest(db: &DatabaseConnection, manifest_id: i64) -> Option<String> {
+    let manifest = oci_manifest::Entity::find_by_id(manifest_id)
+        .one(db)
+        .await
+        .ok()
+        .flatten()?;
+    let repo = oci_repository::Entity::find_by_id(manifest.oci_repository_id)
+        .one(db)
+        .await
+        .ok()
+        .flatten()?;
+    repo.wit_namespace
+        .zip(repo.wit_name)
+        .map(|(ns, n)| format!("{ns}:{n}"))
+}
+
+/// Mark every `WitInterfaceRef` in the component's imports/exports (and
+/// recursively in children) as `is_native` when its package equals the parent
+/// component's own package (`wit_namespace:wit_name`). Native refs inherit
+/// `parent_version` when they lack their own.
+fn mark_native_iface_refs(
+    summary: &mut component_meta_registry_types::ComponentSummary,
+    parent_pkg: &str,
+    parent_version: Option<&str>,
+) {
+    for iface in summary.imports.iter_mut().chain(summary.exports.iter_mut()) {
+        if iface.package == parent_pkg {
+            iface.is_native = true;
+            if iface.version.is_none() {
+                iface.version = parent_version.map(str::to_owned);
+            }
+        }
+    }
+    for child in &mut summary.children {
+        mark_native_iface_refs(child, parent_pkg, parent_version);
+    }
+}
+
+/// Extract component-level metadata using `wasm-metadata`.
+///
+/// Returns `(name, description, metadata_json)` where `metadata_json` is the
+/// full `ComponentSummary` tree serialized as JSON (producers, children, kind,
+/// size, languages). Targets are not included — they come from the DB.
+fn extract_component_metadata(
+    wasm_bytes: &[u8],
+) -> (Option<String>, Option<String>, Option<String>) {
+    let Ok(payload) = wasm_metadata::Payload::from_binary(wasm_bytes) else {
+        return (None, None, None);
+    };
+
+    // Decode WIT once for the full component — used by all children.
+    let root_wit = wit_parser::decoding::decode(wasm_bytes).ok();
+
+    let summary = payload_to_summary(&payload, wasm_bytes, root_wit.as_ref());
+    let name = summary.name.clone();
+    let description = summary.description.clone();
+    let json = serde_json::to_string(&summary).ok();
+
+    (name, description, json)
+}
+
+/// Convert a `wasm_metadata::Payload` tree into a `ComponentSummary` tree.
+///
+/// `parent_bytes` is the full wasm binary; child byte ranges are sliced from
+/// it to extract WIT imports/exports via `wit-parser`. `root_wit` is the
+/// decoded WIT from the full parent binary, used to resolve inner component
+/// names back to WIT-qualified names.
+fn payload_to_summary(
+    payload: &wasm_metadata::Payload,
+    parent_bytes: &[u8],
+    root_wit: Option<&wit_parser::decoding::DecodedWasm>,
+) -> component_meta_registry_types::ComponentSummary {
+    use component_meta_registry_types::{BomEntry, ComponentSummary, ProducerEntry};
+
+    let meta = payload.metadata();
+
+    let (kind, children) = match payload {
+        wasm_metadata::Payload::Component { children, .. } => (
+            "component",
+            children
+                .iter()
+                .map(|c| payload_to_summary(c, parent_bytes, root_wit))
+                .collect(),
+        ),
+        wasm_metadata::Payload::Module(_) => ("module", vec![]),
+    };
+
+    let producers: Vec<ProducerEntry> = meta
+        .producers
+        .iter()
+        .flat_map(|p| {
+            p.iter().flat_map(|(field, pairs)| {
+                pairs
+                    .iter()
+                    .map(|(tool, ver)| ProducerEntry {
+                        field: field.clone(),
+                        name: tool.clone(),
+                        version: ver.clone(),
+                    })
+                    .collect::<Vec<_>>()
+            })
+        })
+        .collect();
+
+    let languages: Vec<String> = producers
+        .iter()
+        .filter(|e| e.field == "language")
+        .map(|e| e.name.clone())
+        .collect();
+
+    #[allow(clippy::cast_sign_loss)]
+    let size_bytes = {
+        let r = &meta.range;
+        let size = r.end.saturating_sub(r.start);
+        if size > 0 { Some(size as u64) } else { None }
+    };
+
+    #[allow(clippy::cast_sign_loss)]
+    let (range_start, range_end) = {
+        let r = &meta.range;
+        (Some(r.start as u64), Some(r.end as u64))
+    };
+
+    let bill_of_materials: Vec<BomEntry> = meta
+        .dependencies
+        .as_ref()
+        .map(|deps| {
+            deps.version_info()
+                .packages
+                .iter()
+                .map(|p| BomEntry {
+                    name: p.name.clone(),
+                    version: p.version.to_string(),
+                    source: Some(String::from(p.source.clone())),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Extract WIT imports/exports from this component's byte range.
+    let (imports, exports) = extract_wit_imports_exports(parent_bytes, &meta.range, root_wit);
+
+    ComponentSummary {
+        name: meta.name.clone(),
+        description: meta.description.as_ref().map(ToString::to_string),
+        targets: vec![],
+        producers,
+        kind: Some(kind.to_string()),
+        size_bytes,
+        range_start,
+        range_end,
+        languages,
+        children,
+        source: meta.source.as_ref().map(ToString::to_string),
+        homepage: meta.homepage.as_ref().map(ToString::to_string),
+        licenses: meta.licenses.as_ref().map(ToString::to_string),
+        authors: meta.authors.as_ref().map(ToString::to_string),
+        revision: meta.revision.as_ref().map(ToString::to_string),
+        component_version: meta.version.as_ref().map(ToString::to_string),
+        bill_of_materials,
+        imports,
+        exports,
+    }
+}
+
+/// Extract WIT imports and exports from a wasm binary at the given byte range.
+///
+/// First tries `wit-parser` for a full decode (works for self-contained
+/// components). Falls back to using the root component's decoded WIT to
+/// provide the correct WIT-qualified names. If neither works, uses
+/// `wasmparser` to read raw component import/export names.
+fn extract_wit_imports_exports(
+    parent_bytes: &[u8],
+    range: &std::ops::Range<usize>,
+    root_wit: Option<&wit_parser::decoding::DecodedWasm>,
+) -> (
+    Vec<component_meta_registry_types::WitInterfaceRef>,
+    Vec<component_meta_registry_types::WitInterfaceRef>,
+) {
+    let Some(bytes) = parent_bytes.get(range.start..range.end) else {
+        return (vec![], vec![]);
+    };
+
+    // Try wit-parser on the child's own bytes (works for self-contained components).
+    if let Ok(decoded) = wit_parser::decoding::decode(bytes) {
+        let resolve = decoded.resolve();
+        if let wit_parser::decoding::DecodedWasm::Component(_, world_id) = &decoded
+            && let Some(world) = resolve.worlds.get(*world_id)
+        {
+            let imports = world
+                .imports
+                .keys()
+                .filter_map(|k| world_key_to_iface_ref(resolve, k))
+                .collect();
+            let exports = world
+                .exports
+                .keys()
+                .filter_map(|k| world_key_to_iface_ref(resolve, k))
+                .collect();
+            return (imports, exports);
+        }
+    }
+
+    // For inner components that can't be decoded standalone, use the root
+    // component's already-decoded WIT world. The root world's imports/exports
+    // are the WIT-level view of what the inner component implements.
+    if let Some(decoded) = root_wit {
+        let resolve = decoded.resolve();
+        if let wit_parser::decoding::DecodedWasm::Component(_, world_id) = decoded
+            && let Some(world) = resolve.worlds.get(*world_id)
+        {
+            let imports = world
+                .imports
+                .keys()
+                .filter_map(|k| world_key_to_iface_ref(resolve, k))
+                .collect();
+            let exports = world
+                .exports
+                .keys()
+                .filter_map(|k| world_key_to_iface_ref(resolve, k))
+                .collect();
+            return (imports, exports);
+        }
+    }
+
+    // Last resort: raw wasmparser names.
+    extract_wit_imports_exports_wasmparser(bytes)
+}
+
+/// Use `wasmparser` to extract component import/export names from raw bytes.
+///
+/// This handles inner components that can't be decoded by `wit-parser` because
+/// they reference types from the outer component scope.
+fn extract_wit_imports_exports_wasmparser(
+    bytes: &[u8],
+) -> (
+    Vec<component_meta_registry_types::WitInterfaceRef>,
+    Vec<component_meta_registry_types::WitInterfaceRef>,
+) {
+    use wasmparser::{Parser, Payload};
+
+    let mut imports = Vec::new();
+    let mut exports = Vec::new();
+
+    for payload in Parser::new(0).parse_all(bytes) {
+        let Ok(payload) = payload else { continue };
+        match payload {
+            Payload::ComponentImportSection(reader) => {
+                for import in reader {
+                    let Ok(import) = import else { continue };
+                    imports.push(parse_component_extern_name(import.name.0));
+                }
+            }
+            Payload::ComponentExportSection(reader) => {
+                for export in reader {
+                    let Ok(export) = export else { continue };
+                    exports.push(parse_component_extern_name(export.name.0));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    (imports, exports)
+}
+
+/// Parse a component extern name like `"wasi:http/types@0.2.3"` into a
+/// `WitInterfaceRef`.
+fn parse_component_extern_name(name: &str) -> component_meta_registry_types::WitInterfaceRef {
+    // Component extern names follow the pattern:
+    //   "namespace:package/interface@version"
+    //   "namespace:package@version"
+    //   or just a plain name
+    if !name.contains(':') {
+        return component_meta_registry_types::WitInterfaceRef {
+            package: name.to_string(),
+            interface: None,
+            version: None,
+            docs: None,
+            is_native: false,
+        };
+    }
+
+    let (name_part, version) = match name.rsplit_once('@') {
+        Some((n, v)) => (n, Some(v.to_string())),
+        None => (name, None),
+    };
+
+    let (package, interface) = match name_part.split_once('/') {
+        Some((pkg, iface)) => (pkg.to_string(), Some(iface.to_string())),
+        None => (name_part.to_string(), None),
+    };
+
+    component_meta_registry_types::WitInterfaceRef {
+        package,
+        interface,
+        version,
+        docs: None,
+        is_native: false,
+    }
+}
+
+/// Convert a `wit_parser::WorldKey` to a `WitInterfaceRef`, including docs.
+fn world_key_to_iface_ref(
+    resolve: &wit_parser::Resolve,
+    key: &wit_parser::WorldKey,
+) -> Option<component_meta_registry_types::WitInterfaceRef> {
+    match key {
+        wit_parser::WorldKey::Name(name) => Some(component_meta_registry_types::WitInterfaceRef {
+            package: name.clone(),
+            interface: None,
+            version: None,
+            docs: None,
+            is_native: false,
+        }),
+        wit_parser::WorldKey::Interface(id) => {
+            let iface = resolve.interfaces.get(*id)?;
+            let pkg_id = iface.package?;
+            let pkg = resolve.packages.get(pkg_id)?;
+            let docs = iface.docs.contents.as_deref().map(first_doc_sentence);
+            Some(component_meta_registry_types::WitInterfaceRef {
+                package: format!("{}:{}", pkg.name.namespace, pkg.name.name),
+                interface: iface.name.clone(),
+                version: pkg.name.version.as_ref().map(ToString::to_string),
+                docs,
+                is_native: false,
+            })
+        }
+    }
+}
+
+/// Extract the first sentence from a doc comment.
+fn first_doc_sentence(text: &str) -> String {
+    text.split_once("\n\n").map_or_else(
+        || text.trim().to_owned(),
+        |(first, _)| first.trim().to_owned(),
+    )
 }
 
 /// Best-effort: fill in `wit_world_import.resolved_package_id` for imports
@@ -1333,11 +2030,78 @@ impl Store {
             }
         }
 
+        // For compiled components, create wasm_component and component_target
+        // rows so the detail view can render core .wasm modules and targets.
+        if metadata.is_component {
+            self.extract_wasm_component(
+                manifest_id,
+                layer_id,
+                wasm_bytes,
+                package_name,
+                version,
+                &world_ids,
+                &metadata,
+            )
+            .await;
+        }
+
         // Best-effort cross-package FK resolution.
         let _ = resolve_import_foreign_keys(&self.db, wit_package_id).await;
         let _ = resolve_export_foreign_keys(&self.db, wit_package_id).await;
         let _ = resolve_dependency_foreign_keys(&self.db, wit_package_id).await;
         let _ = resolve_component_target_foreign_keys(&self.db, manifest_id).await;
+    }
+
+    /// Extract and persist a `wasm_component` row plus its `component_target`
+    /// rows for a compiled component.
+    #[allow(clippy::too_many_arguments)]
+    async fn extract_wasm_component(
+        &self,
+        manifest_id: i64,
+        layer_id: Option<i64>,
+        wasm_bytes: &[u8],
+        package_name: &str,
+        version: Option<&str>,
+        world_ids: &HashMap<String, i64>,
+        metadata: &WitMetadata,
+    ) {
+        let (comp_name, comp_desc, producers_json) = extract_component_metadata(wasm_bytes);
+
+        let component_id = match insert_wasm_component(
+            &self.db,
+            manifest_id,
+            layer_id,
+            comp_name.as_deref(),
+            comp_desc.as_deref(),
+            producers_json.as_deref(),
+        )
+        .await
+        {
+            Ok(id) => id,
+            Err(e) => {
+                warn!("Failed to insert wasm_component: {}", e);
+                return;
+            }
+        };
+
+        let parent_package = parent_pkg_for_manifest(&self.db, manifest_id).await;
+        for world in &metadata.worlds {
+            let wit_world_id = world_ids.get(&world.name).copied();
+            let is_native = parent_package.as_deref() == Some(package_name);
+            if let Err(e) = insert_component_target(
+                &self.db,
+                component_id,
+                package_name,
+                &world.name,
+                version,
+                wit_world_id,
+                is_native,
+            )
+            .await
+            {
+                warn!("Failed to insert component_target: {}", e);
+            }
+        }
     }
 
     pub(crate) async fn insert(
@@ -2998,5 +3762,242 @@ mod smoke_tests {
         assert_eq!(snapshot_a.current, snapshot_a.total);
         assert_eq!(snapshot_b.current, snapshot_b.total);
         assert_eq!(snapshot_a.current, snapshot_b.current);
+    }
+}
+
+#[cfg(test)]
+mod component_tests {
+    use super::*;
+    use component_meta_registry_types::{ComponentSummary, WitInterfaceRef};
+
+    #[test]
+    fn parse_component_extern_name_full() {
+        let r = parse_component_extern_name("wasi:http/types@0.2.3");
+        assert_eq!(r.package, "wasi:http");
+        assert_eq!(r.interface.as_deref(), Some("types"));
+        assert_eq!(r.version.as_deref(), Some("0.2.3"));
+    }
+
+    #[test]
+    fn parse_component_extern_name_no_interface() {
+        let r = parse_component_extern_name("wasi:http@0.2.3");
+        assert_eq!(r.package, "wasi:http");
+        assert_eq!(r.interface, None);
+        assert_eq!(r.version.as_deref(), Some("0.2.3"));
+    }
+
+    #[test]
+    fn parse_component_extern_name_no_version() {
+        let r = parse_component_extern_name("wasi:http/types");
+        assert_eq!(r.package, "wasi:http");
+        assert_eq!(r.interface.as_deref(), Some("types"));
+        assert_eq!(r.version, None);
+    }
+
+    #[test]
+    fn parse_component_extern_name_plain() {
+        let r = parse_component_extern_name("my-import");
+        assert_eq!(r.package, "my-import");
+        assert_eq!(r.interface, None);
+        assert_eq!(r.version, None);
+    }
+
+    #[test]
+    fn extract_wit_imports_exports_returns_empty_for_non_wasm() {
+        let (imports, exports) = extract_wit_imports_exports(b"not wasm", &(0..8), None);
+        assert!(imports.is_empty());
+        assert!(exports.is_empty());
+    }
+
+    #[test]
+    fn extract_wit_imports_exports_returns_empty_for_out_of_range() {
+        let (imports, exports) = extract_wit_imports_exports(b"short", &(0..100), None);
+        assert!(imports.is_empty());
+        assert!(exports.is_empty());
+    }
+
+    #[test]
+    fn extract_component_metadata_returns_none_for_invalid_bytes() {
+        let (name, desc, json) = extract_component_metadata(b"not wasm");
+        assert!(name.is_none());
+        assert!(desc.is_none());
+        assert!(json.is_none());
+    }
+
+    #[test]
+    fn mark_native_iface_refs_flags_and_inherits_version() {
+        let mut summary = sample_summary();
+        summary.imports = vec![
+            iface_ref("ns:pkg", None),
+            iface_ref("other:dep", Some("1.0.0")),
+        ];
+        mark_native_iface_refs(&mut summary, "ns:pkg", Some("0.2.0"));
+        assert!(summary.imports[0].is_native);
+        assert_eq!(summary.imports[0].version.as_deref(), Some("0.2.0"));
+        assert!(!summary.imports[1].is_native);
+        assert_eq!(summary.imports[1].version.as_deref(), Some("1.0.0"));
+    }
+
+    fn iface_ref(package: &str, version: Option<&str>) -> WitInterfaceRef {
+        WitInterfaceRef {
+            package: package.to_string(),
+            interface: Some("iface".to_string()),
+            version: version.map(str::to_owned),
+            docs: None,
+            is_native: false,
+        }
+    }
+
+    fn sample_summary() -> ComponentSummary {
+        ComponentSummary {
+            name: Some("root".to_string()),
+            description: None,
+            targets: vec![],
+            producers: vec![],
+            kind: Some("component".to_string()),
+            size_bytes: Some(123),
+            range_start: Some(0),
+            range_end: Some(123),
+            languages: vec![],
+            children: vec![ComponentSummary {
+                name: Some("main.wasm".to_string()),
+                description: None,
+                targets: vec![],
+                producers: vec![],
+                kind: Some("module".to_string()),
+                size_bytes: Some(64),
+                range_start: Some(0),
+                range_end: Some(64),
+                languages: vec!["Rust".to_string()],
+                children: vec![],
+                source: None,
+                homepage: None,
+                licenses: None,
+                authors: None,
+                revision: None,
+                component_version: None,
+                bill_of_materials: vec![],
+                imports: vec![],
+                exports: vec![],
+            }],
+            source: None,
+            homepage: None,
+            licenses: None,
+            authors: None,
+            revision: None,
+            component_version: None,
+            bill_of_materials: vec![],
+            imports: vec![],
+            exports: vec![],
+        }
+    }
+
+    async fn insert_manifest(store: &Store) -> i64 {
+        let repo = oci_repository::ActiveModel {
+            registry: Set("ghcr.io".to_string()),
+            repository: Set("test/comp".to_string()),
+            created_at: Set(Utc::now()),
+            updated_at: Set(Utc::now()),
+            wit_namespace: Set(Some("ns".to_string())),
+            wit_name: Set(Some("pkg".to_string())),
+            kind: Set(Some("component".to_string())),
+            ..Default::default()
+        };
+        let repo_id = oci_repository::Entity::insert(repo)
+            .exec(store.db())
+            .await
+            .unwrap()
+            .last_insert_id;
+        let manifest = oci_manifest::ActiveModel {
+            oci_repository_id: Set(repo_id),
+            digest: Set("sha256:deadbeef".to_string()),
+            created_at: Set(Utc::now()),
+            ..Default::default()
+        };
+        oci_manifest::Entity::insert(manifest)
+            .exec(store.db())
+            .await
+            .unwrap()
+            .last_insert_id
+    }
+
+    #[tokio::test]
+    async fn get_components_for_manifest_empty_for_wit_only() {
+        let store = Store::open_in_memory().await.unwrap();
+        let manifest_id = insert_manifest(&store).await;
+        let components = store
+            .get_components_for_manifest(manifest_id, None)
+            .await
+            .unwrap();
+        assert!(components.is_empty());
+    }
+
+    #[tokio::test]
+    async fn get_components_for_manifest_returns_module_children_and_targets() {
+        let store = Store::open_in_memory().await.unwrap();
+        let manifest_id = insert_manifest(&store).await;
+
+        let producers_json = serde_json::to_string(&sample_summary()).unwrap();
+        let component_id = insert_wasm_component(
+            store.db(),
+            manifest_id,
+            None,
+            Some("root"),
+            None,
+            Some(&producers_json),
+        )
+        .await
+        .unwrap();
+
+        // A native target with no declared version should inherit the tag.
+        insert_component_target(
+            store.db(),
+            component_id,
+            "ns:pkg",
+            "the-world",
+            None,
+            None,
+            true,
+        )
+        .await
+        .unwrap();
+
+        let components = store
+            .get_components_for_manifest(manifest_id, Some("0.2.0"))
+            .await
+            .unwrap();
+        assert_eq!(components.len(), 1);
+        let comp = &components[0];
+
+        let modules: Vec<_> = comp
+            .children
+            .iter()
+            .filter(|c| c.kind.as_deref() == Some("module"))
+            .collect();
+        assert_eq!(modules.len(), 1, "core .wasm module child should render");
+        assert_eq!(modules[0].name.as_deref(), Some("main.wasm"));
+
+        assert_eq!(comp.targets.len(), 1);
+        assert!(comp.targets[0].is_native);
+        assert_eq!(comp.targets[0].version.as_deref(), Some("0.2.0"));
+    }
+
+    #[tokio::test]
+    async fn insert_wasm_component_is_idempotent() {
+        let store = Store::open_in_memory().await.unwrap();
+        let manifest_id = insert_manifest(&store).await;
+        let a = insert_wasm_component(store.db(), manifest_id, None, Some("root"), None, None)
+            .await
+            .unwrap();
+        let b = insert_wasm_component(store.db(), manifest_id, None, Some("root"), None, None)
+            .await
+            .unwrap();
+        assert_eq!(a, b, "re-extracting must not create duplicate rows");
+        let count = wasm_component::Entity::find()
+            .filter(wasm_component::Column::OciManifestId.eq(manifest_id))
+            .count(store.db())
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
     }
 }
