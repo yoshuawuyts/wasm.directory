@@ -1,0 +1,67 @@
+name: Registry entry
+description: Add a new component or interface to the registry
+title: "registry: add new entry"
+labels: ["registry-entry"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form to add a new **component** or **interface** to the
+        registry. When you submit it, automation opens a pull request that adds
+        the entry to `registry/<namespace>.toml`.
+
+        - If the namespace **already exists**, the pull request can be merged
+          automatically.
+        - If the namespace is **new**, the pull request is flagged for manual
+          review so a maintainer can approve creating the namespace.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      description: Is this entry a component or an interface?
+      options:
+        - component
+        - interface
+    validations:
+      required: true
+  - type: input
+    id: namespace
+    attributes:
+      label: Namespace
+      description: >-
+        The registry namespace. Maps to `registry/<namespace>.toml`
+        (e.g. `wasi`, `yosh`).
+      placeholder: my-namespace
+    validations:
+      required: true
+  - type: input
+    id: package
+    attributes:
+      label: Package name
+      description: >-
+        The name of the component or interface within the namespace
+        (e.g. `http`, `fetch`).
+      placeholder: my-package
+    validations:
+      required: true
+  - type: input
+    id: repository
+    attributes:
+      label: Repository
+      description: >-
+        Path within the OCI registry where this package is published
+        (e.g. `components/wordmark`).
+      placeholder: components/my-package
+    validations:
+      required: true
+  - type: input
+    id: registry
+    attributes:
+      label: OCI registry (new namespaces only)
+      description: >-
+        Only required when creating a **new** namespace. The OCI registry base
+        for the namespace (e.g. `ghcr.io/yoshuawuyts`). Leave blank if the
+        namespace already exists.
+      placeholder: ghcr.io/my-org
+    validations:
+      required: false

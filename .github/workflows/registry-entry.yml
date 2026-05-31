@@ -1,0 +1,129 @@
+name: Registry entry
+
+# Turns "Registry entry" issue-form submissions into pull requests that add a
+# component or interface to the registry.
+#
+#   - Existing namespace -> the PR is labelled `auto-merge` and auto-merge is
+#     enabled, so it merges once it is mergeable.
+#   - New namespace      -> the PR is labelled `needs-namespace-review` so a
+#     maintainer approves creating the namespace before it merges.
+#
+# This runs as a single job on issue open/edit rather than a label-triggered
+# follow-up workflow: events caused by the default GITHUB_TOKEN (such as adding
+# a label) do not trigger other workflows, so a label-then-pickup design would
+# not fire reliably. The label is still applied here for organisation.
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: registry-entry-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  open-pr:
+    # Only act on issues created from the registry-entry form.
+    if: >-
+      contains(github.event.issue.body, '### Kind') &&
+      contains(github.event.issue.body, '### Namespace') &&
+      contains(github.event.issue.body, '### Package name')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      ISSUE: ${{ github.event.issue.number }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - name: Ensure labels exist and tag the issue
+        run: |
+          gh label create registry-entry \
+            --color 0E8A16 --description "Request to add a new registry entry" \
+            --force --repo "$REPO" || true
+          gh label create auto-merge \
+            --color 1D76DB --description "PR may be merged automatically" \
+            --force --repo "$REPO" || true
+          gh label create needs-namespace-review \
+            --color D93F0B --description "Creates a new registry namespace; needs manual review" \
+            --force --repo "$REPO" || true
+          gh issue edit "$ISSUE" --add-label registry-entry --repo "$REPO" || true
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Apply registry entry
+        id: process
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: node .github/scripts/registry-entry.mjs
+
+      - name: Comment on invalid submission
+        if: steps.process.outputs.ok != 'true'
+        env:
+          MESSAGE: ${{ steps.process.outputs.message }}
+        run: |
+          .github/scripts/upsert-comment.sh \
+            "$(printf 'Could not process this registry request:\n\n%s' "$MESSAGE")"
+
+      - name: Open or update pull request
+        if: steps.process.outputs.ok == 'true'
+        id: pr
+        env:
+          NEW_NAMESPACE: ${{ steps.process.outputs.new_namespace }}
+          NAMESPACE: ${{ steps.process.outputs.namespace }}
+          KIND: ${{ steps.process.outputs.kind }}
+          PACKAGE: ${{ steps.process.outputs.package }}
+          MESSAGE: ${{ steps.process.outputs.message }}
+        run: |
+          set -euo pipefail
+          BRANCH="registry-entry/issue-${ISSUE}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout -b "$BRANCH"
+          git add registry/
+          git commit -m "registry: add ${KIND} ${NAMESPACE}:${PACKAGE} (#${ISSUE})"
+          git push --force origin "$BRANCH"
+
+          TITLE="registry: add ${KIND} ${NAMESPACE}:${PACKAGE}"
+          BODY="$(printf '%s\n\nCloses #%s' "$MESSAGE" "$ISSUE")"
+
+          PR_URL="$(gh pr list --repo "$REPO" --head "$BRANCH" --state open \
+            --json url --jq '.[0].url // empty')"
+          if [ -z "$PR_URL" ]; then
+            PR_URL="$(gh pr create --repo "$REPO" --base "$DEFAULT_BRANCH" \
+              --head "$BRANCH" --title "$TITLE" --body "$BODY")"
+          else
+            gh pr edit "$PR_URL" --title "$TITLE" --body "$BODY"
+          fi
+          echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
+
+          # Reset any stale state so a reused PR reflects the current request.
+          gh pr edit "$PR_URL" --remove-label auto-merge || true
+          gh pr edit "$PR_URL" --remove-label needs-namespace-review || true
+          gh pr merge "$PR_URL" --disable-auto || true
+
+          if [ "$NEW_NAMESPACE" = "true" ]; then
+            gh pr edit "$PR_URL" --add-label needs-namespace-review
+          else
+            gh pr edit "$PR_URL" --add-label auto-merge
+            gh pr merge "$PR_URL" --squash --auto \
+              || echo "::warning::Could not enable auto-merge; merge $PR_URL manually"
+          fi
+
+      - name: Comment with pull request link
+        if: steps.process.outputs.ok == 'true'
+        env:
+          MESSAGE: ${{ steps.process.outputs.message }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+        run: |
+          .github/scripts/upsert-comment.sh \
+            "$(printf '%s\n\nPull request: %s' "$MESSAGE" "$PR_URL")"
