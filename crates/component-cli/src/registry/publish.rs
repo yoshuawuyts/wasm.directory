@@ -109,15 +109,24 @@ struct RegistryEntry {
 }
 
 impl RegistryEntry {
+    /// Build an entry from a manifest's `[package]` section.
+    ///
+    /// `namespace`, `package`, and `repository` are lowercased to mirror the
+    /// registry-entry automation (`.github/scripts/registry-entry.mjs`), which
+    /// lowercases these fields before validating and writing
+    /// `registry/<namespace>.toml`. Normalizing here keeps the
+    /// "already registered" lookup accurate and avoids prefilling issues that
+    /// downstream automation would normalize to a different value. The
+    /// `registry` base is left as-is, matching the automation.
     fn from_package(package: &component_manifest::Package) -> Result<Self> {
         let (namespace, name) = parse_wit_name(&package.name)?;
         let (registry, repository) = split_registry_ref(&package.registry)?;
 
         Ok(Self {
-            namespace: namespace.to_string(),
-            package: name.to_string(),
+            namespace: namespace.to_lowercase(),
+            package: name.to_lowercase(),
             kind: package.kind.as_str(),
-            repository,
+            repository: repository.to_lowercase(),
             registry,
         })
     }
@@ -401,6 +410,19 @@ mod tests {
         assert_eq!(entry.kind, "interface");
         assert_eq!(entry.repository, "wasi/http");
         assert_eq!(entry.registry, "ghcr.io/webassembly");
+    }
+
+    #[test]
+    fn entry_lowercases_namespace_package_and_repository() {
+        let mut pkg = sample_package();
+        pkg.name = "WASI:HTTP".into();
+        pkg.registry = "ghcr.io/WebAssembly/WASI/HTTP".into();
+        let entry = RegistryEntry::from_package(&pkg).unwrap();
+        assert_eq!(entry.namespace, "wasi");
+        assert_eq!(entry.package, "http");
+        assert_eq!(entry.repository, "wasi/http");
+        // The registry base is left as-is, matching the automation.
+        assert_eq!(entry.registry, "ghcr.io/WebAssembly");
     }
 
     #[test]

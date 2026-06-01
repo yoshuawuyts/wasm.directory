@@ -293,7 +293,7 @@ mod tests {
 
     // r[verify publish.reference.resolves]
     #[test]
-    fn reference_is_built_from_registry_and_repository() {
+    fn reference_is_built_from_registry_and_version() {
         let pkg = sample_pkg();
         let r = resolve_reference(&pkg).expect("ok");
         assert_eq!(r.registry(), "ghcr.io");
