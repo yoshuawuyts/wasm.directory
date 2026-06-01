@@ -21,3 +21,7 @@ repository = "components/docs"
 [[interface]]
 name = "acp"
 repository = "components/acp"
+
+[[interface]]
+name = "textsearch"
+repository = "components/textsearch"
