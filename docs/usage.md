@@ -126,6 +126,46 @@ annotations populated from the `[package]` section.
 **Note**: You must be authenticated to push packages. See [Authentication](authentication.md) for details.
 
 
+### Submitting a Registry Entry
+
+Publishing an artifact uploads the bytes to an OCI registry, but it does not
+list the package in the meta-registry's searchable index. To do that, open a
+**Registry entry** issue. Automation opens a pull request that adds the entry to
+the matching `registry/<namespace>.toml`. Entries in an existing namespace are
+merged automatically; creating a brand new namespace is flagged for manual
+review.
+
+To prefill that issue from the command line, run `component registry publish`
+from a project that has a `[package]` section in its `wasm.toml`:
+
+```bash
+component registry publish
+```
+
+It reads the package's `name`, `kind`, and `registry` from `wasm.toml`, checks
+whether the package is already in the registry, and (if not) opens the
+**Registry entry** issue form in your browser with the fields already filled in.
+If the package already exists in the registry, it reports that and exits without
+opening an issue. The issue URL is always printed to stdout; pass `--no-open` to
+skip launching the browser, and `--manifest-path <dir>` to point at a project
+other than the current directory.
+
+The relevant `[package]` fields look like this:
+
+```toml
+[package]
+name = "wasi:http"                          # namespace:package
+kind = "interface"                          # or "component"
+version = "0.2.0"
+registry = "ghcr.io/webassembly/wasi/http"  # full OCI location, no tag
+```
+
+`registry` is the full OCI location (host + path). `component publish` pushes to
+`<registry>:<version>`. When opening a registry-entry issue, the namespace base
+(`ghcr.io/webassembly`) and catalog path (`wasi/http`) are derived from it to
+match the registry entry's `registry` and `repository` fields.
+
+
 ### Listing Packages
 
 View all locally stored packages:
