@@ -449,6 +449,8 @@ mod tests {
         assert!(parse_wit_name("wasi:comp/onents").is_err());
         assert!(parse_wit_name("wasi:ht tp").is_err());
         assert!(parse_wit_name("wasi:bad?name").is_err());
+        assert!(parse_wit_name("wasi:htt\u{00e9}p").is_err());
+        assert!(parse_wit_name("w\u{00e9}si:http").is_err());
         assert!(parse_wit_name(".wasi:http").is_err());
         assert!(parse_wit_name("_wasi:http").is_err());
         assert!(parse_wit_name("-wasi:http").is_err());
