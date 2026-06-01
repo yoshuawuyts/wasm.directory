@@ -91,6 +91,7 @@ jobs:
           KIND: ${{ steps.process.outputs.kind }}
           PACKAGE: ${{ steps.process.outputs.package }}
           MESSAGE: ${{ steps.process.outputs.message }}
+          AUTOMERGE_PAT: ${{ secrets.AUTOMERGE_PAT }}
         run: |
           set -euo pipefail
           BRANCH="registry-entry/issue-${ISSUE}"
@@ -127,6 +128,21 @@ jobs:
             gh pr edit "$PR_URL" --add-label needs-namespace-review
           else
             gh pr edit "$PR_URL" --add-label auto-merge
+
+            # GitHub does not run CI for pull requests opened by the default
+            # GITHUB_TOKEN, so close and immediately reopen the PR to kick the
+            # checks off (the same close/reopen dance we used to do by hand).
+            # The reopen must come from a real (non-GITHUB_TOKEN) identity,
+            # otherwise the reopened event is also suppressed and CI still does
+            # not run -- hence the dedicated AUTOMERGE_PAT below. Closing a PR
+            # cancels auto-merge, so it is re-enabled afterwards.
+            if [ -n "$AUTOMERGE_PAT" ]; then
+              GH_TOKEN="$AUTOMERGE_PAT" gh pr close "$PR_URL"
+              GH_TOKEN="$AUTOMERGE_PAT" gh pr reopen "$PR_URL"
+            else
+              echo "::warning::AUTOMERGE_PAT is not set; skipping close/reopen. CI will not run until the PR is closed and reopened by a real user."
+            fi
+
             gh pr merge "$PR_URL" --squash --auto \
               || echo "::warning::Could not enable auto-merge; merge $PR_URL manually"
           fi
