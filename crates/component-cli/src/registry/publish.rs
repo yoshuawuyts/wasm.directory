@@ -254,10 +254,18 @@ fn validate_repo(repo: &str) -> Result<()> {
             "--repo '{repo}' must be in `owner/name` form (e.g., `yoshuawuyts/component-registry`)"
         );
     }
-    if repo.contains(['?', '#', ' ']) {
-        bail!("--repo '{repo}' contains characters that are not valid in a repository name");
+    if !valid_repo_segment(owner) || !valid_repo_segment(name) {
+        bail!("--repo '{repo}' contains characters that are not valid in a GitHub repository slug");
     }
     Ok(())
+}
+
+/// Whether `segment` is a valid GitHub `owner` or repository-name path
+/// segment: an allowlist of ASCII alphanumerics plus `-`, `_`, and `.`.
+fn valid_repo_segment(segment: &str) -> bool {
+    segment
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
 }
 
 /// Build the prefilled GitHub issue-form URL.
@@ -424,7 +432,14 @@ mod tests {
     #[test]
     fn validates_repo() {
         assert!(validate_repo("yoshuawuyts/component-registry").is_ok());
+        assert!(validate_repo("owner-1/repo_2.name").is_ok());
+        assert!(validate_repo("o/%2Fetc").is_err());
+        assert!(validate_repo("owner/re%2Fpo").is_err());
+        assert!(validate_repo("owner/re po").is_err());
+        assert!(validate_repo("owner/re\tpo").is_err());
+        assert!(validate_repo("owner/re\npo").is_err());
         assert!(validate_repo("noslash").is_err());
+        assert!(validate_repo("/name").is_err());
         assert!(validate_repo("owner/").is_err());
         assert!(validate_repo("a/b/c").is_err());
     }
