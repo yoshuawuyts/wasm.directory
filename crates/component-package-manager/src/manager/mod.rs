@@ -1709,8 +1709,8 @@ impl Manager {
     /// via [`crate::publish::build_wit_package`] (which stamps the
     /// manifest version onto the WIT package decl).
     ///
-    /// The target registry comes from the manifest's
-    /// `[package].registry_ref` field — there is no implicit default.
+    /// The target registry comes from the manifest's `[package].registry`
+    /// and `[package].repository` fields — there is no implicit default.
     pub async fn publish(
         &self,
         manifest: &component_manifest::Manifest,

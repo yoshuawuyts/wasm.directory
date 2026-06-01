@@ -75,9 +75,11 @@ name = "yoshuawuyts:fetch"
 # declare their own `@version` — the publisher stamps this onto every
 # top-level `package` decl during build. Becomes the OCI tag.
 version = "0.1.0"
-# Fully-formed OCI repository reference (host + path), without a tag.
-# The published reference is `<registry_ref>:<version>`.
-registry_ref = "ghcr.io/yoshuawuyts/fetch"
+# OCI registry base (host + optional path), without a repository or tag.
+# The published reference is `<registry>/<repository>:<version>`.
+registry = "ghcr.io/yoshuawuyts"
+# Catalog path within the registry (the namespace/package location).
+repository = "yoshuawuyts/fetch"
 # What kind of artifact this manifest publishes: "component" or "interface".
 kind = "component"
 # Path to the compiled component, relative to the manifest directory.
@@ -95,7 +97,8 @@ For an interface package, point `wit` at the WIT directory:
 [package]
 name = "wasi:logging"
 version = "1.0.0"
-registry_ref = "ghcr.io/wasi/logging"
+registry = "ghcr.io/wasi"
+repository = "wasi/logging"
 kind = "interface"
 # Path to the WIT directory, relative to the manifest. Defaults to "wit".
 wit = "wit"
@@ -114,7 +117,7 @@ component publish --dry-run
 Publish for real:
 
 ```bash
-component publish                       # uses [package].registry_ref
+component publish                       # uses [package].registry + repository
 component publish --file build/x.wasm   # override the artifact path
 ```
 

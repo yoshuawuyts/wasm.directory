@@ -84,7 +84,7 @@ impl PublishOpts {
         let package = manifest.package.with_context(|| {
             format!(
                 "`{}` has no `[package]` section; add one (name, version, \
-                 registry_ref, kind, registry_repository) before publishing to \
+                 registry, repository, kind) before publishing to \
                  the registry",
                 manifest_file.display()
             )
@@ -113,23 +113,15 @@ impl RegistryEntry {
     fn from_package(package: &component_manifest::Package) -> Result<Self> {
         let (namespace, name) = parse_wit_name(&package.name)?;
 
-        let repository = package.registry_repository.as_deref().with_context(|| {
-            "`[package]` is missing `registry_repository` (the catalog path \
-             within the namespace registry, e.g. `wasi/http`); add it before \
-             publishing to the registry"
-                .to_string()
-        })?;
-        validate_repository(repository)?;
-        validate_registry_ref(&package.registry_ref)?;
-
-        let registry = registry_base(&package.registry_ref, repository)?;
+        validate_registry(&package.registry)?;
+        validate_repository(&package.repository)?;
 
         Ok(Self {
             namespace: namespace.to_string(),
             package: name.to_string(),
             kind: package.kind.as_str(),
-            repository: repository.to_string(),
-            registry: registry.to_string(),
+            repository: package.repository.clone(),
+            registry: package.registry.clone(),
         })
     }
 }
@@ -188,14 +180,17 @@ fn parse_wit_name(name: &str) -> Result<(&str, &str)> {
 /// `repository` field).
 fn validate_repository(repository: &str) -> Result<()> {
     if repository.is_empty() {
-        bail!("`[package].registry_repository` must not be empty");
+        bail!("`[package].repository` must not be empty");
     }
     if repository.starts_with('/') || repository.ends_with('/') {
-        bail!("`[package].registry_repository` '{repository}' must not start or end with '/'");
+        bail!("`[package].repository` '{repository}' must not start or end with '/'");
+    }
+    if repository.split('/').any(str::is_empty) {
+        bail!("`[package].repository` '{repository}' must not contain empty path segments");
     }
     if !is_valid_repository_path(repository) {
         bail!(
-            "`[package].registry_repository` '{repository}' must start with an \
+            "`[package].repository` '{repository}' must start with an \
              alphanumeric and contain only ASCII letters, digits, `.`, `_`, `-`, \
              and `/`"
         );
@@ -213,44 +208,41 @@ fn is_valid_repository_path(repository: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/'))
 }
 
-/// Validate that `registry_ref` is a tag-less, digest-less OCI location.
-fn validate_registry_ref(registry_ref: &str) -> Result<()> {
-    if registry_ref.is_empty() {
-        bail!("`[package].registry_ref` must not be empty");
+/// Validate the namespace's OCI registry base (the issue form's `registry`
+/// field), e.g. `ghcr.io/webassembly`.
+///
+/// Mirrors `REGISTRY_RE` in `.github/scripts/registry-entry.mjs`, which allows
+/// `:` so the host may carry a `:port`.
+fn validate_registry(registry: &str) -> Result<()> {
+    if registry.is_empty() {
+        bail!("`[package].registry` must not be empty");
     }
-    if registry_ref.contains('@') {
-        bail!("`[package].registry_ref` '{registry_ref}' must not pin a digest");
+    if registry.starts_with('/') || registry.ends_with('/') {
+        bail!("`[package].registry` '{registry}' must not start or end with '/'");
     }
-    // A tag would appear as a ':' in the final path segment; the registry host
-    // may legitimately contain a ':port', which lives in the first segment.
-    let last_segment = registry_ref.rsplit('/').next().unwrap_or(registry_ref);
-    if last_segment.contains(':') {
-        bail!("`[package].registry_ref` '{registry_ref}' must not include a tag");
+    if registry.split('/').any(str::is_empty) {
+        bail!("`[package].registry` '{registry}' must not contain empty path segments");
+    }
+    if registry.contains('@') {
+        bail!("`[package].registry` '{registry}' must not pin a digest");
+    }
+    if !is_valid_registry(registry) {
+        bail!(
+            "`[package].registry` '{registry}' must start with an alphanumeric \
+             and contain only ASCII letters, digits, `.`, `_`, `-`, `:`, and `/`"
+        );
     }
     Ok(())
 }
 
-/// Derive the namespace's registry base by stripping the catalog `repository`
-/// from the end of `registry_ref`.
-///
-/// Errors when the two disagree, since that would register an entry pointing
-/// at a different OCI location than `component publish` pushes to.
-fn registry_base<'a>(registry_ref: &'a str, repository: &str) -> Result<&'a str> {
-    let suffix = format!("/{repository}");
-    let base = registry_ref.strip_suffix(&suffix).with_context(|| {
-        format!(
-            "`[package].registry_ref` '{registry_ref}' does not end with \
-             `/{repository}`; `registry_ref` must equal \
-             `<registry base>/<registry_repository>`"
-        )
-    })?;
-    if base.is_empty() {
-        bail!(
-            "`[package].registry_ref` '{registry_ref}' has no registry base \
-             before `/{repository}`"
-        );
-    }
-    Ok(base)
+fn is_valid_registry(registry: &str) -> bool {
+    registry
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphanumeric())
+        && registry
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | ':' | '/'))
 }
 
 /// Validate a `owner/name` GitHub repository slug used in the URL path.
@@ -358,7 +350,8 @@ mod tests {
         Package {
             name: "wasi:http".into(),
             version: "0.1.0".into(),
-            registry_ref: "ghcr.io/webassembly/wasi/http".into(),
+            registry: "ghcr.io/webassembly".into(),
+            repository: "wasi/http".into(),
             kind: PackageKind::Interface,
             file: None,
             wit: None,
@@ -368,7 +361,6 @@ mod tests {
             documentation: None,
             license: None,
             authors: vec![],
-            registry_repository: Some("wasi/http".into()),
         }
     }
 
@@ -383,24 +375,23 @@ mod tests {
     }
 
     #[test]
-    fn entry_requires_registry_repository() {
+    fn entry_requires_registry() {
         let mut pkg = sample_package();
-        pkg.registry_repository = None;
+        pkg.registry = String::new();
         assert!(RegistryEntry::from_package(&pkg).is_err());
     }
 
     #[test]
-    fn entry_rejects_ref_repository_mismatch() {
+    fn entry_requires_repository() {
         let mut pkg = sample_package();
-        pkg.registry_repository = Some("other/path".into());
+        pkg.repository = String::new();
         assert!(RegistryEntry::from_package(&pkg).is_err());
     }
 
     #[test]
-    fn entry_rejects_tagged_registry_ref() {
+    fn entry_rejects_registry_with_digest() {
         let mut pkg = sample_package();
-        pkg.registry_ref = "ghcr.io/webassembly/wasi/http:0.2.0".into();
-        pkg.registry_repository = Some("wasi/http".into());
+        pkg.registry = "ghcr.io/webassembly@sha256:abc".into();
         assert!(RegistryEntry::from_package(&pkg).is_err());
     }
 
@@ -439,13 +430,19 @@ mod tests {
     }
 
     #[test]
-    fn derives_registry_base() {
-        assert_eq!(
-            registry_base("ghcr.io/webassembly/wasi/http", "wasi/http").unwrap(),
-            "ghcr.io/webassembly"
-        );
-        assert!(registry_base("ghcr.io/webassembly/wasi/http", "other").is_err());
-        assert!(registry_base("wasi/http", "wasi/http").is_err());
+    fn validates_registry() {
+        assert!(validate_registry("ghcr.io/webassembly").is_ok());
+        assert!(validate_registry("ghcr.io").is_ok());
+        assert!(validate_registry("localhost:5000/team").is_ok());
+        assert!(validate_registry("registry.example.com:8443/org/sub").is_ok());
+        assert!(validate_registry("").is_err());
+        assert!(validate_registry("/leading").is_err());
+        assert!(validate_registry("trailing/").is_err());
+        assert!(validate_registry("ghcr.io//double").is_err());
+        assert!(validate_registry("ghcr.io/webassembly@sha256:abc").is_err());
+        assert!(validate_registry("ghcr.io/web assembly").is_err());
+        assert!(validate_registry(".ghcr.io/webassembly").is_err());
+        assert!(validate_registry("ghcr.io/caf\u{e9}").is_err());
     }
 
     #[test]

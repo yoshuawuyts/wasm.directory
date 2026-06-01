@@ -75,7 +75,8 @@ impl From<PackageKind> for PackageType {
 /// [package]
 /// name = "my-org:my-component"
 /// version = "0.1.0"
-/// registry_ref = "ghcr.io/my-org/my-component"
+/// registry = "ghcr.io/my-org"
+/// repository = "my-component"
 /// kind = "component"
 /// file = "build/my-component.wasm"
 /// description = "An example component"
@@ -85,7 +86,8 @@ impl From<PackageKind> for PackageType {
 /// let pkg = manifest.package.expect("package section");
 /// assert_eq!(pkg.kind, PackageKind::Component);
 /// assert_eq!(pkg.version, "0.1.0");
-/// assert_eq!(pkg.registry_ref, "ghcr.io/my-org/my-component");
+/// assert_eq!(pkg.registry, "ghcr.io/my-org");
+/// assert_eq!(pkg.repository, "my-component");
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
@@ -97,15 +99,25 @@ pub struct Package {
     /// During publish this version is the single source of truth: WIT
     /// package decls are stamped with it, and it becomes the OCI tag.
     pub version: String,
-    /// The fully-formed OCI repository reference this package is
-    /// published to, **without** a tag — for example
-    /// `ghcr.io/yoshuawuyts/fetch`. The published reference is
-    /// `<registry_ref>:<version>`.
+    /// The OCI registry base this package is published under, for
+    /// example `ghcr.io/webassembly`. This is the same value recorded as
+    /// `registry` in the registry's `registry/<namespace>.toml` entry.
     ///
-    /// There is intentionally no default and no shorthand: every
-    /// manifest must spell out the full destination so that publishing
-    /// is fully reproducible from the manifest alone.
-    pub registry_ref: String,
+    /// Combined with [`repository`](Self::repository), the full OCI
+    /// location is `<registry>/<repository>` and the published reference
+    /// is `<registry>/<repository>:<version>`. There is intentionally no
+    /// default and no shorthand: every manifest spells out its full
+    /// destination so that publishing is fully reproducible from the
+    /// manifest alone.
+    pub registry: String,
+    /// The OCI repository (catalog) path for this package within its
+    /// registry, for example `wasi/http`. This is the same value
+    /// recorded as `repository` in the registry's
+    /// `registry/<namespace>.toml` entry.
+    ///
+    /// This is the OCI repository path, **not** a source-code URL; use
+    /// [`source`](Self::source) for the project's source repository.
+    pub repository: String,
     /// What kind of artifact this manifest describes.
     pub kind: PackageKind,
     /// Path to the compiled component artifact, relative to the manifest
@@ -140,21 +152,6 @@ pub struct Package {
     /// `Name <email>`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub authors: Vec<String>,
-    /// Catalog path for this package within its namespace's OCI registry,
-    /// e.g. `wasi/http`.
-    ///
-    /// This is the `repository` value recorded in the registry's
-    /// `registry/<namespace>.toml` entry. The package's full OCI location is
-    /// `<namespace registry base>/<registry_repository>`. `component registry
-    /// publish` requires this to equal [`registry_ref`](Self::registry_ref) and
-    /// derives the namespace's registry base by stripping this path from the
-    /// end of `registry_ref`; note that [`Package::validate()`](Self::validate)
-    /// does not check this invariant.
-    ///
-    /// Optional: only needed to register the package with the component
-    /// registry via `component registry publish`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub registry_repository: Option<String>,
 }
 
 /// Errors produced when validating a [`Package`] section.
@@ -174,8 +171,10 @@ pub enum PackageError {
     },
     /// The `name` field is empty.
     EmptyName,
-    /// The `registry_ref` field is empty.
-    EmptyRegistryRef,
+    /// The `registry` field is empty.
+    EmptyRegistry,
+    /// The `repository` field is empty.
+    EmptyRepository,
 }
 
 impl std::fmt::Display for PackageError {
@@ -194,8 +193,11 @@ impl std::fmt::Display for PackageError {
                 "[package] version '{version}' is not a valid semver: {reason}"
             ),
             PackageError::EmptyName => write!(f, "[package] name must not be empty"),
-            PackageError::EmptyRegistryRef => {
-                write!(f, "[package] registry_ref must not be empty")
+            PackageError::EmptyRegistry => {
+                write!(f, "[package] registry must not be empty")
+            }
+            PackageError::EmptyRepository => {
+                write!(f, "[package] repository must not be empty")
             }
         }
     }
@@ -238,12 +240,16 @@ impl Package {
     /// * `kind` and `file`/`wit` disagree.
     /// * `version` is not a valid semver string.
     /// * `name` is empty.
+    /// * `registry` or `repository` is empty.
     pub fn validate(&self) -> Result<(), PackageError> {
         if self.name.is_empty() {
             return Err(PackageError::EmptyName);
         }
-        if self.registry_ref.is_empty() {
-            return Err(PackageError::EmptyRegistryRef);
+        if self.registry.is_empty() {
+            return Err(PackageError::EmptyRegistry);
+        }
+        if self.repository.is_empty() {
+            return Err(PackageError::EmptyRepository);
         }
         match self.kind {
             PackageKind::Component if self.wit.is_some() => {
@@ -274,7 +280,8 @@ mod tests {
             [package]
             name = "yoshuawuyts:fetch"
             version = "0.1.0"
-            registry_ref = "ghcr.io/yoshuawuyts/fetch"
+            registry = "ghcr.io/yoshuawuyts"
+            repository = "fetch"
             kind = "component"
             file = "build/fetch.wasm"
             description = "Tiny HTTP fetch helper"
@@ -284,7 +291,8 @@ mod tests {
         let manifest: Manifest = toml::from_str(toml).expect("parse");
         let pkg = manifest.package.expect("package");
         assert_eq!(pkg.name, "yoshuawuyts:fetch");
-        assert_eq!(pkg.registry_ref, "ghcr.io/yoshuawuyts/fetch");
+        assert_eq!(pkg.registry, "ghcr.io/yoshuawuyts");
+        assert_eq!(pkg.repository, "fetch");
         assert_eq!(pkg.kind, PackageKind::Component);
         assert_eq!(
             pkg.file.as_deref(),
@@ -302,14 +310,16 @@ mod tests {
             [package]
             name = "wasi:logging"
             version = "1.2.3"
-            registry_ref = "ghcr.io/yoshuawuyts/fetch"
+            registry = "ghcr.io/yoshuawuyts"
+            repository = "fetch"
             kind = "interface"
             wit = "wit"
         "#;
         let manifest: Manifest = toml::from_str(toml).expect("parse");
         let pkg = manifest.package.expect("package");
         assert_eq!(pkg.kind, PackageKind::Interface);
-        assert_eq!(pkg.registry_ref, "ghcr.io/yoshuawuyts/fetch");
+        assert_eq!(pkg.registry, "ghcr.io/yoshuawuyts");
+        assert_eq!(pkg.repository, "fetch");
         pkg.validate().expect("valid");
     }
 
@@ -327,7 +337,8 @@ mod tests {
         let pkg = Package {
             name: "a:b".into(),
             version: "0.1.0".into(),
-            registry_ref: "ghcr.io/a/b".into(),
+            registry: "ghcr.io/a".into(),
+            repository: "b".into(),
             kind: PackageKind::Component,
             file: None,
             wit: Some(PathBuf::from("wit")),
@@ -337,7 +348,6 @@ mod tests {
             documentation: None,
             license: None,
             authors: vec![],
-            registry_repository: None,
         };
         assert_eq!(pkg.validate(), Err(PackageError::ComponentWithWit));
     }
@@ -348,7 +358,8 @@ mod tests {
         let pkg = Package {
             name: "a:b".into(),
             version: "0.1.0".into(),
-            registry_ref: "ghcr.io/a/b".into(),
+            registry: "ghcr.io/a".into(),
+            repository: "b".into(),
             kind: PackageKind::Interface,
             file: Some(PathBuf::from("x.wasm")),
             wit: None,
@@ -358,7 +369,6 @@ mod tests {
             documentation: None,
             license: None,
             authors: vec![],
-            registry_repository: None,
         };
         assert_eq!(pkg.validate(), Err(PackageError::InterfaceWithFile));
     }
@@ -369,7 +379,8 @@ mod tests {
         let pkg = Package {
             name: "a:b".into(),
             version: "not-a-version".into(),
-            registry_ref: "ghcr.io/a/b".into(),
+            registry: "ghcr.io/a".into(),
+            repository: "b".into(),
             kind: PackageKind::Component,
             file: None,
             wit: None,
@@ -379,7 +390,6 @@ mod tests {
             documentation: None,
             license: None,
             authors: vec![],
-            registry_repository: None,
         };
         assert!(matches!(
             pkg.validate(),
@@ -393,7 +403,8 @@ mod tests {
         let pkg = Package {
             name: String::new(),
             version: "0.1.0".into(),
-            registry_ref: "ghcr.io/a/b".into(),
+            registry: "ghcr.io/a".into(),
+            repository: "b".into(),
             kind: PackageKind::Component,
             file: None,
             wit: None,
@@ -403,18 +414,18 @@ mod tests {
             documentation: None,
             license: None,
             authors: vec![],
-            registry_repository: None,
         };
         assert_eq!(pkg.validate(), Err(PackageError::EmptyName));
     }
 
-    // r[verify manifest.package.empty-registry-ref]
+    // r[verify manifest.package.empty-registry]
     #[test]
-    fn empty_registry_ref_is_rejected() {
+    fn empty_registry_is_rejected() {
         let pkg = Package {
             name: "a:b".into(),
             version: "0.1.0".into(),
-            registry_ref: String::new(),
+            registry: String::new(),
+            repository: "b".into(),
             kind: PackageKind::Component,
             file: None,
             wit: None,
@@ -424,9 +435,29 @@ mod tests {
             documentation: None,
             license: None,
             authors: vec![],
-            registry_repository: None,
         };
-        assert_eq!(pkg.validate(), Err(PackageError::EmptyRegistryRef));
+        assert_eq!(pkg.validate(), Err(PackageError::EmptyRegistry));
+    }
+
+    // r[verify manifest.package.empty-repository]
+    #[test]
+    fn empty_repository_is_rejected() {
+        let pkg = Package {
+            name: "a:b".into(),
+            version: "0.1.0".into(),
+            registry: "ghcr.io/a".into(),
+            repository: String::new(),
+            kind: PackageKind::Component,
+            file: None,
+            wit: None,
+            description: None,
+            source: None,
+            homepage: None,
+            documentation: None,
+            license: None,
+            authors: vec![],
+        };
+        assert_eq!(pkg.validate(), Err(PackageError::EmptyRepository));
     }
 
     // r[verify manifest.package.default-paths]
@@ -435,7 +466,8 @@ mod tests {
         let pkg = Package {
             name: "yoshuawuyts:fetch".into(),
             version: "0.1.0".into(),
-            registry_ref: "ghcr.io/a/b".into(),
+            registry: "ghcr.io/a".into(),
+            repository: "b".into(),
             kind: PackageKind::Component,
             file: None,
             wit: None,
@@ -445,7 +477,6 @@ mod tests {
             documentation: None,
             license: None,
             authors: vec![],
-            registry_repository: None,
         };
         assert_eq!(pkg.artifact_path(), PathBuf::from("build/fetch.wasm"));
 

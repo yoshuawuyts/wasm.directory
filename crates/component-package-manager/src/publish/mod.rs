@@ -162,16 +162,17 @@ pub fn build_annotations(pkg: &Package, created: DateTime<Utc>) -> BTreeMap<Stri
 
 /// Resolve the OCI reference for a given `[package]` section.
 ///
-/// The reference is built directly from `[package].registry_ref` and
-/// `[package].version` as `<registry_ref>:<version>` — `registry_ref`
-/// is expected to be a fully-formed repository URI (host + path),
-/// e.g. `ghcr.io/yoshuawuyts/fetch`.
+/// The reference is built from `[package].registry`,
+/// `[package].repository`, and `[package].version` as
+/// `<registry>/<repository>:<version>` — `registry` is the OCI registry
+/// base (host + optional path, e.g. `ghcr.io/yoshuawuyts`) and
+/// `repository` is the catalog path within it (e.g. `yoshuawuyts/fetch`).
 ///
 /// # Errors
 ///
 /// Returns an error when the resulting reference cannot be parsed.
 pub fn resolve_reference(pkg: &Package) -> Result<Reference> {
-    let s = format!("{}:{}", pkg.registry_ref, pkg.version);
+    let s = format!("{}/{}:{}", pkg.registry, pkg.repository, pkg.version);
     s.parse::<Reference>()
         .with_context(|| format!("failed to parse OCI reference `{s}`"))
 }
@@ -197,8 +198,9 @@ pub fn require_package(manifest: &Manifest) -> Result<&Package> {
 ///
 /// `manifest_dir` is the directory containing `wasm.toml` (used to
 /// resolve relative paths in `[package].file` / `[package].wit`). The
-/// target reference is read from the manifest's `[package].registry_ref`
-/// and `[package].version` fields — there is no implicit default.
+/// target reference is read from the manifest's `[package].registry`,
+/// `[package].repository`, and `[package].version` fields — there is no
+/// implicit default.
 pub async fn plan(manifest: &Manifest, manifest_dir: &Path) -> Result<PublishPlan> {
     let pkg = require_package(manifest)?;
     let reference = resolve_reference(pkg)?;
@@ -224,7 +226,8 @@ mod tests {
         Package {
             name: "yoshuawuyts:fetch".into(),
             version: "0.1.0".into(),
-            registry_ref: "ghcr.io/yoshuawuyts/fetch".into(),
+            registry: "ghcr.io/yoshuawuyts".into(),
+            repository: "fetch".into(),
             kind: PackageKind::Component,
             file: None,
             wit: None,
@@ -234,7 +237,6 @@ mod tests {
             documentation: Some("https://docs.example.com".into()),
             license: Some("Apache-2.0".into()),
             authors: vec!["Yosh <yosh@example.com>".into()],
-            registry_repository: None,
         }
     }
 
@@ -295,7 +297,7 @@ mod tests {
 
     // r[verify publish.reference.resolves]
     #[test]
-    fn reference_is_built_from_registry_ref_and_version() {
+    fn reference_is_built_from_registry_and_repository() {
         let pkg = sample_pkg();
         let r = resolve_reference(&pkg).expect("ok");
         assert_eq!(r.registry(), "ghcr.io");
@@ -307,7 +309,7 @@ mod tests {
     #[test]
     fn reference_rejects_unparseable_ref() {
         let mut pkg = sample_pkg();
-        pkg.registry_ref = "not a valid ref".into();
+        pkg.registry = "not a valid ref".into();
         assert!(resolve_reference(&pkg).is_err());
     }
 

@@ -746,7 +746,8 @@ fn test_publish_dry_run_interface() {
         "[package]\n\
          name = \"example:hello\"\n\
          version = \"0.1.0\"\n\
-         registry_ref = \"ghcr.io/example/hello\"\n\
+         registry = \"ghcr.io/example\"\n\
+         repository = \"hello\"\n\
          kind = \"interface\"\n\
          wit = \"wit\"\n\
          description = \"An example greeting interface\"\n\
@@ -789,7 +790,8 @@ fn test_publish_dry_run_rejects_versioned_wit() {
         "[package]\n\
          name = \"example:hello\"\n\
          version = \"0.1.0\"\n\
-         registry_ref = \"ghcr.io/example/hello\"\n\
+         registry = \"ghcr.io/example\"\n\
+         repository = \"hello\"\n\
          kind = \"interface\"\n\
          wit = \"wit\"\n",
     )
