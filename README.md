@@ -119,7 +119,7 @@ from a project that has a `[package]` section in its `wasm.toml`:
 component registry publish
 ```
 
-It reads the package's `name`, `kind`, `registry`, and `repository`
+It reads the package's `name`, `kind`, and `registry`
 from `wasm.toml`, checks whether the package is already in the registry, and (if
 not) opens the **Registry entry** issue form in your browser with the fields
 already filled in. If the package already exists in the registry, it reports
@@ -131,17 +131,16 @@ The relevant `[package]` fields look like this:
 
 ```toml
 [package]
-name = "wasi:http"                # namespace:package
+name = "wasi:http"                          # namespace:package
+kind = "interface"                          # or "component"
 version = "0.2.0"
-kind = "interface"                # or "component"
-registry = "ghcr.io/webassembly"  # OCI registry base (host + optional path)
-repository = "wasi/http"          # catalog path within the registry
+registry = "ghcr.io/webassembly/wasi/http"  # full OCI location, no tag
 ```
 
-The full OCI location is `<registry>/<repository>` (e.g.
-`ghcr.io/webassembly/wasi/http`), matching the registry entry's `registry`
-and `repository` fields. `component publish` pushes to
-`<registry>/<repository>:<version>`.
+`registry` is the full OCI location (host + path). `component publish` pushes
+to `<registry>:<version>`. When opening a registry-entry issue, the namespace
+base (`ghcr.io/webassembly`) and catalog path (`wasi/http`) are derived from it
+to match the registry entry's `registry` and `repository` fields.
 
 [registry-entry-issue]: https://github.com/yoshuawuyts/component-registry/issues/new?template=registry-entry.yml
 

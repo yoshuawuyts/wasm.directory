@@ -71,17 +71,15 @@ default and no shorthand — so publishing is fully reproducible from
 # Package identity in `namespace:name` form. Used as the OCI artifact
 # title and (for interfaces) stamped onto WIT package decls.
 name = "yoshuawuyts:fetch"
+# What kind of artifact this manifest publishes: "component" or "interface".
+kind = "component"
 # Semver version. The single source of truth: WIT files must not
 # declare their own `@version` — the publisher stamps this onto every
 # top-level `package` decl during build. Becomes the OCI tag.
 version = "0.1.0"
-# OCI registry base (host + optional path), without a repository or tag.
-# The published reference is `<registry>/<repository>:<version>`.
-registry = "ghcr.io/yoshuawuyts"
-# Catalog path within the registry (the namespace/package location).
-repository = "yoshuawuyts/fetch"
-# What kind of artifact this manifest publishes: "component" or "interface".
-kind = "component"
+# Full OCI location (host + path), without a tag. The published reference
+# is `<registry>:<version>`.
+registry = "ghcr.io/yoshuawuyts/fetch"
 # Path to the compiled component, relative to the manifest directory.
 # Defaults to `build/<name-after-colon>.wasm` if omitted.
 file = "build/fetch.wasm"
@@ -96,10 +94,9 @@ For an interface package, point `wit` at the WIT directory:
 ```toml
 [package]
 name = "wasi:logging"
-version = "1.0.0"
-registry = "ghcr.io/wasi"
-repository = "wasi/logging"
 kind = "interface"
+version = "1.0.0"
+registry = "ghcr.io/wasi/logging"
 # Path to the WIT directory, relative to the manifest. Defaults to "wit".
 wit = "wit"
 ```
@@ -117,7 +114,7 @@ component publish --dry-run
 Publish for real:
 
 ```bash
-component publish                       # uses [package].registry + repository
+component publish                       # uses [package].registry
 component publish --file build/x.wasm   # override the artifact path
 ```
 

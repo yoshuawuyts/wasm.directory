@@ -745,10 +745,9 @@ fn test_publish_dry_run_interface() {
         dir.path().join("wasm.toml"),
         "[package]\n\
          name = \"example:hello\"\n\
-         version = \"0.1.0\"\n\
-         registry = \"ghcr.io/example\"\n\
-         repository = \"hello\"\n\
          kind = \"interface\"\n\
+         version = \"0.1.0\"\n\
+         registry = \"ghcr.io/example/hello\"\n\
          wit = \"wit\"\n\
          description = \"An example greeting interface\"\n\
          license = \"Apache-2.0\"\n",
@@ -789,10 +788,9 @@ fn test_publish_dry_run_rejects_versioned_wit() {
         dir.path().join("wasm.toml"),
         "[package]\n\
          name = \"example:hello\"\n\
-         version = \"0.1.0\"\n\
-         registry = \"ghcr.io/example\"\n\
-         repository = \"hello\"\n\
          kind = \"interface\"\n\
+         version = \"0.1.0\"\n\
+         registry = \"ghcr.io/example/hello\"\n\
          wit = \"wit\"\n",
     )
     .unwrap();

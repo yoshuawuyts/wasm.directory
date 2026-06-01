@@ -83,9 +83,8 @@ impl PublishOpts {
 
         let package = manifest.package.with_context(|| {
             format!(
-                "`{}` has no `[package]` section; add one (name, version, \
-                 registry, repository, kind) before publishing to \
-                 the registry",
+                "`{}` has no `[package]` section; add one (name, kind, \
+                 version, registry) before publishing to the registry",
                 manifest_file.display()
             )
         })?;
@@ -112,16 +111,14 @@ struct RegistryEntry {
 impl RegistryEntry {
     fn from_package(package: &component_manifest::Package) -> Result<Self> {
         let (namespace, name) = parse_wit_name(&package.name)?;
-
-        validate_registry(&package.registry)?;
-        validate_repository(&package.repository)?;
+        let (registry, repository) = split_registry_ref(&package.registry)?;
 
         Ok(Self {
             namespace: namespace.to_string(),
             package: name.to_string(),
             kind: package.kind.as_str(),
-            repository: package.repository.clone(),
-            registry: package.registry.clone(),
+            repository,
+            registry,
         })
     }
 }
@@ -176,26 +173,65 @@ fn parse_wit_name(name: &str) -> Result<(&str, &str)> {
     Ok((namespace, package))
 }
 
-/// Validate the registry-catalog repository path (the issue form's
-/// `repository` field).
-fn validate_repository(repository: &str) -> Result<()> {
-    if repository.is_empty() {
-        bail!("`[package].repository` must not be empty");
+/// Split the manifest's full OCI `registry` reference into the registry
+/// schema's two parts: the namespace's registry base (the issue form's
+/// `registry` field, e.g. `ghcr.io/webassembly`) and the catalog path
+/// (the issue form's `repository` field, e.g. `wasi/http`).
+///
+/// The base is taken as the first two `/`-separated segments (host plus
+/// namespace org) and the repository is everything after. This matches the
+/// `<host>/<org>` + `<repository>` convention used by every existing
+/// `registry/<namespace>.toml`. The result only ever prefills a
+/// human-reviewed issue form, so the split does not need to be authoritative.
+///
+/// Mirrors `REGISTRY_RE`/`REPO_RE` in `.github/scripts/registry-entry.mjs`
+/// (the base allows `:` for a host `:port`; the repository does not).
+fn split_registry_ref(reference: &str) -> Result<(String, String)> {
+    if reference.is_empty() {
+        bail!("`[package].registry` must not be empty");
     }
-    if repository.starts_with('/') || repository.ends_with('/') {
-        bail!("`[package].repository` '{repository}' must not start or end with '/'");
+    if reference.contains('@') {
+        bail!("`[package].registry` '{reference}' must not pin a digest");
     }
-    if repository.split('/').any(str::is_empty) {
-        bail!("`[package].repository` '{repository}' must not contain empty path segments");
+    if reference.starts_with('/') || reference.ends_with('/') {
+        bail!("`[package].registry` '{reference}' must not start or end with '/'");
     }
-    if !is_valid_repository_path(repository) {
+    let segments: Vec<&str> = reference.split('/').collect();
+    if segments.iter().any(|s| s.is_empty()) {
+        bail!("`[package].registry` '{reference}' must not contain empty path segments");
+    }
+    let [host, org, rest @ ..] = segments.as_slice() else {
         bail!(
-            "`[package].repository` '{repository}' must start with an \
-             alphanumeric and contain only ASCII letters, digits, `.`, `_`, `-`, \
-             and `/`"
+            "`[package].registry` '{reference}' must include a host, namespace, \
+             and at least one repository segment (e.g. `ghcr.io/my-org/my-package`)"
+        );
+    };
+    if rest.is_empty() {
+        bail!(
+            "`[package].registry` '{reference}' must include a host, namespace, \
+             and at least one repository segment (e.g. `ghcr.io/my-org/my-package`)"
         );
     }
-    Ok(())
+    // Only the host (first segment) may carry a `:port`; a `:` elsewhere is a tag.
+    if org.contains(':') || rest.iter().any(|s| s.contains(':')) {
+        bail!("`[package].registry` '{reference}' must not include a tag");
+    }
+
+    let registry = format!("{host}/{org}");
+    let repository = rest.join("/");
+    if !is_valid_registry(&registry) {
+        bail!(
+            "`[package].registry` base '{registry}' must start with an alphanumeric \
+             and contain only ASCII letters, digits, `.`, `_`, `-`, `:`, and `/`"
+        );
+    }
+    if !is_valid_repository_path(&repository) {
+        bail!(
+            "`[package].registry` repository path '{repository}' must start with an \
+             alphanumeric and contain only ASCII letters, digits, `.`, `_`, `-`, and `/`"
+        );
+    }
+    Ok((registry, repository))
 }
 
 fn is_valid_repository_path(repository: &str) -> bool {
@@ -206,33 +242,6 @@ fn is_valid_repository_path(repository: &str) -> bool {
         && repository
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/'))
-}
-
-/// Validate the namespace's OCI registry base (the issue form's `registry`
-/// field), e.g. `ghcr.io/webassembly`.
-///
-/// Mirrors `REGISTRY_RE` in `.github/scripts/registry-entry.mjs`, which allows
-/// `:` so the host may carry a `:port`.
-fn validate_registry(registry: &str) -> Result<()> {
-    if registry.is_empty() {
-        bail!("`[package].registry` must not be empty");
-    }
-    if registry.starts_with('/') || registry.ends_with('/') {
-        bail!("`[package].registry` '{registry}' must not start or end with '/'");
-    }
-    if registry.split('/').any(str::is_empty) {
-        bail!("`[package].registry` '{registry}' must not contain empty path segments");
-    }
-    if registry.contains('@') {
-        bail!("`[package].registry` '{registry}' must not pin a digest");
-    }
-    if !is_valid_registry(registry) {
-        bail!(
-            "`[package].registry` '{registry}' must start with an alphanumeric \
-             and contain only ASCII letters, digits, `.`, `_`, `-`, `:`, and `/`"
-        );
-    }
-    Ok(())
 }
 
 fn is_valid_registry(registry: &str) -> bool {
@@ -350,8 +359,7 @@ mod tests {
         Package {
             name: "wasi:http".into(),
             version: "0.1.0".into(),
-            registry: "ghcr.io/webassembly".into(),
-            repository: "wasi/http".into(),
+            registry: "ghcr.io/webassembly/wasi/http".into(),
             kind: PackageKind::Interface,
             file: None,
             wit: None,
@@ -382,16 +390,23 @@ mod tests {
     }
 
     #[test]
-    fn entry_requires_repository() {
+    fn entry_rejects_registry_without_repository_segment() {
         let mut pkg = sample_package();
-        pkg.repository = String::new();
+        pkg.registry = "ghcr.io/webassembly".into();
         assert!(RegistryEntry::from_package(&pkg).is_err());
     }
 
     #[test]
     fn entry_rejects_registry_with_digest() {
         let mut pkg = sample_package();
-        pkg.registry = "ghcr.io/webassembly@sha256:abc".into();
+        pkg.registry = "ghcr.io/webassembly/wasi/http@sha256:abc".into();
+        assert!(RegistryEntry::from_package(&pkg).is_err());
+    }
+
+    #[test]
+    fn entry_rejects_tagged_registry() {
+        let mut pkg = sample_package();
+        pkg.registry = "ghcr.io/webassembly/wasi/http:0.2.0".into();
         assert!(RegistryEntry::from_package(&pkg).is_err());
     }
 
@@ -410,39 +425,41 @@ mod tests {
     }
 
     #[test]
-    fn validates_repository_path() {
-        assert!(validate_repository("wasi/http").is_ok());
-        assert!(validate_repository("components/http-server").is_ok());
-        assert!(validate_repository("wasm-pkg/fermyon-experimental/azure-client").is_ok());
-        assert!(validate_repository("just-a-name").is_ok());
-        assert!(validate_repository("").is_err());
-        assert!(validate_repository("/leading").is_err());
-        assert!(validate_repository("trailing/").is_err());
-        assert!(validate_repository("with:tag").is_err());
-        assert!(validate_repository("with space").is_err());
-        assert!(validate_repository("wasi/ht%2Ftp").is_err());
-        assert!(validate_repository("wasi/ht\ttp").is_err());
-        assert!(validate_repository("wasi/ht\ntp").is_err());
-        assert!(validate_repository(".wasi/http").is_err());
-        assert!(validate_repository("_wasi/http").is_err());
-        assert!(validate_repository("-wasi/http").is_err());
-        assert!(validate_repository("wasi/café").is_err());
-    }
+    fn splits_registry_ref() {
+        // Splits host+org base from the catalog path, matching the
+        // conventions used by every existing registry/<namespace>.toml.
+        assert_eq!(
+            split_registry_ref("ghcr.io/webassembly/wasi/http").unwrap(),
+            ("ghcr.io/webassembly".to_string(), "wasi/http".to_string())
+        );
+        assert_eq!(
+            split_registry_ref("ghcr.io/microsoft/fetch-rs").unwrap(),
+            ("ghcr.io/microsoft".to_string(), "fetch-rs".to_string())
+        );
+        assert_eq!(
+            split_registry_ref("ghcr.io/fermyon/wasm-pkg/fermyon/hello-world").unwrap(),
+            (
+                "ghcr.io/fermyon".to_string(),
+                "wasm-pkg/fermyon/hello-world".to_string()
+            )
+        );
+        assert_eq!(
+            split_registry_ref("localhost:5000/team/my-pkg").unwrap(),
+            ("localhost:5000/team".to_string(), "my-pkg".to_string())
+        );
 
-    #[test]
-    fn validates_registry() {
-        assert!(validate_registry("ghcr.io/webassembly").is_ok());
-        assert!(validate_registry("ghcr.io").is_ok());
-        assert!(validate_registry("localhost:5000/team").is_ok());
-        assert!(validate_registry("registry.example.com:8443/org/sub").is_ok());
-        assert!(validate_registry("").is_err());
-        assert!(validate_registry("/leading").is_err());
-        assert!(validate_registry("trailing/").is_err());
-        assert!(validate_registry("ghcr.io//double").is_err());
-        assert!(validate_registry("ghcr.io/webassembly@sha256:abc").is_err());
-        assert!(validate_registry("ghcr.io/web assembly").is_err());
-        assert!(validate_registry(".ghcr.io/webassembly").is_err());
-        assert!(validate_registry("ghcr.io/caf\u{e9}").is_err());
+        // Rejections.
+        assert!(split_registry_ref("").is_err());
+        assert!(split_registry_ref("ghcr.io/webassembly").is_err()); // no repo segment
+        assert!(split_registry_ref("/leading/foo/bar").is_err());
+        assert!(split_registry_ref("ghcr.io/webassembly/wasi/http/").is_err());
+        assert!(split_registry_ref("ghcr.io//wasi/http").is_err());
+        assert!(split_registry_ref("ghcr.io/webassembly/wasi/http:0.2.0").is_err()); // tag
+        assert!(split_registry_ref("ghcr.io/webassembly/wasi/http@sha256:abc").is_err());
+        assert!(split_registry_ref("ghcr.io/web assembly/wasi/http").is_err());
+        assert!(split_registry_ref("ghcr.io/webassembly/wasi/ht%2Ftp").is_err());
+        assert!(split_registry_ref("ghcr.io/webassembly/wasi/ht\ttp").is_err());
+        assert!(split_registry_ref("ghcr.io/webassembly/wasi/caf\u{e9}").is_err());
     }
 
     #[test]
