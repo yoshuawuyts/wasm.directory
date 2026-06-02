@@ -96,7 +96,7 @@ For an interface package, point `wit` at the WIT directory:
 name = "wasi:logging"
 kind = "interface"
 version = "1.0.0"
-registry = "ghcr.io/wasi/logging"
+registry = "ghcr.io/webassembly/wasi/logging"
 # Path to the WIT directory, relative to the manifest. Defaults to "wit".
 wit = "wit"
 ```
