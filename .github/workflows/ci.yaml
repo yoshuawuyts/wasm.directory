@@ -24,7 +24,7 @@ jobs:
         rust: [stable]
 
     steps:
-    - uses: actions/checkout@master
+    - uses: actions/checkout@v4
 
     - name: Run sccache-cache only on non-release runs
       if: github.event_name != 'release' && github.event_name != 'workflow_dispatch'
@@ -37,11 +37,10 @@ jobs:
         echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
 
     - name: Install ${{ matrix.rust }}
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: ${{ matrix.rust }}
         components: rustfmt, clippy
-        override: true
 
     - name: Install cargo-nextest
       uses: taiki-e/install-action@cargo-nextest
@@ -66,7 +65,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-    - uses: actions/checkout@master
+    - uses: actions/checkout@v4
 
     - name: Run sccache-cache only on non-release runs
       if: github.event_name != 'release' && github.event_name != 'workflow_dispatch'
@@ -79,10 +78,9 @@ jobs:
         echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
 
     - name: Install stable toolchain
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: stable
-        override: true
 
     - name: Apply migrations to Postgres
       env:
@@ -93,7 +91,7 @@ jobs:
     name: Checking docs
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@master
+    - uses: actions/checkout@v4
 
     - name: Run sccache-cache only on non-release runs
       if: github.event_name != 'release' && github.event_name != 'workflow_dispatch'
@@ -105,10 +103,9 @@ jobs:
         echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
         echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
 
-    - uses: actions-rs/toolchain@v1
+    - uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: stable
-        override: true
 
     - name: Docs
       run: cargo doc --no-deps --workspace

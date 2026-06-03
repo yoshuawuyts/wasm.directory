@@ -9,36 +9,62 @@ familiarize yourself with the codebase, you are in the right place.
 Wasm Components and WIT interfaces from OCI registries, run components via
 Wasmtime with sandboxed permissions, and manage local state through the CLI.
 
-The project is a Cargo workspace with six crates:
+The project is a Cargo workspace with twelve crates:
 
 ```
 crates/
-├── component-cli              # Binary — the `component(1)` command
-├── component-package-manager  # Library — OCI registry interaction, caching, metadata
-├── component-manifest         # Library — manifest and lockfile types
-├── component-detector         # Library — local .wasm file discovery
-├── component-meta-registry    # Binary + library — HTTP metadata server for package search
-└── xtask                 # Internal — build automation (fmt, clippy, test, SQL migrations)
+├── component-cli                      # Binary — the `component(1)` command
+├── component-cli-internal-run         # Library — internal Wasmtime component execution for the CLI
+├── wit2cli                            # Library — translate a component's WIT exports into a clap sub-CLI
+├── component-package-manager          # Library — OCI registry interaction, caching, metadata
+├── component-package-manager-migration # Library — SeaORM migrations and entity definitions
+├── component-manifest                 # Library — manifest and lockfile types
+├── component-detector                 # Library — local .wasm file discovery
+├── component-meta-registry            # Binary + library — HTTP metadata server for package search
+├── component-meta-registry-client     # Library — HTTP client for a meta-registry instance
+├── component-meta-registry-types      # Library — shared serde wire types for the meta-registry API
+├── component-frontend                 # Binary — server-side rendered web frontend (wasm32-wasip2 component)
+└── xtask                              # Internal — build automation (fmt, clippy, test, SQL migrations)
 ```
 
 ## Crate Dependency Graph
 
 ```
-component-cli ──────────┬──► component-package-manager ──► component-manifest
-                   │
-                   ├──► component-manifest
-                   │
-                   └──► component-detector
+component-cli ──────┬──► component-cli-internal-run ──► component-manifest
+                    ├──► wit2cli
+                    ├──► component-detector
+                    ├──► component-manifest
+                    ├──► component-meta-registry-types
+                    └──► component-package-manager ──┬──► component-package-manager-migration
+                                                     ├──► component-detector
+                                                     ├──► component-manifest
+                                                     ├──► component-meta-registry-client ──► component-meta-registry-types
+                                                     └──► component-meta-registry-types
 
-component-meta-registry ───► component-package-manager ──► component-manifest
+component-meta-registry ──┬──► component-package-manager
+                          └──► component-meta-registry-types
+
+component-frontend   (standalone wasm32-wasip2 component)
 ```
 
 `component-cli` is the main entry point. It depends on `component-package-manager` for all
-registry and storage operations, on `component-manifest` for reading project manifests
-and lockfiles, and on `component-detector` for finding local `.wasm` files.
+registry and storage operations, on `component-manifest` for reading project manifests and
+lockfiles, on `component-detector` for finding local `.wasm` files, on
+`component-cli-internal-run` for executing components via Wasmtime, on `wit2cli` for
+exposing a component's WIT exports as CLI sub-commands, and on
+`component-meta-registry-types` for deserializing search results.
+
+`component-package-manager` is the core library. It depends on
+`component-package-manager-migration` for the database schema,
+`component-meta-registry-client` for syncing the local package index from a meta-registry,
+and on `component-meta-registry-types`, `component-detector`, and `component-manifest`.
 
 `component-meta-registry` is an independent server binary that also uses
-`component-package-manager` to index OCI registries and expose a search API.
+`component-package-manager` to index OCI registries and expose a search API, sharing its
+wire types via `component-meta-registry-types`.
+
+`component-frontend` is a standalone server-side rendered web frontend compiled as a
+`wasm32-wasip2` component; it is not depended on by any other crate.
 
 `xtask` is a development-only crate and is not depended on by any other crate.
 
@@ -72,6 +98,34 @@ Permissions are resolved through a four-layer merge:
 
 The `RunPermissions` type is defined in `component-manifest` and controls environment
 variables, directory access, stdio inheritance, and network access.
+
+### Component Execution
+
+The actual Wasmtime execution is delegated to `component-cli-internal-run`. The CLI
+resolves permissions and arguments, then hands the component bytes off for invocation.
+
+## component-cli-internal-run
+
+An internal library in `crates/component-cli-internal-run` that executes WebAssembly
+components via [wasmtime]. It is **not** intended for third-party use — it is an
+implementation detail of `component-cli` and its API may change without notice. It exposes
+three entry points:
+
+- **`validate_component`** — checks that a byte slice is a Wasm Component (not a core
+  module or WIT-only package).
+- **`execute_cli_component`** — builds the Wasmtime runtime, wires WASI permissions,
+  instantiates the component, and invokes `wasi:cli/run@0.2.0#run`.
+- **`execute_library_function`** — invokes an arbitrary exported function on a
+  "library-style" component using wasmtime's untyped `Func::call` API.
+
+## wit2cli
+
+A library in `crates/wit2cli` that translates a WebAssembly component's WIT exports into a
+[clap] `Command`. Given a compiled component, it extracts a `LibrarySurface` describing
+every exported function, builds a `clap::Command` mirroring the WIT shape, and converts
+parsed `ArgMatches` into a `Vec<Val>` ready to hand off to wasmtime. The type-mapping rules
+are documented end-to-end by the snapshot tests under `crates/wit2cli/tests/snapshots/`.
+`component-cli` uses it to expose a component's exported functions as CLI sub-commands.
 
 ## component-package-manager
 
@@ -168,6 +222,15 @@ it in `Migrator::migrations()`. The same migration set drives both SQLite
 and PostgreSQL; per-backend SQL fragments (e.g. trigger bodies) live in
 `migrations/triggers.rs` and dispatch on `manager.get_database_backend()`.
 
+## component-package-manager-migration
+
+A library in `crates/component-package-manager-migration` that defines the database schema
+for `component-package-manager`. It contains the SeaORM migration modules (applied in the
+order registered in `Migrator::migrations()`) and the entity definitions used by the store.
+Both SQLite and PostgreSQL are supported; per-backend SQL fragments (e.g. trigger bodies)
+live in `migrations/triggers.rs` and dispatch on `SchemaManager::get_database_backend()`.
+See [Database Schema](#database-schema) above for the schema layout.
+
 ## component-manifest
 
 A small serialization library in `crates/component-manifest`. It defines the types
@@ -205,6 +268,21 @@ exposes a search API. It consists of:
 - **`server.rs`** — [axum] HTTP router with search endpoints.
 
 [axum]: https://docs.rs/axum
+
+## component-meta-registry-types
+
+A dependency-light library in `crates/component-meta-registry-types` that defines the
+shared wire types serialized as JSON between the meta-registry server and its clients. It
+has no HTTP, database, or runtime dependencies — only `serde`. Both
+`component-meta-registry` (server), `component-meta-registry-client`, and `component-cli`
+depend on it so that the request/response shapes (such as `KnownPackage`) stay in sync.
+
+## component-frontend
+
+A standalone server-side rendered web frontend in `crates/component-frontend`, compiled as
+a `wasm32-wasip2` component targeting `wasi:http`. It uses `wstd-axum` for routing and the
+`html` crate for type-safe HTML generation. It is an independent component and is not
+depended on by any other crate.
 
 ## xtask
 
