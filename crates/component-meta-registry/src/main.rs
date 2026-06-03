@@ -98,7 +98,11 @@ async fn main() -> anyhow::Result<()> {
 
     let state = Arc::new(tokio::sync::RwLock::new(server_manager));
 
-    // Start background indexer on a dedicated thread (Manager is !Sync)
+    // Run the background indexer on its own dedicated OS thread with a
+    // single-threaded runtime and `LocalSet`, isolating its long-running
+    // indexing loop from the Axum server's worker runtime. (The server
+    // shares the `Manager` via `Arc<RwLock<Manager>>`, so `Manager` is
+    // `Send + Sync`; the indexer simply runs on a separate runtime.)
     let indexer_config = config.clone();
     let cli_refetch = cli.refetch;
     let indexer_handle = std::thread::spawn(move || {

@@ -16,14 +16,14 @@ use tower_http::trace::TraceLayer;
 
 /// Shared application state wrapping a `Manager` in a `tokio::sync::RwLock`.
 ///
-/// All `Manager` query/mutation methods take `&self` (interior mutability via
-/// a connection pool), so multiple read-only requests can safely share access.
-/// Read-only endpoints (search, list, get, detail, versions, queue status)
-/// acquire a read lock and therefore run concurrently, while endpoints that
-/// trigger state changes (e.g. `notify_new_version`) acquire a write lock so
-/// they are serialized against each other and against readers. This replaces
-/// the previous `tokio::sync::Mutex`, which serialized *every* request and
-/// limited throughput.
+/// All `Manager` query/mutation methods take `&self` and `Manager` performs
+/// its own internal synchronization (it is backed by a database connection
+/// pool), so every handler — including the `notify_new_version` write path —
+/// acquires a *read* lock and requests run concurrently. The `RwLock` (rather
+/// than a bare `Arc<Manager>`) is kept so that a future `Manager` method
+/// requiring exclusive `&mut self` access could take a write lock without
+/// changing this state type. This replaces the previous `tokio::sync::Mutex`,
+/// which serialized *every* request and limited throughput.
 ///
 /// # Example
 ///
@@ -394,7 +394,7 @@ async fn notify_new_version(
             .into_response());
     }
 
-    let manager = manager.write().await;
+    let manager = manager.read().await;
 
     // Only allow notifications for packages we already know about. This
     // prevents arbitrary clients from filling the fetch queue with
@@ -443,11 +443,26 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
+    /// Open a `Manager` backed by an isolated temporary data directory.
+    ///
+    /// Using a per-test temp dir keeps tests from sharing on-disk SQLite
+    /// state (which breaks under parallel execution) and avoids writing
+    /// into a developer's or CI user's real platform data directory. The
+    /// returned `TempDir` must be kept alive for the duration of the test;
+    /// dropping it deletes the database.
+    async fn isolated_manager() -> (tempfile::TempDir, Manager) {
+        let dir = tempfile::tempdir().expect("failed to create tempdir");
+        let manager = Manager::open_at(dir.path())
+            .await
+            .expect("failed to open manager");
+        (dir, manager)
+    }
+
     // r[verify server.health]
     /// Verify the server starts, binds to a port, and responds to `/v1/health`.
     #[tokio::test]
     async fn server_starts_and_listens() {
-        let manager = Manager::open().await.expect("failed to open manager");
+        let (_data_dir, manager) = isolated_manager().await;
         let state = Arc::new(tokio::sync::RwLock::new(manager));
         let app = router(state);
 
@@ -481,7 +496,7 @@ mod tests {
     async fn notify_endpoint_enqueues_pull_task() {
         use component_meta_registry_types::NotifyOutcome;
 
-        let manager = Manager::open().await.expect("failed to open manager");
+        let (_data_dir, manager) = isolated_manager().await;
 
         // Register the target as a known package up-front: the notify
         // endpoint rejects unknown packages with `404` to prevent
@@ -568,7 +583,7 @@ mod tests {
     /// rejected: the request still succeeds with `200 OK`.
     #[tokio::test]
     async fn search_limit_above_cap_is_clamped() {
-        let manager = Manager::open().await.expect("failed to open manager");
+        let (_data_dir, manager) = isolated_manager().await;
         let state = Arc::new(tokio::sync::RwLock::new(manager));
         let app = router(state);
 
@@ -593,7 +608,7 @@ mod tests {
     /// A notify request with an empty tag is rejected with `400 Bad Request`.
     #[tokio::test]
     async fn notify_empty_tag_is_rejected() {
-        let manager = Manager::open().await.expect("failed to open manager");
+        let (_data_dir, manager) = isolated_manager().await;
         let state = Arc::new(tokio::sync::RwLock::new(manager));
         let app = router(state);
 
@@ -617,7 +632,7 @@ mod tests {
     /// Request`.
     #[tokio::test]
     async fn notify_oversized_tag_is_rejected() {
-        let manager = Manager::open().await.expect("failed to open manager");
+        let (_data_dir, manager) = isolated_manager().await;
         let state = Arc::new(tokio::sync::RwLock::new(manager));
         let app = router(state);
 
@@ -644,7 +659,7 @@ mod tests {
     /// read requests and confirm they all succeed.
     #[tokio::test]
     async fn concurrent_reads_are_allowed() {
-        let manager = Manager::open().await.expect("failed to open manager");
+        let (_data_dir, manager) = isolated_manager().await;
         let state: AppState = Arc::new(tokio::sync::RwLock::new(manager));
 
         // Acquire a read guard and confirm a second read guard can be acquired
