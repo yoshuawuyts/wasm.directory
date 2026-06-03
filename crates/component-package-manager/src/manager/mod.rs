@@ -444,9 +444,11 @@ impl Manager {
     ) -> anyhow::Result<InstallResult> {
         use crate::oci::filter_wasm_layers;
 
+        // `Box::pin` keeps the (large) pull futures on the heap so this shared
+        // method's own future stays small enough to satisfy `clippy::large_futures`.
         let pull_result = match progress_tx {
-            Some(tx) => self.pull_with_progress(reference.clone(), tx).await?,
-            None => self.pull(reference.clone()).await?,
+            Some(tx) => Box::pin(self.pull_with_progress(reference.clone(), tx)).await?,
+            None => Box::pin(self.pull(reference.clone())).await?,
         };
 
         let mut vendored_files = Vec::new();
