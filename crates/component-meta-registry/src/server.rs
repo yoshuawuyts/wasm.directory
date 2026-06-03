@@ -14,13 +14,16 @@ use serde::Deserialize;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
-/// Shared application state wrapping a `Manager` in a `tokio::sync::Mutex`.
+/// Shared application state wrapping a `Manager` in a `tokio::sync::RwLock`.
 ///
-/// Handlers lock the `Manager` and may await async `Manager` methods while
-/// holding the mutex guard. This intentionally serializes access to
-/// `Manager`, which can simplify correctness if it must not be used
-/// concurrently, but it also reduces concurrency and may limit throughput
-/// because requests that need the manager run one at a time.
+/// All `Manager` query/mutation methods take `&self` and `Manager` performs
+/// its own internal synchronization (it is backed by a database connection
+/// pool), so every handler — including the `notify_new_version` write path —
+/// acquires a *read* lock and requests run concurrently. The `RwLock` (rather
+/// than a bare `Arc<Manager>`) is kept so that a future `Manager` method
+/// requiring exclusive `&mut self` access could take a write lock without
+/// changing this state type. This replaces the previous `tokio::sync::Mutex`,
+/// which serialized *every* request and limited throughput.
 ///
 /// # Example
 ///
@@ -31,11 +34,11 @@ use tower_http::trace::TraceLayer;
 ///
 /// # async fn example() -> anyhow::Result<()> {
 /// let manager = Manager::open().await?;
-/// let state: AppState = Arc::new(tokio::sync::Mutex::new(manager));
+/// let state: AppState = Arc::new(tokio::sync::RwLock::new(manager));
 /// # Ok(())
 /// # }
 /// ```
-pub type AppState = Arc<tokio::sync::Mutex<Manager>>;
+pub type AppState = Arc<tokio::sync::RwLock<Manager>>;
 
 /// Query parameters for search.
 ///
@@ -59,7 +62,7 @@ pub struct SearchParams {
     /// Pagination offset (default: 0).
     #[serde(default)]
     pub offset: u32,
-    /// Pagination limit (default: 20).
+    /// Pagination limit (default: 20, clamped to `MAX_LIMIT`).
     #[serde(default = "default_limit")]
     pub limit: u32,
 }
@@ -83,7 +86,7 @@ pub struct ListParams {
     /// Pagination offset (default: 0).
     #[serde(default)]
     pub offset: u32,
-    /// Pagination limit (default: 20).
+    /// Pagination limit (default: 20, clamped to `MAX_LIMIT`).
     #[serde(default = "default_limit")]
     pub limit: u32,
 }
@@ -91,6 +94,31 @@ pub struct ListParams {
 fn default_limit() -> u32 {
     20
 }
+
+/// Maximum number of results that may be requested in a single paginated
+/// query. Requests for a larger `limit` are clamped down to this value to
+/// bound memory and query cost.
+pub const MAX_LIMIT: u32 = 100;
+
+/// Clamp a requested pagination `limit` to the inclusive range
+/// `1..=MAX_LIMIT`. A `limit` of `0` is treated as the default to avoid
+/// degenerate empty queries.
+#[must_use]
+fn clamp_limit(limit: u32) -> u32 {
+    if limit == 0 {
+        return default_limit();
+    }
+    limit.min(MAX_LIMIT)
+}
+
+/// Maximum accepted length (in bytes) for a version `tag` in a notify request.
+pub const MAX_TAG_LEN: usize = 128;
+
+/// Maximum accepted length (in bytes) for a `registry` path segment.
+pub const MAX_REGISTRY_LEN: usize = 256;
+
+/// Maximum accepted length (in bytes) for a `repository` path segment.
+pub const MAX_REPOSITORY_LEN: usize = 512;
 
 /// Build the axum router with all API routes.
 ///
@@ -103,7 +131,7 @@ fn default_limit() -> u32 {
 ///
 /// # async fn example() -> anyhow::Result<()> {
 /// let manager = Manager::open().await?;
-/// let state = Arc::new(tokio::sync::Mutex::new(manager));
+/// let state = Arc::new(tokio::sync::RwLock::new(manager));
 /// let app = router(state);
 ///
 /// let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
@@ -155,7 +183,7 @@ async fn health() -> impl IntoResponse {
 
 /// Fetch queue status.
 async fn get_queue_status(State(manager): State<AppState>) -> Result<impl IntoResponse, AppError> {
-    let manager = manager.lock().await;
+    let manager = manager.read().await;
     let status = manager.get_queue_status().await?;
     Ok(Json(status))
 }
@@ -165,9 +193,10 @@ async fn search(
     State(manager): State<AppState>,
     Query(params): Query<SearchParams>,
 ) -> Result<impl IntoResponse, AppError> {
-    let manager = manager.lock().await;
+    let limit = clamp_limit(params.limit);
+    let manager = manager.read().await;
     let packages = manager
-        .search_packages(&params.q, params.offset, params.limit)
+        .search_packages(&params.q, params.offset, limit)
         .await?;
     Ok(Json(packages))
 }
@@ -177,10 +206,9 @@ async fn list_packages(
     State(manager): State<AppState>,
     Query(params): Query<ListParams>,
 ) -> Result<impl IntoResponse, AppError> {
-    let manager = manager.lock().await;
-    let packages = manager
-        .list_known_packages(params.offset, params.limit)
-        .await?;
+    let limit = clamp_limit(params.limit);
+    let manager = manager.read().await;
+    let packages = manager.list_known_packages(params.offset, limit).await?;
     Ok(Json(packages))
 }
 
@@ -189,9 +217,10 @@ async fn list_recent_packages(
     State(manager): State<AppState>,
     Query(params): Query<ListParams>,
 ) -> Result<impl IntoResponse, AppError> {
-    let manager = manager.lock().await;
+    let limit = clamp_limit(params.limit);
+    let manager = manager.read().await;
     let packages = manager
-        .list_recent_known_packages(params.offset, params.limit)
+        .list_recent_known_packages(params.offset, limit)
         .await?;
     Ok(Json(packages))
 }
@@ -203,7 +232,7 @@ async fn get_package(
 ) -> Result<impl IntoResponse, AppError> {
     // Wildcard captures include a leading `/`; strip it.
     let repository = repository.trim_start_matches('/');
-    let manager = manager.lock().await;
+    let manager = manager.read().await;
     match manager.get_known_package(&registry, repository).await? {
         Some(package) => Ok(Json(package).into_response()),
         None => Ok(StatusCode::NOT_FOUND.into_response()),
@@ -218,7 +247,7 @@ pub struct InterfaceSearchParams {
     /// Pagination offset (default: 0).
     #[serde(default)]
     pub offset: u32,
-    /// Pagination limit (default: 20).
+    /// Pagination limit (default: 20, clamped to `MAX_LIMIT`).
     #[serde(default = "default_limit")]
     pub limit: u32,
 }
@@ -229,9 +258,10 @@ async fn search_by_import(
     State(manager): State<AppState>,
     Query(params): Query<InterfaceSearchParams>,
 ) -> Result<impl IntoResponse, AppError> {
-    let manager = manager.lock().await;
+    let limit = clamp_limit(params.limit);
+    let manager = manager.read().await;
     let packages = manager
-        .search_packages_by_import(&params.interface, params.offset, params.limit)
+        .search_packages_by_import(&params.interface, params.offset, limit)
         .await?;
     Ok(Json(packages))
 }
@@ -242,9 +272,10 @@ async fn search_by_export(
     State(manager): State<AppState>,
     Query(params): Query<InterfaceSearchParams>,
 ) -> Result<impl IntoResponse, AppError> {
-    let manager = manager.lock().await;
+    let limit = clamp_limit(params.limit);
+    let manager = manager.read().await;
     let packages = manager
-        .search_packages_by_export(&params.interface, params.offset, params.limit)
+        .search_packages_by_export(&params.interface, params.offset, limit)
         .await?;
     Ok(Json(packages))
 }
@@ -256,7 +287,7 @@ async fn get_package_detail_nested(
     Path((registry, repository)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
     let repository = repository.trim_start_matches('/');
-    let manager = manager.lock().await;
+    let manager = manager.read().await;
     match manager.get_package_detail(&registry, repository).await? {
         Some(detail) => Ok(Json(detail).into_response()),
         None => Ok(StatusCode::NOT_FOUND.into_response()),
@@ -270,7 +301,7 @@ async fn get_package_versions_nested(
     Path((registry, repository)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
     let repository = repository.trim_start_matches('/');
-    let manager = manager.lock().await;
+    let manager = manager.read().await;
     match manager.get_package_detail(&registry, repository).await? {
         Some(detail) => Ok(Json(detail.versions).into_response()),
         None => Ok(StatusCode::NOT_FOUND.into_response()),
@@ -284,7 +315,7 @@ async fn get_package_version_reordered(
     Path((registry, version, repository)): Path<(String, String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
     let repository = repository.trim_start_matches('/');
-    let manager = manager.lock().await;
+    let manager = manager.read().await;
     match manager
         .get_package_version(&registry, repository, &version)
         .await?
@@ -301,6 +332,33 @@ pub struct NotifyParams {
     pub tag: String,
 }
 
+/// Validate the user-supplied inputs to `notify_new_version`.
+///
+/// Returns `Some(message)` describing the first validation failure, or `None`
+/// if all inputs are within bounds. `tag` is expected to already be trimmed.
+#[must_use]
+fn validate_notify_input(registry: &str, repository: &str, tag: &str) -> Option<&'static str> {
+    if tag.is_empty() {
+        return Some("tag must not be empty");
+    }
+    if tag.len() > MAX_TAG_LEN {
+        return Some("tag is too long");
+    }
+    if registry.trim().is_empty() {
+        return Some("registry must not be empty");
+    }
+    if registry.len() > MAX_REGISTRY_LEN {
+        return Some("registry is too long");
+    }
+    if repository.trim().is_empty() {
+        return Some("repository must not be empty");
+    }
+    if repository.len() > MAX_REPOSITORY_LEN {
+        return Some("repository is too long");
+    }
+    None
+}
+
 /// Notify the registry that a new version was just published, requesting it
 /// be pulled as soon as possible.
 ///
@@ -311,6 +369,9 @@ pub struct NotifyParams {
 /// To prevent abuse, the endpoint:
 ///
 /// * Rejects empty tags with `400 Bad Request`.
+/// * Rejects tags longer than [`MAX_TAG_LEN`] bytes, and `registry` /
+///   `repository` segments that are empty or exceed [`MAX_REGISTRY_LEN`] /
+///   [`MAX_REPOSITORY_LEN`] bytes, with `400 Bad Request`.
 /// * Only accepts notifications for packages already known to this
 ///   registry (i.e. previously indexed). Notifications for unknown
 ///   packages return `404 Not Found` so the queue can't be flooded with
@@ -325,15 +386,15 @@ async fn notify_new_version(
 ) -> Result<axum::response::Response, AppError> {
     let repository = repository.trim_start_matches('/');
     let tag = params.tag.trim();
-    if tag.is_empty() {
+    if let Some(error) = validate_notify_input(&registry, repository, tag) {
         return Ok((
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "tag must not be empty" })),
+            Json(serde_json::json!({ "error": error })),
         )
             .into_response());
     }
 
-    let manager = manager.lock().await;
+    let manager = manager.read().await;
 
     // Only allow notifications for packages we already know about. This
     // prevents arbitrary clients from filling the fetch queue with
@@ -382,12 +443,27 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
+    /// Open a `Manager` backed by an isolated temporary data directory.
+    ///
+    /// Using a per-test temp dir keeps tests from sharing on-disk SQLite
+    /// state (which breaks under parallel execution) and avoids writing
+    /// into a developer's or CI user's real platform data directory. The
+    /// returned `TempDir` must be kept alive for the duration of the test;
+    /// dropping it deletes the database.
+    async fn isolated_manager() -> (tempfile::TempDir, Manager) {
+        let dir = tempfile::tempdir().expect("failed to create tempdir");
+        let manager = Manager::open_at(dir.path())
+            .await
+            .expect("failed to open manager");
+        (dir, manager)
+    }
+
     // r[verify server.health]
     /// Verify the server starts, binds to a port, and responds to `/v1/health`.
     #[tokio::test]
     async fn server_starts_and_listens() {
-        let manager = Manager::open().await.expect("failed to open manager");
-        let state = Arc::new(tokio::sync::Mutex::new(manager));
+        let (_data_dir, manager) = isolated_manager().await;
+        let state = Arc::new(tokio::sync::RwLock::new(manager));
         let app = router(state);
 
         // Bind to port 0 so the OS assigns a random available port.
@@ -420,7 +496,7 @@ mod tests {
     async fn notify_endpoint_enqueues_pull_task() {
         use component_meta_registry_types::NotifyOutcome;
 
-        let manager = Manager::open().await.expect("failed to open manager");
+        let (_data_dir, manager) = isolated_manager().await;
 
         // Register the target as a known package up-front: the notify
         // endpoint rejects unknown packages with `404` to prevent
@@ -436,7 +512,7 @@ mod tests {
             .await
             .expect("failed to register known package");
 
-        let state = Arc::new(tokio::sync::Mutex::new(manager));
+        let state = Arc::new(tokio::sync::RwLock::new(manager));
         let app = router(state);
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -469,6 +545,153 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::ACCEPTED);
         let outcome: NotifyOutcome = resp.json().await.expect("invalid json");
         assert_eq!(outcome, NotifyOutcome::Enqueued);
+
+        server.abort();
+    }
+
+    /// `clamp_limit` enforces the upper bound and substitutes the default for
+    /// a zero limit.
+    #[test]
+    fn clamp_limit_enforces_cap_and_default() {
+        assert_eq!(clamp_limit(0), default_limit());
+        assert_eq!(clamp_limit(20), 20);
+        assert_eq!(clamp_limit(MAX_LIMIT), MAX_LIMIT);
+        assert_eq!(clamp_limit(MAX_LIMIT + 1), MAX_LIMIT);
+        assert_eq!(clamp_limit(u32::MAX), MAX_LIMIT);
+    }
+
+    /// `validate_notify_input` accepts well-formed input and rejects empty or
+    /// oversized fields.
+    #[test]
+    fn validate_notify_input_bounds() {
+        assert!(validate_notify_input("example.test", "owner/repo", "1.0.0").is_none());
+
+        assert!(validate_notify_input("example.test", "owner/repo", "").is_some());
+        let long_tag = "x".repeat(MAX_TAG_LEN + 1);
+        assert!(validate_notify_input("example.test", "owner/repo", &long_tag).is_some());
+
+        assert!(validate_notify_input("", "owner/repo", "1.0.0").is_some());
+        let long_registry = "x".repeat(MAX_REGISTRY_LEN + 1);
+        assert!(validate_notify_input(&long_registry, "owner/repo", "1.0.0").is_some());
+
+        assert!(validate_notify_input("example.test", "", "1.0.0").is_some());
+        let long_repository = "x".repeat(MAX_REPOSITORY_LEN + 1);
+        assert!(validate_notify_input("example.test", &long_repository, "1.0.0").is_some());
+    }
+
+    /// A search request whose `limit` exceeds the cap is clamped rather than
+    /// rejected: the request still succeeds with `200 OK`.
+    #[tokio::test]
+    async fn search_limit_above_cap_is_clamped() {
+        let (_data_dir, manager) = isolated_manager().await;
+        let state = Arc::new(tokio::sync::RwLock::new(manager));
+        let app = router(state);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("failed to bind listener");
+        let addr = listener.local_addr().expect("failed to get local addr");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("server error");
+        });
+
+        let url = format!("http://{addr}/v1/search?q=wasi&limit=100000");
+        let resp = reqwest::get(&url).await.expect("request failed");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value = resp.json().await.expect("invalid json");
+        let results = body.as_array().expect("expected an array of results");
+        assert!(results.len() as u32 <= MAX_LIMIT);
+
+        server.abort();
+    }
+
+    /// A notify request with an empty tag is rejected with `400 Bad Request`.
+    #[tokio::test]
+    async fn notify_empty_tag_is_rejected() {
+        let (_data_dir, manager) = isolated_manager().await;
+        let state = Arc::new(tokio::sync::RwLock::new(manager));
+        let app = router(state);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("failed to bind listener");
+        let addr = listener.local_addr().expect("failed to get local addr");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("server error");
+        });
+
+        let url = format!("http://{addr}/v1/packages/notify/example.test/owner/repo?tag=%20");
+        let client = reqwest::Client::new();
+        let resp = client.post(&url).send().await.expect("request failed");
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        server.abort();
+    }
+
+    /// A notify request with an oversized tag is rejected with `400 Bad
+    /// Request`.
+    #[tokio::test]
+    async fn notify_oversized_tag_is_rejected() {
+        let (_data_dir, manager) = isolated_manager().await;
+        let state = Arc::new(tokio::sync::RwLock::new(manager));
+        let app = router(state);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("failed to bind listener");
+        let addr = listener.local_addr().expect("failed to get local addr");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("server error");
+        });
+
+        let long_tag = "x".repeat(MAX_TAG_LEN + 1);
+        let url =
+            format!("http://{addr}/v1/packages/notify/example.test/owner/repo?tag={long_tag}");
+        let client = reqwest::Client::new();
+        let resp = client.post(&url).send().await.expect("request failed");
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        server.abort();
+    }
+
+    /// Multiple read-only endpoints can hold a read lock concurrently after the
+    /// switch to `RwLock`. We fire several overlapping `/v1/health`-independent
+    /// read requests and confirm they all succeed.
+    #[tokio::test]
+    async fn concurrent_reads_are_allowed() {
+        let (_data_dir, manager) = isolated_manager().await;
+        let state: AppState = Arc::new(tokio::sync::RwLock::new(manager));
+
+        // Acquire a read guard and confirm a second read guard can be acquired
+        // concurrently (a write lock would block here).
+        let g1 = state.read().await;
+        let g2 = state.read().await;
+        let _ = (g1.get_queue_status().await, g2.get_queue_status().await);
+        drop((g1, g2));
+
+        let app = router(state);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("failed to bind listener");
+        let addr = listener.local_addr().expect("failed to get local addr");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("server error");
+        });
+
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let url = format!("http://{addr}/v1/packages?limit=5");
+            handles.push(tokio::spawn(async move {
+                reqwest::get(&url).await.map(|r| r.status())
+            }));
+        }
+        for handle in handles {
+            let status = handle
+                .await
+                .expect("task panicked")
+                .expect("request failed");
+            assert_eq!(status, StatusCode::OK);
+        }
 
         server.abort();
     }

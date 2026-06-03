@@ -47,7 +47,7 @@
 //!
 //!     // Create the HTTP router backed by a package manager with its own data directory
 //!     let manager = Manager::open_at("/tmp/wasm-registry").await?;
-//!     let state = Arc::new(tokio::sync::Mutex::new(manager));
+//!     let state = Arc::new(tokio::sync::RwLock::new(manager));
 //!     let app = router(state);
 //!
 //!     // Start the server
