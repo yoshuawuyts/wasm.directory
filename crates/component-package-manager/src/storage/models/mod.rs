@@ -32,6 +32,8 @@ pub struct Migrations {
 impl Migrations {
     /// Total number of migrations defined.
     pub(crate) fn total_count() -> u32 {
+        // The migration count is a small compile-time list; it cannot overflow
+        // `u32`, so the saturating default is unreachable in practice.
         u32::try_from(component_package_manager_migration::Migrator::migrations().len())
             .unwrap_or(u32::MAX)
     }
@@ -51,6 +53,8 @@ impl Migrations {
         let stmt =
             Statement::from_string(backend, "SELECT COUNT(*) AS count FROM seaql_migrations");
         match Row::find_by_statement(stmt).one(db).await {
+            // The applied-migration count is small and non-negative; treat any
+            // unexpected value as "0 applied".
             Ok(Some(row)) => u32::try_from(row.count).unwrap_or(0),
             _ => 0,
         }

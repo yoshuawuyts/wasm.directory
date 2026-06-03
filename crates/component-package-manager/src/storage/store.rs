@@ -2119,6 +2119,7 @@ impl Store {
         let size_on_disk: u64 = image
             .layers
             .iter()
+            // `usize` byte length always fits in `u64` on supported platforms.
             .map(|l| u64::try_from(l.data.len()).unwrap_or(u64::MAX))
             .sum();
 
@@ -2149,7 +2150,7 @@ impl Store {
                 .as_ref()
                 .and_then(|m| m.media_type.as_deref()),
             Some(&manifest_str),
-            Some(i64::try_from(size_on_disk).unwrap_or(i64::MAX)),
+            Some(crate::convert::size_to_i64(size_on_disk)?),
             image
                 .manifest
                 .as_ref()
@@ -2206,7 +2207,7 @@ impl Store {
                     layer_digest,
                     layer_media_type,
                     layer_size.map(|s| s.max(0)),
-                    i32::try_from(idx).unwrap_or(i32::MAX),
+                    crate::convert::index_to_i32(idx)?,
                 )
                 .await?;
 
@@ -2265,7 +2266,7 @@ impl Store {
             digest.unwrap_or("unknown"),
             manifest.media_type.as_deref(),
             Some(&manifest_str),
-            Some(i64::try_from(size_on_disk).unwrap_or(i64::MAX)),
+            Some(crate::convert::size_to_i64(size_on_disk)?),
             manifest.artifact_type.as_deref(),
             Some(manifest.config.media_type.as_str()),
             Some(manifest.config.digest.as_str()),
@@ -2313,7 +2314,7 @@ impl Store {
             manifest_id,
             layer_digest,
             media_type,
-            Some(i64::try_from(data.len()).unwrap_or(i64::MAX)),
+            Some(crate::convert::len_to_i64(data.len())?),
             position,
         )
         .await?;
@@ -2484,6 +2485,8 @@ impl Store {
                 ref_tag: tag,
                 ref_digest: Some(m.digest),
                 manifest,
+                // `size_bytes` is stored as a non-negative count, so reading it
+                // back as `u64` cannot realistically truncate; default to 0.
                 size_on_disk: u64::try_from(m.size_bytes.unwrap_or(0)).unwrap_or(0),
             });
         }
@@ -2775,6 +2778,8 @@ impl Store {
         tag: &str,
         max_age_secs: u64,
     ) -> bool {
+        // A freshness window in seconds; saturating to `i64::MAX` only widens
+        // the window, which is harmless for the freshness check below.
         let max_age = i64::try_from(max_age_secs).unwrap_or(i64::MAX);
         let cutoff = Utc::now() - chrono::Duration::seconds(max_age);
         // Tag is "fresh" iff:

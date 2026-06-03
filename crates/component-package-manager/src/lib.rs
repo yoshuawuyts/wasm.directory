@@ -41,6 +41,7 @@
 #[cfg(feature = "compose")]
 pub mod compose;
 mod config;
+mod convert;
 mod credential_helper;
 /// Core manager functionality for pulling, installing, and listing packages.
 pub mod manager;

@@ -240,6 +240,8 @@ impl Manager {
         let size_on_disk: u64 = manifest
             .layers
             .iter()
+            // `max(0)` clamps any negative descriptor size to 0, so the
+            // remaining non-negative `i64` always fits in a `u64`.
             .map(|l| u64::try_from(l.size.max(0)).unwrap_or(0))
             .sum();
 
@@ -252,6 +254,7 @@ impl Manager {
         if result == InsertResult::Inserted {
             // Stream and store each layer individually with progress
             for (index, layer_descriptor) in manifest.layers.iter().enumerate() {
+                // Guarded by `size > 0`, so the positive `i64` always fits `u64`.
                 let total_bytes = if layer_descriptor.size > 0 {
                     Some(u64::try_from(layer_descriptor.size).unwrap_or(0))
                 } else {
@@ -282,6 +285,7 @@ impl Manager {
 
                 while let Some(chunk) = stream.next().await {
                     let chunk = chunk?;
+                    // `usize` always fits in `u64` on supported platforms.
                     bytes_downloaded += u64::try_from(chunk.len()).unwrap_or(0);
                     layer_data.extend_from_slice(&chunk);
 
@@ -304,7 +308,7 @@ impl Manager {
                         &layer_data,
                         image_id,
                         Some(layer_descriptor.media_type.as_str()),
-                        i32::try_from(index).unwrap_or(i32::MAX),
+                        crate::convert::index_to_i32(index)?,
                         layer_descriptor.annotations.as_ref(),
                     )
                     .await?;
@@ -314,6 +318,7 @@ impl Manager {
         } else {
             // Package already cached — show layers as completed
             for (index, layer_descriptor) in manifest.layers.iter().enumerate() {
+                // Guarded by `size > 0`, so the positive `i64` always fits `u64`.
                 let total_bytes = if layer_descriptor.size > 0 {
                     Some(u64::try_from(layer_descriptor.size).unwrap_or(0))
                 } else {
@@ -404,72 +409,7 @@ impl Manager {
         reference: Reference,
         vendor_dir: &Path,
     ) -> anyhow::Result<InstallResult> {
-        use crate::oci::filter_wasm_layers;
-
-        let pull_result = self.pull(reference.clone()).await?;
-
-        let mut vendored_files = Vec::new();
-        let mut package_name = None;
-        let mut is_component = true; // Default to component
-        let mut dependencies = Vec::new();
-
-        // Extract the OCI image.title annotation from the manifest.
-        let oci_title = pull_result
-            .manifest
-            .as_ref()
-            .and_then(|m| m.annotations.as_ref())
-            .and_then(|a| a.get("org.opencontainers.image.title").cloned());
-
-        if let Some(ref manifest) = pull_result.manifest {
-            let wasm_layers = filter_wasm_layers(&manifest.layers);
-
-            // Inspect cached wasm layers up-front to learn the WIT package
-            // name; this lets us name the vendored artifact after
-            // `namespace:package@version` rather than the OCI reference.
-            for layer in &wasm_layers {
-                if package_name.is_none() {
-                    self.try_extract_layer_metadata(
-                        &layer.digest,
-                        &mut package_name,
-                        &mut is_component,
-                        &mut dependencies,
-                    )
-                    .await;
-                }
-            }
-
-            if !wasm_layers.is_empty() {
-                let name = package_name.as_deref().ok_or_else(|| {
-                    anyhow::anyhow!("could not determine WIT package name from `{reference}`")
-                })?;
-                let filename = vendor_filename(name, reference.tag());
-
-                for layer in &wasm_layers {
-                    let dest = vendor_dir.join(&filename);
-
-                    // Ensure vendor directory exists
-                    tokio::fs::create_dir_all(vendor_dir).await?;
-
-                    // Remove existing file if present before reflinking
-                    let _ = tokio::fs::remove_file(&dest).await;
-
-                    self.vendor(&layer.digest, &dest).await?;
-                    vendored_files.push(dest);
-                }
-            }
-        }
-
-        Ok(InstallResult {
-            registry: reference.registry().to_string(),
-            repository: reference.repository().to_string(),
-            tag: reference.tag().map(str::to_string),
-            digest: pull_result.digest,
-            package_name,
-            oci_title,
-            vendored_files,
-            is_component,
-            dependencies,
-        })
+        self.install_inner(reference, vendor_dir, None).await
     }
 
     /// Install a package from the registry with per-layer progress reporting.
@@ -486,11 +426,30 @@ impl Manager {
         vendor_dir: &Path,
         progress_tx: &tokio::sync::mpsc::Sender<ProgressEvent>,
     ) -> anyhow::Result<InstallResult> {
+        self.install_inner(reference, vendor_dir, Some(progress_tx))
+            .await
+    }
+
+    /// Shared implementation for [`install`](Self::install) and
+    /// [`install_with_progress`](Self::install_with_progress).
+    ///
+    /// When `progress_tx` is `Some`, layers are pulled with per-layer progress
+    /// reporting and a [`ProgressEvent::InstallComplete`] event is emitted at
+    /// the end; when `None`, the package is pulled without progress reporting.
+    async fn install_inner(
+        &self,
+        reference: Reference,
+        vendor_dir: &Path,
+        progress_tx: Option<&tokio::sync::mpsc::Sender<ProgressEvent>>,
+    ) -> anyhow::Result<InstallResult> {
         use crate::oci::filter_wasm_layers;
 
-        let pull_result = self
-            .pull_with_progress(reference.clone(), progress_tx)
-            .await?;
+        // `Box::pin` keeps the (large) pull futures on the heap so this shared
+        // method's own future stays small enough to satisfy `clippy::large_futures`.
+        let pull_result = match progress_tx {
+            Some(tx) => Box::pin(self.pull_with_progress(reference.clone(), tx)).await?,
+            None => Box::pin(self.pull(reference.clone())).await?,
+        };
 
         let mut vendored_files = Vec::new();
         let mut package_name = None;
@@ -507,43 +466,25 @@ impl Manager {
         if let Some(ref manifest) = pull_result.manifest {
             let wasm_layers = filter_wasm_layers(&manifest.layers);
 
-            // Inspect cached wasm layers up-front to learn the WIT package
-            // name; this lets us name the vendored artifact after
-            // `namespace:package@version` rather than the OCI reference.
-            for layer in &wasm_layers {
-                if package_name.is_none() {
-                    self.try_extract_layer_metadata(
-                        &layer.digest,
-                        &mut package_name,
-                        &mut is_component,
-                        &mut dependencies,
-                    )
-                    .await;
-                }
-            }
+            let inspected = self.inspect_wasm_layers(&wasm_layers).await;
+            package_name = inspected.0;
+            is_component = inspected.1;
+            dependencies = inspected.2;
 
             if !wasm_layers.is_empty() {
                 let name = package_name.as_deref().ok_or_else(|| {
                     anyhow::anyhow!("could not determine WIT package name from `{reference}`")
                 })?;
                 let filename = vendor_filename(name, reference.tag());
-
-                for layer in &wasm_layers {
-                    let dest = vendor_dir.join(&filename);
-
-                    // Ensure vendor directory exists
-                    tokio::fs::create_dir_all(vendor_dir).await?;
-
-                    // Remove existing file if present before reflinking
-                    let _ = tokio::fs::remove_file(&dest).await;
-
-                    self.vendor(&layer.digest, &dest).await?;
-                    vendored_files.push(dest);
-                }
+                vendored_files = self
+                    .vendor_wasm_layers(&wasm_layers, vendor_dir, &filename)
+                    .await?;
             }
         }
 
-        let _ = progress_tx.send(ProgressEvent::InstallComplete).await;
+        if let Some(tx) = progress_tx {
+            let _ = tx.send(ProgressEvent::InstallComplete).await;
+        }
 
         Ok(InstallResult {
             registry: reference.registry().to_string(),
@@ -556,6 +497,61 @@ impl Manager {
             is_component,
             dependencies,
         })
+    }
+
+    /// Inspect cached wasm layers up-front to learn the WIT package name; this
+    /// lets us name the vendored artifact after `namespace:package@version`
+    /// rather than the OCI reference.
+    ///
+    /// Returns the discovered package name, whether the artifact is a component
+    /// (vs. a WIT package), and its dependencies.
+    async fn inspect_wasm_layers(
+        &self,
+        wasm_layers: &[&oci_client::manifest::OciDescriptor],
+    ) -> (Option<String>, bool, Vec<crate::types::DependencyItem>) {
+        let mut package_name = None;
+        let mut is_component = true; // Default to component
+        let mut dependencies = Vec::new();
+
+        for layer in wasm_layers {
+            if package_name.is_none() {
+                self.try_extract_layer_metadata(
+                    &layer.digest,
+                    &mut package_name,
+                    &mut is_component,
+                    &mut dependencies,
+                )
+                .await;
+            }
+        }
+
+        (package_name, is_component, dependencies)
+    }
+
+    /// Reflink each wasm layer into the vendor directory under `filename`,
+    /// returning the vendored file paths.
+    async fn vendor_wasm_layers(
+        &self,
+        wasm_layers: &[&oci_client::manifest::OciDescriptor],
+        vendor_dir: &Path,
+        filename: &str,
+    ) -> anyhow::Result<Vec<std::path::PathBuf>> {
+        let mut vendored_files = Vec::new();
+
+        for layer in wasm_layers {
+            let dest = vendor_dir.join(filename);
+
+            // Ensure vendor directory exists
+            tokio::fs::create_dir_all(vendor_dir).await?;
+
+            // Remove existing file if present before reflinking
+            let _ = tokio::fs::remove_file(&dest).await;
+
+            self.vendor(&layer.digest, &dest).await?;
+            vendored_files.push(dest);
+        }
+
+        Ok(vendored_files)
     }
 
     /// List all stored images and their metadata.

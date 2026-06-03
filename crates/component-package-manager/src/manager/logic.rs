@@ -73,6 +73,8 @@ pub fn vendor_filename(name: &str, version: Option<&str>) -> String {
 #[must_use]
 pub fn should_sync(last_synced_epoch: Option<i64>, sync_interval: u64, now_epoch: i64) -> bool {
     match last_synced_epoch {
+        // `sync_interval` is a config-supplied second count; saturating to
+        // `i64::MAX` only makes the threshold unreachable, never syncing early.
         Some(last) => now_epoch - last >= i64::try_from(sync_interval).unwrap_or(i64::MAX),
         None => true,
     }
