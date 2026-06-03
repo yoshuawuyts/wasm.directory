@@ -110,7 +110,9 @@ You can also add components and interfaces without editing files by hand:
 open a [**Registry entry** issue][registry-entry-issue]. Automation opens a
 pull request that adds the entry to the matching `registry/<namespace>.toml`.
 Entries in an existing namespace are merged automatically; creating a brand new
-namespace is flagged for manual review.
+namespace is flagged for manual review. You can prefill that issue from a
+project's `wasm.toml` with `component registry publish` — see
+[Submitting a Registry Entry](docs/usage.md#submitting-a-registry-entry).
 
 [registry-entry-issue]: https://github.com/yoshuawuyts/component-registry/issues/new?template=registry-entry.yml
 

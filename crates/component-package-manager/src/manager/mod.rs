@@ -889,6 +889,19 @@ impl Manager {
         }
     }
 
+    /// Look up a known package by its WIT name (`namespace:name`) in the
+    /// local index, returning `None` when no matching package is indexed.
+    ///
+    /// The lookup is an exact `(wit_namespace, wit_name)` match with a fuzzy
+    /// repository fallback, so callers that need a strict identity match
+    /// should verify the returned package's `wit_namespace`/`wit_name`.
+    pub async fn find_known_package_by_wit_name(
+        &self,
+        wit_name: &str,
+    ) -> anyhow::Result<Option<KnownPackage>> {
+        self.store.search_known_package_by_wit_name(wit_name).await
+    }
+
     /// Index a package from the registry, also extracting WIT dependency
     /// metadata from the package's wasm layer.
     ///
@@ -1692,8 +1705,8 @@ impl Manager {
     /// via [`crate::publish::build_wit_package`] (which stamps the
     /// manifest version onto the WIT package decl).
     ///
-    /// The target registry comes from the manifest's
-    /// `[package].registry_ref` field — there is no implicit default.
+    /// The target registry comes from the manifest's `[package].registry`
+    /// field (the full OCI location) — there is no implicit default.
     pub async fn publish(
         &self,
         manifest: &component_manifest::Manifest,

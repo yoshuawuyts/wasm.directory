@@ -13,6 +13,7 @@ Commands:
   search   Search for packages across configured registries
   sync     Force-sync the package index from the configured meta-registry
   notify   Notify a meta-registry that a new version of a package is available
+  publish  Open a prefilled issue to add a component or interface to the registry
   delete   Delete a package from the local store
   list     List all installed packages
   known    List all known packages (previously synced or pulled)

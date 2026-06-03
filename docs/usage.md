@@ -71,15 +71,15 @@ default and no shorthand — so publishing is fully reproducible from
 # Package identity in `namespace:name` form. Used as the OCI artifact
 # title and (for interfaces) stamped onto WIT package decls.
 name = "yoshuawuyts:fetch"
+# What kind of artifact this manifest publishes: "component" or "interface".
+kind = "component"
 # Semver version. The single source of truth: WIT files must not
 # declare their own `@version` — the publisher stamps this onto every
 # top-level `package` decl during build. Becomes the OCI tag.
 version = "0.1.0"
-# Fully-formed OCI repository reference (host + path), without a tag.
-# The published reference is `<registry_ref>:<version>`.
-registry_ref = "ghcr.io/yoshuawuyts/fetch"
-# What kind of artifact this manifest publishes: "component" or "interface".
-kind = "component"
+# Full OCI location (host + path), without a tag. The published reference
+# is `<registry>:<version>`.
+registry = "ghcr.io/yoshuawuyts/fetch"
 # Path to the compiled component, relative to the manifest directory.
 # Defaults to `build/<name-after-colon>.wasm` if omitted.
 file = "build/fetch.wasm"
@@ -94,9 +94,9 @@ For an interface package, point `wit` at the WIT directory:
 ```toml
 [package]
 name = "wasi:logging"
-version = "1.0.0"
-registry_ref = "ghcr.io/wasi/logging"
 kind = "interface"
+version = "1.0.0"
+registry = "ghcr.io/webassembly/wasi/logging"
 # Path to the WIT directory, relative to the manifest. Defaults to "wit".
 wit = "wit"
 ```
@@ -114,7 +114,7 @@ component publish --dry-run
 Publish for real:
 
 ```bash
-component publish                       # uses [package].registry_ref
+component publish                       # uses [package].registry
 component publish --file build/x.wasm   # override the artifact path
 ```
 
@@ -124,6 +124,46 @@ layer) with `org.opencontainers.image.{title,version,created,description,source,
 annotations populated from the `[package]` section.
 
 **Note**: You must be authenticated to push packages. See [Authentication](authentication.md) for details.
+
+
+### Submitting a Registry Entry
+
+Publishing an artifact uploads the bytes to an OCI registry, but it does not
+list the package in the meta-registry's searchable index. To do that, open a
+**Registry entry** issue. Automation opens a pull request that adds the entry to
+the matching `registry/<namespace>.toml`. Entries in an existing namespace are
+merged automatically; creating a brand new namespace is flagged for manual
+review.
+
+To prefill that issue from the command line, run `component registry publish`
+from a project that has a `[package]` section in its `wasm.toml`:
+
+```bash
+component registry publish
+```
+
+It reads the package's `name`, `kind`, and `registry` from `wasm.toml`, checks
+whether the package is already in the registry, and (if not) opens the
+**Registry entry** issue form in your browser with the fields already filled in.
+If the package already exists in the registry, it reports that and exits without
+opening an issue. The issue URL is always printed to stdout; pass `--no-open` to
+skip launching the browser, and `--manifest-path <dir>` to point at a project
+other than the current directory.
+
+The relevant `[package]` fields look like this:
+
+```toml
+[package]
+name = "wasi:http"                          # namespace:package
+kind = "interface"                          # or "component"
+version = "0.2.0"
+registry = "ghcr.io/webassembly/wasi/http"  # full OCI location, no tag
+```
+
+`registry` is the full OCI location (host + path). `component publish` pushes to
+`<registry>:<version>`. When opening a registry-entry issue, the namespace base
+(`ghcr.io/webassembly`) and catalog path (`wasi/http`) are derived from it to
+match the registry entry's `registry` and `repository` fields.
 
 
 ### Listing Packages
