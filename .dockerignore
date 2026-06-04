@@ -1,5 +1,4 @@
 target/
 .git/
-docs/
 scripts/
 .env

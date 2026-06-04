@@ -1,0 +1,17 @@
+name: wasm-registry
+metadata:
+  template: wasm-registry@0.0.1
+
+infra:
+  provider: bicep
+  path: infra
+  module: main
+
+hooks:
+  preprovision:
+    posix:
+      shell: sh
+      run: infra/hooks/preprovision.sh
+    windows:
+      shell: pwsh
+      run: infra/hooks/preprovision.ps1

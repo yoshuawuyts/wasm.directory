@@ -8,6 +8,7 @@ This directory contains comprehensive guides and documentation to help you get s
 
 - **[Architecture](architecture.md)** - How all parts of the project relate to one another
 - **[Authentication](authentication.md)** - Learn about authentication methods and flows for accessing container registries
+- **[Azure Deployment](azure-deployment.md)** - Provision the registry's infrastructure on Azure with `azd`
 - **[Configuration](configuration.md)** - Understand storage configuration and layout
 - **[Usage](usage.md)** - Basic usage instructions and command reference
 
