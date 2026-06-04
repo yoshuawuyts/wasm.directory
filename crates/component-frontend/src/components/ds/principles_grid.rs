@@ -18,6 +18,7 @@ pub(crate) struct Principle<'a> {
 /// Render the principles grid section.
 #[must_use]
 pub(crate) fn render(kicker: &str, title: &str, lede: &str, items: &[Principle<'_>]) -> String {
+    let has_kicker = !kicker.is_empty();
     let kicker = kicker.to_owned();
     let title = title.to_owned();
     let lede = lede.to_owned();
@@ -36,18 +37,22 @@ pub(crate) fn render(kicker: &str, title: &str, lede: &str, items: &[Principle<'
         .division(|grid| {
             grid.class("grid md:grid-cols-[200px_1fr] gap-6 md:gap-12")
                 .division(|left| {
-                    left.division(|d| {
-                        d.class("text-[12px] mono uppercase tracking-wider text-ink-500")
-                            .text(kicker)
-                    })
-                    .heading_2(|h| {
-                        h.class("mt-2 text-[24px] font-semibold tracking-tight")
-                            .text(title)
-                    })
-                    .paragraph(|p| {
-                        p.class("mt-2 text-[13px] text-ink-500 leading-relaxed")
-                            .text(lede)
-                    })
+                    if has_kicker {
+                        left.division(|d| {
+                            d.class("text-[12px] mono uppercase tracking-wider text-ink-500")
+                                .text(kicker)
+                        });
+                    }
+                    let heading_class = if has_kicker {
+                        "mt-2 text-[24px] font-semibold tracking-tight"
+                    } else {
+                        "text-[24px] font-semibold tracking-tight"
+                    };
+                    left.heading_2(|h| h.class(heading_class).text(title))
+                        .paragraph(|p| {
+                            p.class("mt-2 text-[13px] text-ink-500 leading-relaxed")
+                                .text(lede)
+                        })
                 })
                 .push(tiles)
         })
@@ -64,7 +69,7 @@ fn push_tile(parent: &mut html::text_content::builders::DivisionBuilder, p: &Pri
         p.bg_class, p.fg_class
     );
     parent.division(|tile| {
-        tile.class("bg-canvas p-6")
+        tile.class("bg-surface p-6")
             .division(|d| d.class(sigil_class.clone()).text(icon))
             .division(|d| {
                 d.class("mt-3 text-[15px] font-semibold tracking-tight")

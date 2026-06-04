@@ -108,6 +108,10 @@ pub(crate) fn prompt(rest: &str) -> String {
 }
 
 /// Convenience helper for a muted-info line in the install card snippet.
+///
+/// Only used from snapshot tests today, so it is compiled in test builds only
+/// to avoid carrying an unused API in production.
+#[cfg(test)]
 #[must_use]
 pub(crate) fn muted(text: &str) -> String {
     format!(r#"<span class="text-ink-500">{text}</span>"#)

@@ -3,7 +3,7 @@ source: crates/component-frontend/src/components/ds/hero.rs
 expression: "crate::components::ds::pretty_html(&html)"
 ---
 <section class="mx-auto mx-auto max-w-[1280px] w-full px-4 md:px-8 pt-12 md:pt-20 pb-10 md:pb-14">
-  <div class="grid md:grid-cols-[1fr_440px] gap-10 md:gap-16 items-end">
+  <div class="grid md:grid-cols-[1fr_600px] gap-10 md:gap-16 items-start">
     <div>
       <div class="flex items-center gap-2 text-[12px] text-ink-500 mono uppercase tracking-wider">
         <span>

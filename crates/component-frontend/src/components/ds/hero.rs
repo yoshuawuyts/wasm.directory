@@ -46,8 +46,10 @@ pub(crate) fn render(hero: &Hero<'_>) -> String {
     let title = hero.title.to_owned();
     let lede = hero.lede.to_owned();
     let right = hero.right.to_owned();
+    let has_kicker = !hero.kicker.is_empty();
     let kicker = render_kicker(hero.kicker);
 
+    let has_ctas = !hero.ctas.is_empty();
     let mut ctas_div = Division::builder();
     ctas_div.class("mt-7 flex flex-wrap items-center gap-3");
     for cta in hero.ctas {
@@ -58,18 +60,26 @@ pub(crate) fn render(hero: &Hero<'_>) -> String {
     Section::builder()
         .class("mx-auto mx-auto max-w-[1280px] w-full px-4 md:px-8 pt-12 md:pt-20 pb-10 md:pb-14")
         .division(|grid| {
-            grid.class("grid md:grid-cols-[1fr_440px] gap-10 md:gap-16 items-end")
+            grid.class("grid md:grid-cols-[1fr_600px] gap-10 md:gap-16 items-start")
                 .division(|left| {
-                    left.push(kicker)
-                        .heading_1(|h| {
-                            h.class("mt-4 text-[40px] md:text-[52px] lg:text-[64px] leading-[1.05] font-semibold tracking-tight text-balance max-w-[14ch] md:max-w-[18ch] lg:max-w-[20ch]")
-                                .text(title)
-                        })
+                    if has_kicker {
+                        left.push(kicker);
+                    }
+                    let heading_class = if has_kicker {
+                        "mt-4 text-[40px] md:text-[52px] lg:text-[64px] leading-[1.05] font-semibold tracking-tight text-balance max-w-[14ch] md:max-w-[18ch] lg:max-w-[20ch]"
+                    } else {
+                        "text-[40px] md:text-[52px] lg:text-[64px] leading-[1.05] font-semibold tracking-tight text-balance max-w-[14ch] md:max-w-[18ch] lg:max-w-[20ch]"
+                    };
+                    let left = left
+                        .heading_1(|h| h.class(heading_class).text(title))
                         .paragraph(|p| {
                             p.class("mt-5 max-w-2xl text-[16px] md:text-[17px] text-ink-700 leading-relaxed")
                                 .text(lede)
-                        })
-                        .push(ctas)
+                        });
+                    if has_ctas {
+                        left.push(ctas);
+                    }
+                    left
                 })
                 .text(right)
         })

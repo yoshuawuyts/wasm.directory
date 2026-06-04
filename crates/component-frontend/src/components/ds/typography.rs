@@ -196,8 +196,8 @@ pub(crate) fn render(
                   </li>
                 </ol>
                 <blockquote class="border-l-2 border-ink-900 pl-4 text-ink-700 italic">
-                  Registries are append-only. A version, once published, cannot be
-                  overwritten &mdash; only yanked.
+                  Every dependency is locked by content hash, so a build today
+                  resolves byte-for-byte tomorrow.
                 </blockquote>
                 <pre class="id-code text-[13px] leading-relaxed"><span class="h">[package]</span>
 <span class="k">name</span>    <span class="p">=</span> <span class="s">"example.com/hello-world"</span>
