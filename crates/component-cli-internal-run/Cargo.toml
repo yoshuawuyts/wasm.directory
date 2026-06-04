@@ -17,6 +17,17 @@ wasmparser = { workspace = true }
 wasmtime = { workspace = true }
 wasmtime-wasi = { workspace = true }
 wasmtime-wasi-http = { workspace = true }
+bytes = { workspace = true }
+http = { workspace = true }
+http-body = { workspace = true }
+http-body-util = { workspace = true }
+rustls = { workspace = true }
+rustls-native-certs = { workspace = true }
+tokio-rustls = { workspace = true }
+webpki-roots = { workspace = true }
+hyper = { workspace = true }
+tokio = { workspace = true, features = ["net", "time"] }
+tracing = { workspace = true }
 
 [lints]
 workspace = true

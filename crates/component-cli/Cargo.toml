@@ -49,6 +49,7 @@ wasmparser = { workspace = true }
 wac-parser = { workspace = true }
 wac-graph = { workspace = true }
 wac-resolver = { workspace = true }
+rustls = { workspace = true }
 wasmtime = { workspace = true }
 wasmtime-wasi = { workspace = true }
 wasmtime-wasi-http = { workspace = true }

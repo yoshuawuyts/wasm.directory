@@ -596,25 +596,19 @@ async fn run_library_component(
     };
     let invocation = parse_invocation(&matches, &surface).map_err(|e| miette::miette!("{e}"))?;
 
-    // 3. Invoke off-thread (sync wasmtime).
-    let bytes_owned = bytes.to_vec();
-    let permissions_owned = permissions.clone();
+    // 3. Invoke asynchronously (component-model-async engine).
     let interface = invocation.path.interface.clone();
     let func = invocation.path.func.clone();
     let func_args = invocation.args;
     let expected_results = invocation.expected_results;
-    let results = tokio::task::spawn_blocking(move || {
-        component_cli_internal_run::execute_library_function(
-            &bytes_owned,
-            &permissions_owned,
-            interface.as_deref(),
-            &func,
-            &func_args,
-        )
-    })
-    .await
-    .into_diagnostic()
-    .wrap_err("runtime task panicked")??;
+    let results = component_cli_internal_run::execute_library_function(
+        bytes,
+        permissions,
+        interface.as_deref(),
+        &func,
+        &func_args,
+    )
+    .await?;
 
     // Sanity-check that wasmtime returned the number of values the
     // WIT signature declared. A mismatch would indicate either a
