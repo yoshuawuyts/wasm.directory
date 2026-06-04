@@ -198,6 +198,45 @@ impl Client {
             }
         }
     }
+
+    /// Resolve the OCI artifact type of a referrer by fetching its manifest.
+    ///
+    /// The per-entry [`ImageIndexEntry`](oci_client::manifest::ImageIndexEntry)
+    /// returned by the Referrers API only exposes `media_type` (the manifest's
+    /// own media type, e.g. `application/vnd.oci.image.manifest.v1+json`), not
+    /// the artifact type. To classify a referrer (signature, SBOM,
+    /// attestation, …) we must fetch the referrer manifest and read its
+    /// top-level `artifactType`, falling back to the config descriptor's
+    /// `mediaType` as the OCI spec prescribes when `artifactType` is absent.
+    pub(crate) async fn pull_referrer_manifest(
+        &self,
+        reference: &Reference,
+        referrer_digest: &str,
+    ) -> anyhow::Result<String> {
+        let auth = resolve_auth(reference, &self.config)?;
+        let digest_ref = Reference::with_digest(
+            reference.registry().to_owned(),
+            reference.repository().to_owned(),
+            referrer_digest.to_owned(),
+        );
+        let (manifest, _digest) = self.inner.pull_image_manifest(&digest_ref, &auth).await?;
+        Ok(resolve_artifact_type(&manifest))
+    }
+}
+
+/// Determine the OCI artifact type of a manifest.
+///
+/// Uses the manifest's top-level `artifactType` when present and non-empty,
+/// otherwise falls back to the config descriptor's `mediaType`, as prescribed
+/// by the OCI image spec (the config `mediaType` carries the artifact type
+/// when `artifactType` is unset).
+fn resolve_artifact_type(manifest: &OciImageManifest) -> String {
+    manifest
+        .artifact_type
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&manifest.config.media_type)
+        .to_owned()
 }
 
 /// Resolve authentication for a registry reference.
@@ -247,6 +286,45 @@ fn resolve_auth(reference: &Reference, config: &Config) -> anyhow::Result<Regist
 #[cfg(test)]
 mod tests {
     use oci_client::Reference;
+    use oci_client::manifest::{OciDescriptor, OciImageManifest};
+
+    use super::resolve_artifact_type;
+
+    /// The top-level `artifactType` is used to classify the referrer when it
+    /// is present, regardless of the config descriptor's media type.
+    #[test]
+    fn artifact_type_prefers_top_level() {
+        let manifest = OciImageManifest {
+            artifact_type: Some("application/vnd.dev.sigstore.bundle.v0.3+json".to_owned()),
+            config: OciDescriptor {
+                media_type: "application/vnd.oci.empty.v1+json".to_owned(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert_eq!(
+            resolve_artifact_type(&manifest),
+            "application/vnd.dev.sigstore.bundle.v0.3+json"
+        );
+    }
+
+    /// When `artifactType` is absent or empty, the config descriptor's
+    /// `mediaType` is used as the artifact type per the OCI image spec.
+    #[test]
+    fn artifact_type_falls_back_to_config_media_type() {
+        let config_media_type = "application/vnd.dev.cosign.simplesigning.v1+json";
+        for artifact_type in [None, Some(String::new())] {
+            let manifest = OciImageManifest {
+                artifact_type,
+                config: OciDescriptor {
+                    media_type: config_media_type.to_owned(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            assert_eq!(resolve_artifact_type(&manifest), config_media_type);
+        }
+    }
 
     /// Verify that a digest-pinned reference built from a tag-based reference
     /// has `digest().is_some()` and `tag().is_none()`, matching the

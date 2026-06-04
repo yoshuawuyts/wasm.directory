@@ -1615,8 +1615,23 @@ impl Manager {
         };
 
         for entry in &index.manifests {
-            // Use media_type as artifact_type — the oci-client ImageIndexEntry
-            // does not expose a separate artifact_type field.
+            // The per-entry ImageIndexEntry only exposes the referrer
+            // manifest's media_type (e.g. the generic OCI manifest media
+            // type), not its artifact type. Fetch the referrer manifest to
+            // read its top-level `artifactType` (falling back to the config
+            // mediaType) so referrers are classified correctly.
+            let artifact_type = match self
+                .client
+                .pull_referrer_manifest(reference, &entry.digest)
+                .await
+            {
+                Ok(artifact_type) => artifact_type,
+                Err(e) => {
+                    tracing::warn!("Failed to fetch referrer manifest {}: {}", entry.digest, e);
+                    continue;
+                }
+            };
+
             if let Err(e) = self
                 .store
                 .store_referrer(
@@ -1624,7 +1639,7 @@ impl Manager {
                     reference.registry(),
                     reference.repository(),
                     &entry.digest,
-                    &entry.media_type,
+                    &artifact_type,
                 )
                 .await
             {
