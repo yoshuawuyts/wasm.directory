@@ -19,7 +19,6 @@ pub(crate) enum HeroCtaStyle {
     /// Outlined, secondary action.
     Secondary,
     /// Plain text-link with a leading icon.
-    #[allow(dead_code)]
     Ghost,
 }
 

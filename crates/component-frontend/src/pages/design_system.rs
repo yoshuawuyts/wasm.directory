@@ -399,6 +399,11 @@ fn render_landing_components() -> String {
                 href: "#",
                 style: HeroCtaStyle::Secondary,
             },
+            HeroCta {
+                label: "View on GitHub",
+                href: "#",
+                style: HeroCtaStyle::Ghost,
+            },
         ],
         right: r#"<div class="rounded-lg border border-line bg-surface shadow-card h-40 grid place-items-center text-[12px] text-ink-500 mono">install card slot</div>"#,
     });
