@@ -16,7 +16,7 @@ expression: "crate::components::ds::pretty_html(&html)"
       </p>
     </div>
     <div class="grid sm:grid-cols-2 gap-px bg-lineSoft border border-lineSoft rounded-lg overflow-hidden">
-      <div class="bg-canvas p-6">
+      <div class="bg-surface p-6">
         <div class="h-8 w-8 grid place-items-center rounded-md bg-cat-blue text-cat-blueInk">
           <svg width="16" height="16">
           </svg>
@@ -28,7 +28,7 @@ expression: "crate::components::ds::pretty_html(&html)"
           Interfaces are the contract; implementations follow.
         </p>
       </div>
-      <div class="bg-canvas p-6">
+      <div class="bg-surface p-6">
         <div class="h-8 w-8 grid place-items-center rounded-md bg-cat-green text-cat-greenInk">
           <svg width="16" height="16">
           </svg>
