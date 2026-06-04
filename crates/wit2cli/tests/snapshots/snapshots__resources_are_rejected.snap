@@ -1,5 +1,5 @@
 ---
 source: crates/wit2cli/tests/snapshots.rs
-expression: "format!(\"rejected: resource `{name}`\")"
+expression: "format!(\"rejected: {reasons}\")"
 ---
-rejected: resource `<anonymous>`
+rejected: resource type `<anonymous>` is not supported by `component run`

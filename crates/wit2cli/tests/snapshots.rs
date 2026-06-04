@@ -71,15 +71,21 @@ fn needs_import() {
 
 /// Snapshot the rejection diagnostic for a component that exports
 /// a resource type. Resources cannot be expressed as CLI arguments,
-/// so `extract_library_surface` returns
-/// [`LibraryExtractError::Resource`] which propagates through
+/// so every export is skipped and `extract_library_surface` returns
+/// [`LibraryExtractError::NoInvocableFunctions`] (whose reasons name
+/// the offending resource type) which propagates through
 /// [`render_mapping`].
 #[test]
 fn resources_are_rejected() {
     let bytes = fixture_bytes("library_resources.wasm");
     let err = render_mapping(&bytes).expect_err("must reject resource");
-    let RenderMappingError::Extract(LibraryExtractError::Resource { name }) = err else {
-        panic!("expected Resource error, got {err:?}");
+    let RenderMappingError::Extract(LibraryExtractError::NoInvocableFunctions { reasons }) = err
+    else {
+        panic!("expected NoInvocableFunctions error, got {err:?}");
     };
-    insta::assert_snapshot!(format!("rejected: resource `{name}`"));
+    assert!(
+        reasons.to_lowercase().contains("resource"),
+        "expected reasons to mention resource, got {reasons:?}"
+    );
+    insta::assert_snapshot!(format!("rejected: {reasons}"));
 }

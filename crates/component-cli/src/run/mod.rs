@@ -567,6 +567,16 @@ async fn run_library_component(
                 "component exports the resource `{name}`, which is not supported by `component run`"
             ));
         }
+        // r[impl run.library-resources-rejected]
+        // Every export was skipped because it uses an unsupported type
+        // (resources, streams, futures, …), so there is nothing to invoke.
+        Err(LibraryExtractError::NoInvocableFunctions { reasons }) => {
+            return Err(miette::miette!(
+                help = "library-style invocation does not support these types; \
+                        use a CLI or HTTP component instead",
+                "no invocable functions: every export uses an unsupported type ({reasons})"
+            ));
+        }
         Err(e) => return Err(miette::miette!("{e}")),
     };
 
