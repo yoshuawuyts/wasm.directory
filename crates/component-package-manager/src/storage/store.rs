@@ -1275,13 +1275,13 @@ fn extract_wit_imports_exports_wasmparser(
             Payload::ComponentImportSection(reader) => {
                 for import in reader {
                     let Ok(import) = import else { continue };
-                    imports.push(parse_component_extern_name(import.name.0));
+                    imports.push(parse_component_extern_name(import.name.name));
                 }
             }
             Payload::ComponentExportSection(reader) => {
                 for export in reader {
                     let Ok(export) = export else { continue };
-                    exports.push(parse_component_extern_name(export.name.0));
+                    exports.push(parse_component_extern_name(export.name.name));
                 }
             }
             _ => {}

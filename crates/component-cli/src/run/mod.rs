@@ -535,7 +535,7 @@ fn exports_cli_run(bytes: &[u8]) -> bool {
             }
             Payload::ComponentExportSection(reader) if depth == 1 => {
                 for export in reader.into_iter().flatten() {
-                    if export.name.0.starts_with("wasi:cli/run") {
+                    if export.name.name.starts_with("wasi:cli/run") {
                         return true;
                     }
                 }
