@@ -246,7 +246,9 @@ fn build_func_decl(
         });
     }
     let result_decls = match result {
-        Some(r) => vec![ResultDecl { ty: cval_to_wit(r)? }],
+        Some(r) => vec![ResultDecl {
+            ty: cval_to_wit(r)?,
+        }],
         None => Vec::new(),
     };
     Some(FuncDecl {
