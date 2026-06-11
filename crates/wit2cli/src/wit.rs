@@ -194,72 +194,172 @@ impl LibraryExtractError {
     }
 }
 
-/// Best-effort extraction for components that lack a `component-type` custom
-/// section (e.g. components built with older `wit-bindgen` toolchains).
-///
-/// Walks the binary with `wasmparser`, resolving exported functions from nested
-/// components and matching them to the top-level instance exports. Only
-/// primitive WIT types (`bool`, `s8`…`u64`, `f32/f64`, `char`, `string`) are
-/// resolved; functions with complex type references are silently skipped.
-///
-/// Returns `Some(LibrarySurface)` if at least one interface with at least one
-/// function was found, `None` otherwise.
-fn prim_to_wit(p: wasmparser::PrimitiveValType) -> Option<WitTy> {
+/// Per-interface, per-function documentation strings keyed by the
+/// interface's short name (or `""` for free, top-level functions).
+type PackageDocs = std::collections::HashMap<String, std::collections::HashMap<String, String>>;
+
+/// Outcome of streaming a component through `wasmparser::Validator` in
+/// the fallback path: the fully populated type table, the root-level
+/// export names in declaration order, and the raw bytes of the
+/// `package-docs` custom section (if present).
+struct FallbackParts {
+    types: wasmparser::types::Types,
+    root_exports: Vec<String>,
+    package_docs: Option<Vec<u8>>,
+}
+
+fn fallback_prim_to_wit(p: wasmparser::PrimitiveValType) -> Option<WitTy> {
+    use wasmparser::PrimitiveValType;
     #[allow(clippy::match_wildcard_for_single_variants)]
     match p {
-        wasmparser::PrimitiveValType::Bool => Some(WitTy::Bool),
-        wasmparser::PrimitiveValType::S8 => Some(WitTy::S8),
-        wasmparser::PrimitiveValType::S16 => Some(WitTy::S16),
-        wasmparser::PrimitiveValType::S32 => Some(WitTy::S32),
-        wasmparser::PrimitiveValType::S64 => Some(WitTy::S64),
-        wasmparser::PrimitiveValType::U8 => Some(WitTy::U8),
-        wasmparser::PrimitiveValType::U16 => Some(WitTy::U16),
-        wasmparser::PrimitiveValType::U32 => Some(WitTy::U32),
-        wasmparser::PrimitiveValType::U64 => Some(WitTy::U64),
-        wasmparser::PrimitiveValType::F32 => Some(WitTy::F32),
-        wasmparser::PrimitiveValType::F64 => Some(WitTy::F64),
-        wasmparser::PrimitiveValType::Char => Some(WitTy::Char),
-        wasmparser::PrimitiveValType::String => Some(WitTy::String),
+        PrimitiveValType::Bool => Some(WitTy::Bool),
+        PrimitiveValType::S8 => Some(WitTy::S8),
+        PrimitiveValType::S16 => Some(WitTy::S16),
+        PrimitiveValType::S32 => Some(WitTy::S32),
+        PrimitiveValType::S64 => Some(WitTy::S64),
+        PrimitiveValType::U8 => Some(WitTy::U8),
+        PrimitiveValType::U16 => Some(WitTy::U16),
+        PrimitiveValType::U32 => Some(WitTy::U32),
+        PrimitiveValType::U64 => Some(WitTy::U64),
+        PrimitiveValType::F32 => Some(WitTy::F32),
+        PrimitiveValType::F64 => Some(WitTy::F64),
+        PrimitiveValType::Char => Some(WitTy::Char),
+        PrimitiveValType::String => Some(WitTy::String),
         // `error-context` (and any future kinds) cannot be CLI args.
         _ => None,
     }
 }
 
-fn cval_to_wit(cty: wasmparser::ComponentValType) -> Option<WitTy> {
-    match cty {
-        wasmparser::ComponentValType::Primitive(p) => prim_to_wit(p),
-        wasmparser::ComponentValType::Type(_) => None, // complex type: skip
+fn fallback_cval_to_wit(
+    r: &wasmparser::types::TypesRef<'_>,
+    vt: &wasmparser::component_types::ComponentValType,
+) -> Option<WitTy> {
+    use wasmparser::component_types::ComponentValType;
+    match vt {
+        ComponentValType::Primitive(p) => fallback_prim_to_wit(*p),
+        ComponentValType::Type(id) => fallback_defined_to_wit(r, fallback_defined_type(r, *id)),
     }
 }
 
-fn build_func_decl(
+fn fallback_defined_to_wit(
+    r: &wasmparser::types::TypesRef<'_>,
+    d: &wasmparser::component_types::ComponentDefinedType,
+) -> Option<WitTy> {
+    use wasmparser::component_types::ComponentDefinedType;
+    match d {
+        ComponentDefinedType::Primitive(p) => fallback_prim_to_wit(*p),
+        ComponentDefinedType::Record(rec) => {
+            let mut fields = Vec::with_capacity(rec.fields.len());
+            for (fname, fty) in &rec.fields {
+                fields.push((fname.to_string(), fallback_cval_to_wit(r, fty)?));
+            }
+            Some(WitTy::Record(fields))
+        }
+        ComponentDefinedType::Variant(v) => {
+            let mut cases = Vec::with_capacity(v.cases.len());
+            for (cname, case) in &v.cases {
+                let payload = match &case.ty {
+                    Some(t) => Some(Box::new(fallback_cval_to_wit(r, t)?)),
+                    None => None,
+                };
+                cases.push((cname.to_string(), payload));
+            }
+            Some(WitTy::Variant(cases))
+        }
+        ComponentDefinedType::List(t) => Some(WitTy::List(Box::new(fallback_cval_to_wit(r, t)?))),
+        ComponentDefinedType::Option(t) => {
+            Some(WitTy::Option(Box::new(fallback_cval_to_wit(r, t)?)))
+        }
+        ComponentDefinedType::Tuple(t) => {
+            let mut tys = Vec::with_capacity(t.types.len());
+            for v in &t.types {
+                tys.push(fallback_cval_to_wit(r, v)?);
+            }
+            Some(WitTy::Tuple(tys))
+        }
+        ComponentDefinedType::Enum(s) => {
+            Some(WitTy::Enum(s.iter().map(ToString::to_string).collect()))
+        }
+        ComponentDefinedType::Flags(s) => {
+            Some(WitTy::Flags(s.iter().map(ToString::to_string).collect()))
+        }
+        ComponentDefinedType::Result { ok, err } => {
+            let ok = match ok {
+                Some(t) => Some(Box::new(fallback_cval_to_wit(r, t)?)),
+                None => None,
+            };
+            let err = match err {
+                Some(t) => Some(Box::new(fallback_cval_to_wit(r, t)?)),
+                None => None,
+            };
+            Some(WitTy::Result { ok, err })
+        }
+        // Unsupported: owned/borrowed handles (resources), futures,
+        // streams, maps, fixed-length lists. Skip the affected function.
+        ComponentDefinedType::Own(_)
+        | ComponentDefinedType::Borrow(_)
+        | ComponentDefinedType::Future(_)
+        | ComponentDefinedType::Stream(_)
+        | ComponentDefinedType::Map(_, _)
+        | ComponentDefinedType::FixedLengthList(_, _) => None,
+    }
+}
+
+// Type ids surfaced by `wasmparser::Validator` always resolve, so the
+// underlying `Index` impl can't panic on us — these wrappers just
+// isolate the one place clippy would otherwise flag.
+#[allow(clippy::indexing_slicing)]
+fn fallback_func_type<'a>(
+    r: &'a wasmparser::types::TypesRef<'a>,
+    id: wasmparser::component_types::ComponentFuncTypeId,
+) -> &'a wasmparser::component_types::ComponentFuncType {
+    &r[id]
+}
+
+#[allow(clippy::indexing_slicing)]
+fn fallback_instance_type<'a>(
+    r: &'a wasmparser::types::TypesRef<'a>,
+    id: wasmparser::component_types::ComponentInstanceTypeId,
+) -> &'a wasmparser::component_types::ComponentInstanceType {
+    &r[id]
+}
+
+#[allow(clippy::indexing_slicing)]
+fn fallback_defined_type<'a>(
+    r: &'a wasmparser::types::TypesRef<'a>,
+    id: wasmparser::component_types::ComponentDefinedTypeId,
+) -> &'a wasmparser::component_types::ComponentDefinedType {
+    &r[id]
+}
+
+fn fallback_build_func_decl(
+    r: &wasmparser::types::TypesRef<'_>,
     name: &str,
-    params: &[(String, wasmparser::ComponentValType)],
-    result: Option<wasmparser::ComponentValType>,
+    func_ty: &wasmparser::component_types::ComponentFuncType,
+    doc: Option<String>,
 ) -> Option<FuncDecl> {
-    let mut param_decls = Vec::new();
-    for (pname, pty) in params {
-        let wty = cval_to_wit(*pty)?;
-        param_decls.push(ParamDecl {
-            name: pname.clone(),
-            ty: wty,
+    let mut params = Vec::with_capacity(func_ty.params.len());
+    for (pname, pty) in &func_ty.params {
+        params.push(ParamDecl {
+            name: pname.to_string(),
+            ty: fallback_cval_to_wit(r, pty)?,
         });
     }
-    let result_decls = match result {
-        Some(r) => vec![ResultDecl {
-            ty: cval_to_wit(r)?,
+    let results = match &func_ty.result {
+        Some(ty) => vec![ResultDecl {
+            ty: fallback_cval_to_wit(r, ty)?,
         }],
         None => Vec::new(),
     };
     Some(FuncDecl {
         name: name.to_string(),
-        doc: None,
-        params: param_decls,
-        results: result_decls,
+        doc,
+        params,
+        results,
     })
 }
 
-fn iface_short_name(export_name: &str) -> String {
+fn fallback_iface_short_name(export_name: &str) -> String {
     // "local:time-server/time"   → "time"
     // "wasi:io/streams@0.2.0"   → "streams"
     let after_slash = export_name.rsplit('/').next().unwrap_or(export_name);
@@ -270,144 +370,185 @@ fn iface_short_name(export_name: &str) -> String {
         .to_string()
 }
 
-fn parse_package_docs(
-    pkg_docs_json: Option<&str>,
-) -> Option<std::collections::HashMap<String, std::collections::HashMap<String, Option<String>>>> {
-    pkg_docs_json.and_then(|json| {
-        let val: serde_json::Value = serde_json::from_str(json).ok()?;
-        let ifaces = val.get("interfaces")?.as_object()?;
-        let mut result: std::collections::HashMap<
-            String,
-            std::collections::HashMap<String, Option<String>>,
-        > = std::collections::HashMap::new();
-        for (iname, ival) in ifaces {
-            let mut fmap: std::collections::HashMap<String, Option<String>> =
-                std::collections::HashMap::new();
-            if let Some(funcs) = ival.get("funcs").and_then(|v| v.as_object()) {
-                for (fname, fval) in funcs {
-                    let doc = fval
-                        .get("docs")
-                        .and_then(|v| v.as_str())
-                        .map(ToString::to_string);
-                    fmap.insert(fname.clone(), doc);
-                }
-            }
-            result.insert(iname.clone(), fmap);
+/// Parse `package-docs` JSON into `{ iface_short_name -> { func_name -> doc } }`.
+/// The empty string `""` keys the top-level (free) functions. Unknown JSON shapes
+/// are silently ignored — docs are a best-effort enhancement, never required.
+fn fallback_parse_package_docs(raw: Option<&[u8]>) -> PackageDocs {
+    let mut out: PackageDocs = std::collections::HashMap::new();
+    let Some(bytes) = raw else { return out };
+    let Ok(json) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+        return out;
+    };
+    if let Some(top_funcs) = json.get("funcs").and_then(|v| v.as_object()) {
+        let entry = out.entry(String::new()).or_default();
+        collect_doc_strings(top_funcs, entry);
+    }
+    if let Some(ifaces) = json.get("interfaces").and_then(|v| v.as_object()) {
+        for (iname, iobj) in ifaces {
+            let Some(funcs) = iobj.get("funcs").and_then(|v| v.as_object()) else {
+                continue;
+            };
+            let entry = out.entry(iname.clone()).or_default();
+            collect_doc_strings(funcs, entry);
         }
-        Some(result)
-    })
+    }
+    out
 }
 
-fn fallback_library_surface(bytes: &[u8]) -> Option<LibrarySurface> {
-    use std::collections::HashMap;
-    use wasmparser::{
-        ComponentExternalKind, ComponentType as WpComponentType, ComponentTypeRef,
-        ComponentValType, Encoding, Parser, Payload,
-    };
-    // A nested component function signature: its named params and optional result.
-    type InnerFunc = (Vec<(String, ComponentValType)>, Option<ComponentValType>);
+fn collect_doc_strings(
+    funcs: &serde_json::Map<String, serde_json::Value>,
+    out: &mut std::collections::HashMap<String, String>,
+) {
+    for (fname, fobj) in funcs {
+        if let Some(doc) = fobj.get("docs").and_then(|d| d.as_str()) {
+            out.insert(fname.clone(), doc.to_string());
+        }
+    }
+}
 
+/// Stream the bytes through the validator, collecting the type table,
+/// the root export names, and the `package-docs` custom section. Returns
+/// `None` if the binary isn't a valid component.
+fn fallback_validate(bytes: &[u8]) -> Option<FallbackParts> {
+    use wasmparser::{Encoding, Parser, Payload, ValidPayload, Validator, WasmFeatures};
+
+    let mut validator = Validator::new_with_features(WasmFeatures::all());
     let mut depth: u32 = 0;
-    let mut in_inner_component = false;
-    // Maps type index → signature within the current depth-2 component.
-    let mut inner_types: Vec<Option<InnerFunc>> = Vec::new();
-    // Collected function declarations: name → FuncDecl.
-    let mut func_map: HashMap<String, FuncDecl> = HashMap::new();
-    // Top-level instance exports: (full_export_name, short_interface_name).
-    let mut instance_exports: Vec<(String, String)> = Vec::new();
-    // Raw JSON from the `package-docs` custom section, if present.
-    let mut pkg_docs_json: Option<String> = None;
+    let mut root_exports: Vec<String> = Vec::new();
+    let mut package_docs: Option<Vec<u8>> = None;
+    let mut types: Option<wasmparser::types::Types> = None;
 
     for payload in Parser::new(0).parse_all(bytes) {
-        let Ok(payload) = payload else { continue };
-        match payload {
+        let Ok(payload) = payload else { return None };
+        match &payload {
             Payload::Version { encoding, .. } => {
-                depth += 1;
-                if depth == 2 {
-                    in_inner_component = encoding == Encoding::Component;
-                    inner_types.clear();
+                if depth == 0 && *encoding != Encoding::Component {
+                    return None;
                 }
+                depth += 1;
             }
             Payload::End(_) => {
-                if depth == 2 {
-                    in_inner_component = false;
-                }
                 depth = depth.saturating_sub(1);
             }
-            Payload::ComponentTypeSection(reader) if depth == 2 && in_inner_component => {
-                for ty in reader.into_iter().flatten() {
-                    match ty {
-                        WpComponentType::Func(ft) => {
-                            let params: Vec<(String, ComponentValType)> =
-                                ft.params.iter().map(|(n, t)| (n.to_string(), *t)).collect();
-                            inner_types.push(Some((params, ft.result)));
-                        }
-                        _ => inner_types.push(None),
-                    }
-                }
-            }
-            Payload::ComponentExportSection(reader) if depth == 2 && in_inner_component => {
-                for export in reader.into_iter().flatten() {
-                    if export.kind != ComponentExternalKind::Func {
-                        continue;
-                    }
-                    let type_idx = match export.ty {
-                        Some(ComponentTypeRef::Func(idx)) => idx as usize,
-                        _ => continue,
-                    };
-                    let Some(Some((params, result))) = inner_types.get(type_idx) else {
-                        continue;
-                    };
-                    let Some(func_decl) = build_func_decl(export.name.name, params, *result) else {
-                        continue;
-                    };
-                    func_map.insert(export.name.name.to_string(), func_decl);
-                }
-            }
             Payload::ComponentExportSection(reader) if depth == 1 => {
-                for export in reader.into_iter().flatten() {
-                    if export.kind == ComponentExternalKind::Instance {
-                        let full_name = export.name.name.to_string();
-                        let short_name = iface_short_name(&full_name);
-                        instance_exports.push((full_name, short_name));
-                    }
+                for export in reader.clone() {
+                    let Ok(export) = export else { return None };
+                    root_exports.push(export.name.name.to_string());
                 }
             }
             Payload::CustomSection(cs) if depth == 1 && cs.name() == "package-docs" => {
-                pkg_docs_json = std::str::from_utf8(cs.data()).ok().map(ToString::to_string);
+                package_docs = Some(cs.data().to_vec());
             }
             _ => {}
         }
+        let Ok(valid) = validator.payload(&payload) else {
+            return None;
+        };
+        if let ValidPayload::End(t) = valid {
+            types = Some(t);
+        }
     }
 
-    if func_map.is_empty() || instance_exports.is_empty() {
+    Some(FallbackParts {
+        types: types?,
+        root_exports,
+        package_docs,
+    })
+}
+
+/// Build an instance `LibraryItem` from a root-level instance export.
+/// Returns `None` for the componentize-py/js `exports` bootstrap
+/// interface (calling its `init` panics) and for instances whose
+/// functions are all unsupported.
+fn fallback_instance_item(
+    r: &wasmparser::types::TypesRef<'_>,
+    export_name: &str,
+    iid: wasmparser::component_types::ComponentInstanceTypeId,
+    docs: &PackageDocs,
+) -> Option<LibraryItem> {
+    use wasmparser::component_types::ComponentEntityType;
+
+    let short = fallback_iface_short_name(export_name);
+    // Skip "exports" — componentize-py/js bootstrap interface.
+    // Calling its `init` panics because the interpreter is already
+    // running. Matches the primary path's skip logic.
+    if short == "exports" {
         return None;
     }
+    let iface_ty = fallback_instance_type(r, iid);
+    let iface_docs = docs.get(&short);
+    let mut funcs = Vec::new();
+    for (fname, fitem) in &iface_ty.exports {
+        let ComponentEntityType::Func(fid) = fitem.ty else {
+            continue;
+        };
+        let fname_s = fname.as_str().to_string();
+        let doc = iface_docs.and_then(|m| m.get(&fname_s)).cloned();
+        if let Some(decl) = fallback_build_func_decl(r, &fname_s, fallback_func_type(r, fid), doc) {
+            funcs.push(decl);
+        }
+    }
+    if funcs.is_empty() {
+        return None;
+    }
+    Some(LibraryItem::Interface {
+        name: short,
+        export_name: export_name.to_string(),
+        doc: None,
+        funcs,
+    })
+}
 
-    // Parse `package-docs` JSON to get interface→(func→doc) mapping.
-    // Format: {"interfaces":{"time":{"funcs":{"get-current-time":{"docs":"..."}}}}}
-    let iface_funcs = parse_package_docs(pkg_docs_json.as_deref());
+/// Best-effort extraction for components that lack a `component-type` custom
+/// section (e.g. components built with older `wit-bindgen` toolchains).
+///
+/// Streams the binary through [`wasmparser::Validator`] to obtain the
+/// fully-typed [`wasmparser::types::Types`] table, then resolves each
+/// root-level export via
+/// [`TypesRef::component_item_for_export`](wasmparser::types::TypesRef::component_item_for_export).
+/// Free functions become [`LibraryItem::Func`]; instance exports become
+/// [`LibraryItem::Interface`] entries containing one [`FuncDecl`] per
+/// exported function. The full WIT type vocabulary is supported
+/// (records, variants, lists, options, results, tuples, enums, flags),
+/// not just the primitive subset.
+///
+/// Individual functions that reference unsupported types (resources,
+/// futures, streams, maps, fixed-length lists, error-context) are
+/// silently dropped — that's consistent with the `Option<LibrarySurface>`
+/// contract of the fallback path. When extraction fails entirely or
+/// yields nothing, returns `None` so the original `wit_parser::decode`
+/// error can propagate.
+fn fallback_library_surface(bytes: &[u8]) -> Option<LibrarySurface> {
+    use wasmparser::component_types::ComponentEntityType;
+
+    let FallbackParts {
+        types,
+        root_exports,
+        package_docs,
+    } = fallback_validate(bytes)?;
+    let r = types.as_ref();
+    let docs = fallback_parse_package_docs(package_docs.as_deref());
 
     let mut items = Vec::new();
-    for (export_name, short_name) in &instance_exports {
-        let funcs: Vec<FuncDecl> = match iface_funcs.as_ref().and_then(|m| m.get(short_name)) {
-            Some(func_docs) => func_docs
-                .iter()
-                .filter_map(|(fname, doc)| {
-                    let mut decl = func_map.get(fname)?.clone();
-                    decl.doc.clone_from(doc);
-                    Some(decl)
-                })
-                .collect(),
-            None => func_map.values().cloned().collect(),
+    for export_name in &root_exports {
+        let Some(item) = r.component_item_for_export(export_name) else {
+            continue;
         };
-        if !funcs.is_empty() {
-            items.push(LibraryItem::Interface {
-                name: short_name.clone(),
-                export_name: export_name.clone(),
-                doc: None,
-                funcs,
-            });
+        match item.ty {
+            ComponentEntityType::Func(fid) => {
+                let doc = docs.get("").and_then(|m| m.get(export_name)).cloned();
+                if let Some(decl) =
+                    fallback_build_func_decl(&r, export_name, fallback_func_type(&r, fid), doc)
+                {
+                    items.push(LibraryItem::Func(decl));
+                }
+            }
+            ComponentEntityType::Instance(iid) => {
+                if let Some(item) = fallback_instance_item(&r, export_name, iid, &docs) {
+                    items.push(item);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -768,5 +909,79 @@ mod tests {
             ),
             other => panic!("expected NoInvocableFunctions error, got {other:?}"),
         }
+    }
+
+    // The validator-driven `fallback_library_surface` is normally not
+    // invoked for fixtures with a `component-type` custom section.
+    // Call it directly so we exercise the new code path and confirm it
+    // recovers the full WIT type vocabulary (records, variants, lists,
+    // options, results, tuples, enums, flags) — not just primitives.
+    #[test]
+    fn fallback_recovers_kitchen_sink_surface() {
+        let bytes = read_fixture("library_kitchen_sink.wasm");
+        let surface = fallback_library_surface(&bytes).expect("fallback must recover a surface");
+
+        let names: Vec<&str> = surface
+            .items
+            .iter()
+            .map(|i| match i {
+                LibraryItem::Func(f) => f.name.as_str(),
+                LibraryItem::Interface { name, .. } => name.as_str(),
+            })
+            .collect();
+        for expected in &["shout", "greet", "pick", "fail"] {
+            assert!(
+                names.iter().any(|n| *n == *expected),
+                "fallback missing export {expected}; got {names:?}"
+            );
+        }
+
+        // At least one item must use a non-primitive type, proving we are
+        // resolving through `ComponentDefinedType` and not just primitives.
+        let has_complex = surface.items.iter().any(|i| match i {
+            LibraryItem::Func(f) => {
+                f.params.iter().any(|p| is_complex(&p.ty))
+                    || f.results.iter().any(|r| is_complex(&r.ty))
+            }
+            LibraryItem::Interface { funcs, .. } => funcs.iter().any(|f| {
+                f.params.iter().any(|p| is_complex(&p.ty))
+                    || f.results.iter().any(|r| is_complex(&r.ty))
+            }),
+        });
+        assert!(
+            has_complex,
+            "fallback only recovered primitive types; expected at least one record/variant/list/option/result/tuple/enum/flags"
+        );
+    }
+
+    fn is_complex(ty: &WitTy) -> bool {
+        matches!(
+            ty,
+            WitTy::Record(_)
+                | WitTy::Variant(_)
+                | WitTy::List(_)
+                | WitTy::Option(_)
+                | WitTy::Result { .. }
+                | WitTy::Tuple(_)
+                | WitTy::Enum(_)
+                | WitTy::Flags(_)
+        )
+    }
+
+    // The validator-driven fallback must reject WIT-package binaries the
+    // same way the primary path's `NotAComponent` rejection does — i.e.
+    // by returning `None` so the original decode error propagates to the
+    // user. Use the resources fixture as a stand-in: it IS a component,
+    // so a wit-package check isn't directly exercisable without crafting
+    // bytes; instead just confirm that an obviously-not-a-component byte
+    // string (an empty buffer) returns None rather than panicking.
+    #[test]
+    fn fallback_rejects_non_component_bytes() {
+        // Empty buffer is not a valid wasm header at all.
+        assert!(fallback_library_surface(&[]).is_none());
+        // A bare wasm-module header (magic + version, no component bit) is
+        // a core module, not a component — the fallback must bow out.
+        let core_module: [u8; 8] = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+        assert!(fallback_library_surface(&core_module).is_none());
     }
 }
