@@ -193,10 +193,124 @@ jobs:
           name: component-${{ matrix.target }}
           path: component-${{ matrix.target }}.${{ matrix.archive }}
 
+  publish-images:
+    name: Build and publish container images
+    runs-on: ubuntu-latest
+    needs: resolve-version
+    permissions:
+      contents: read
+      packages: write
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_BASE: ghcr.io/${{ github.repository }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set workspace version to ${{ needs.resolve-version.outputs.version }}
+        shell: python
+        env:
+          VERSION: ${{ needs.resolve-version.outputs.version }}
+        run: |
+          import os, re, tomllib, pathlib
+          version = os.environ["VERSION"]
+          path = pathlib.Path("Cargo.toml")
+          text = path.read_text()
+          data = tomllib.loads(text)
+
+          # 1) Bump [workspace.package].version (every crate inherits via
+          #    `version = { workspace = true }`).
+          new_text, count = re.subn(
+              r'(\[workspace\.package\][^\[]*?\nversion\s*=\s*")[^"]*(")',
+              lambda m: m.group(1) + version + m.group(2),
+              text,
+              count=1,
+              flags=re.DOTALL,
+          )
+          if count != 1:
+              raise SystemExit("Failed to update [workspace.package] version in Cargo.toml")
+
+          # 2) Bump version= pins on intra-workspace path-deps in
+          #    [workspace.dependencies]. cargo requires these to match
+          #    the bumped crate versions or resolution fails with
+          #    "candidate versions found which didn't match".
+          deps = data.get("workspace", {}).get("dependencies", {})
+          for name, spec in deps.items():
+              if not isinstance(spec, dict):
+                  continue
+              if not isinstance(spec.get("path"), str):
+                  continue
+              if not spec["path"].startswith("crates/"):
+                  continue
+              if "version" not in spec:
+                  continue
+              pattern = (
+                  r'^(' + re.escape(name)
+                  + r'\s*=\s*\{[^}]*?version\s*=\s*")[^"]*(")'
+              )
+              new_text, n2 = re.subn(
+                  pattern,
+                  lambda m: m.group(1) + version + m.group(2),
+                  new_text,
+                  count=1,
+                  flags=re.MULTILINE,
+              )
+              if n2 != 1:
+                  raise SystemExit(
+                      f"Failed to update workspace dep version pin for `{name}`"
+                  )
+              print(f"  pinned {name} -> {version}")
+
+          path.write_text(new_text)
+          print(f"Set workspace version to {version}")
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.backend
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_BASE }}/backend:${{ needs.resolve-version.outputs.version }}
+            ${{ env.IMAGE_BASE }}/backend:latest
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.frontend
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            API_BASE_URL=http://backend:8081
+          tags: |
+            ${{ env.IMAGE_BASE }}/frontend:${{ needs.resolve-version.outputs.version }}
+            ${{ env.IMAGE_BASE }}/frontend:latest
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [resolve-version, build]
+    needs: [resolve-version, build, publish-images]
     permissions:
       contents: write
     steps:
