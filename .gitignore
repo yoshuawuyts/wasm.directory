@@ -3,7 +3,6 @@ tmp/
 vendor/wit
 vendor/wasm
 examples/*/vendor
-Cargo.lock
 .DS_Store
 .env
 registry.toml
