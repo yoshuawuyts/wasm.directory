@@ -182,6 +182,10 @@ jobs:
           file: Dockerfile.backend
           platforms: linux/amd64
           push: true
+          # Disable provenance attestations: the extra attestation manifest
+          # fails to push to a freshly created GHCR package with
+          # "denied: permission_denied: write_package".
+          provenance: false
           tags: |
             ${{ env.IMAGE_BASE }}/backend:${{ needs.resolve-version.outputs.version }}
             ${{ env.IMAGE_BASE }}/backend:latest
@@ -195,6 +199,10 @@ jobs:
           file: Dockerfile.frontend
           platforms: linux/amd64
           push: true
+          # Disable provenance attestations: the extra attestation manifest
+          # fails to push to a freshly created GHCR package with
+          # "denied: permission_denied: write_package".
+          provenance: false
           build-args: |
             API_BASE_URL=http://backend:8081
           tags: |
