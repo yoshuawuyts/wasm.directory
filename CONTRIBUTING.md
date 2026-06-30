@@ -172,6 +172,18 @@ After the PR is reviewed and merged, the **Publish** workflow automatically:
 
 No manual `git tag` or `git push` step is needed.
 
+### Container images
+
+The **Release** workflow (**Actions → Release → Run workflow**) additionally
+builds and publishes the backend and frontend container images to the GitHub
+Container Registry (`ghcr.io`). Publishing a brand-new GHCR package requires a
+token with the `write:packages` scope: the repository-scoped `GITHUB_TOKEN`
+cannot create the package on the first push and fails with
+`denied: permission_denied: write_package`. Configure a personal access token
+(classic, with `write:packages`) as the repository secret `GHCR_TOKEN` so the
+workflow can authenticate; it falls back to `GITHUB_TOKEN` once the packages
+exist and grant this repository write access.
+
 ## Snapshot Testing
 
 This project uses the [`insta`](https://crates.io/crates/insta) crate for snapshot testing. Snapshot tests help catch unintentional changes in CLI output and rendered components, providing more confidence during refactoring and new feature development.
