@@ -1222,9 +1222,8 @@ impl Manager {
             .as_ref()
             .and_then(|a| a.get("org.opencontainers.image.description").cloned());
 
-        // Filter to tags that parse as semver (accepting an optional leading
-        // `v` prefix, e.g. `1.2.3` or `v1.2.3`). Tags like `latest`,
-        // `nightly`, or `sha256-...` are excluded here: they cannot be
+        // Filter to tags that parse as semver (e.g. `1.2.3`). Tags like
+        // `latest`, `nightly`, or `sha256-...` are excluded here: they cannot be
         // resolved by the version solver and cause garbled rendering in the
         // frontend. If no tags are valid, skip indexing this package entirely
         // so it does not pollute search results.

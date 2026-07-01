@@ -235,9 +235,8 @@ async fn known_package_from_repo(
 }
 
 /// Fetch a repository's tags from `oci_tag`, sorted by semver descending.
-/// Only tags that parse as semver are returned (accepting an optional leading
-/// `v` prefix, e.g. `1.2.3` or `v1.2.3`); tags like `latest` or `sha256-...`
-/// are excluded.
+/// Only tags that parse as semver (e.g. `1.2.3`) are returned; tags like
+/// `latest` or `sha256-...` are excluded.
 async fn fetch_repo_tags(db: &DatabaseConnection, repo_id: i64) -> anyhow::Result<Vec<String>> {
     let rows = oci_tag::Entity::find()
         .filter(oci_tag::Column::OciRepositoryId.eq(repo_id))
