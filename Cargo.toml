@@ -142,7 +142,7 @@ rustls-native-certs = "0.8"
 tokio-rustls = { version = "0.26", features = ["ring", "tls12"] }
 webpki-roots = "1.0"
 wasmtime = { version = "46.0.0", features = ["component-model-async"] }
-wasmtime-wasi = "45.0.0"
+wasmtime-wasi = "46.0.0"
 wasmtime-wasi-http = { version = "46.0.0", features = ["p3"] }
 hyper = { version = "1", features = ["http1", "server"] }
 
