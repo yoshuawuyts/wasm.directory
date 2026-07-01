@@ -4504,6 +4504,7 @@ mod component_tests {
                 size: 4,
                 urls: None,
                 annotations: None,
+                artifact_type: None,
             }],
             ..Default::default()
         };
@@ -4555,6 +4556,7 @@ mod component_tests {
                 size: 3,
                 urls: None,
                 annotations: None,
+                artifact_type: None,
             }],
             ..Default::default()
         };
