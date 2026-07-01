@@ -191,9 +191,9 @@ pub fn derive_component_name<S: std::hash::BuildHasher>(
 /// Try to parse a tag as a semantic version, accepting an optional leading
 /// `v` prefix (e.g. `v1.2.3`) while leaving the original tag string untouched.
 ///
-/// Also reverses the `+`->`_` OCI-tag mapping applied on publish by
-/// [`crate::publish::oci_tag`]: OCI tags cannot contain `+`, so a SemVer with
-/// build metadata such as `0.1.0+2022-11-15` is stored under the tag
+/// Also reverses the `+`->`_` OCI-tag mapping that [`crate::publish::oci_tag`]
+/// applies on publish. OCI tags cannot contain `+`, so a SemVer with build
+/// metadata such as `0.1.0+2022-11-15` is stored under the tag
 /// `0.1.0_2022-11-15`. When we read tags back from a registry during indexing
 /// we decode the first `_` to `+` so they round-trip and parse as SemVer,
 /// instead of being discarded as non-semver (which skips the whole package).
