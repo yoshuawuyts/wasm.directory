@@ -217,22 +217,58 @@ delegating the zone to Azure — something only you can do:
    Azure name servers; `dig +short TXT asuid.wasm.directory` should return the
    verification id).
 
-2. **Bind the hostname and request a managed certificate.** Once the records
-   resolve publicly, run:
+2. **Add the hostname, then bind a managed certificate.** Once the records
+   resolve publicly, register the hostname and issue the certificate. Capture
+   the names first to keep the commands short:
 
    ```sh
-   az containerapp hostname bind \
-     --resource-group "$(azd env get-value AZURE_RESOURCE_GROUP)" \
-     --name "$(azd env get-value SERVICE_FRONTEND_NAME)" \
-     --hostname "$(azd env get-value CUSTOM_DOMAIN_NAME)" \
-     --environment "$(azd env get-value AZURE_CONTAINER_APPS_ENVIRONMENT_NAME)" \
-     --validation-method TXT
+   RG="$(azd env get-value AZURE_RESOURCE_GROUP)"
+   APP="$(azd env get-value SERVICE_FRONTEND_NAME)"
+   ENVNAME="$(azd env get-value AZURE_CONTAINER_APPS_ENVIRONMENT_NAME)"
+   DOMAIN="$(azd env get-value CUSTOM_DOMAIN_NAME)"
    ```
 
-   This adds the hostname, validates ownership via the `asuid` `TXT` record,
-   and provisions a free Azure-managed TLS certificate that auto-renews.
-   Certificate issuance can take a few minutes. The command is idempotent, so
-   it is safe to re-run if DNS had not finished propagating the first time.
+   First add the custom hostname. Azure validates ownership against the
+   `asuid` `TXT` record from step 1. (A one-shot `bind` without adding the
+   hostname first fails with `RequireCustomHostnameInEnvironment`.)
+
+   ```sh
+   az containerapp hostname add \
+     --resource-group "$RG" --name "$APP" --hostname "$DOMAIN"
+   ```
+
+   > **Apex domains validate over `HTTP`, not `TXT`.** Azure issues managed
+   > certificates for an apex domain (like `wasm.directory`) by reaching the
+   > app over HTTP from DigiCert's IP addresses — `--validation-method TXT` is
+   > only for subdomains and leaves an apex certificate stuck in `Pending`.
+   > See the
+   > [managed-certificate requirements](https://learn.microsoft.com/azure/container-apps/custom-domains-managed-certificates#free-certificate-requirements).
+
+   The frontend redirects HTTP→HTTPS (`allowInsecure: false`), which blocks
+   DigiCert's HTTP validation probe and would leave the certificate `Pending`
+   indefinitely. Temporarily allow insecure traffic, bind the certificate
+   (which issues the managed cert and enables SNI), then restore the redirect:
+
+   ```sh
+   # 1. Let DigiCert reach the app over plain HTTP for validation
+   az containerapp ingress update -n "$APP" -g "$RG" --allow-insecure true
+
+   # 2. Issue + bind the free managed TLS certificate (HTTP validation for apex)
+   az containerapp hostname bind \
+     --resource-group "$RG" --name "$APP" --hostname "$DOMAIN" \
+     --environment "$ENVNAME" --validation-method HTTP
+
+   # 3. Restore the HTTP→HTTPS redirect
+   az containerapp ingress update -n "$APP" -g "$RG" --allow-insecure false
+   ```
+
+   With the redirect out of the way, issuance usually completes within a
+   minute or two (Azure allows up to 20). The certificate auto-renews
+   afterwards. Verify the site serves a valid certificate:
+
+   ```sh
+   curl -sS -o /dev/null -w '%{http_code}\n' "https://$DOMAIN/"   # expect 200
+   ```
 
 After it completes, the site is reachable at `https://wasm.directory`.
 
@@ -265,3 +301,21 @@ so the same `AZURE_ENV_NAME` can be reused immediately.
 - **Wrong API version.** The `NoRegisteredProviderFound` error includes
   the list of supported API versions for the resource type and region. Pin
   Bicep resources to one of the listed GA versions.
+- **Managed certificate stuck in `Pending` (custom domain).** For an apex
+  domain there are two usual causes. First, the certificate was requested with
+  `--validation-method TXT`; apex domains must use `HTTP`. Delete the pending
+  cert and re-bind with `HTTP`:
+
+  ```sh
+  az containerapp env certificate list -g "$RG" -n "$ENVNAME" \
+    --query "[].{name:name, state:properties.provisioningState}" -o table
+  az containerapp env certificate delete -g "$RG" -n "$ENVNAME" \
+    --certificate <pending-cert-name> --yes
+  ```
+
+  Second, the frontend redirects HTTP→HTTPS (`allowInsecure: false`), so
+  DigiCert's HTTP validation probe never reaches the app. Bind with
+  `--allow-insecure true` set on the ingress, then restore it — see step 2 of
+  [§7](#7-optional-bind-a-custom-domain). Note that the per-certificate
+  `validationToken` shown for a `TXT`-validated cert is a dead end for apex
+  domains; don't chase it.
