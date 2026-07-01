@@ -7,7 +7,8 @@ $providers = @(
     'Microsoft.OperationalInsights',
     'Microsoft.ContainerRegistry',
     'Microsoft.DBforPostgreSQL',
-    'Microsoft.Insights'
+    'Microsoft.Insights',
+    'Microsoft.Network'
 )
 
 Write-Host "Ensuring required Azure resource providers are registered..."

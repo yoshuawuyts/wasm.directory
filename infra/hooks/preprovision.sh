@@ -9,6 +9,7 @@ PROVIDERS=(
   Microsoft.ContainerRegistry
   Microsoft.DBforPostgreSQL
   Microsoft.Insights
+  Microsoft.Network
 )
 
 echo "Ensuring required Azure resource providers are registered..."

@@ -15,3 +15,5 @@ param frontendImage = readEnvironmentVariable('FRONTEND_IMAGE', 'mcr.microsoft.c
 param registryServer = readEnvironmentVariable('REGISTRY_SERVER', '')
 param registryUsername = readEnvironmentVariable('REGISTRY_USERNAME', '')
 param registryPassword = readEnvironmentVariable('REGISTRY_PASSWORD', '')
+
+param customDomainName = readEnvironmentVariable('CUSTOM_DOMAIN_NAME', '')

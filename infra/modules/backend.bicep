@@ -47,10 +47,15 @@ resource backendApp 'Microsoft.App/containerApps@2024-03-01' = {
     environmentId: containerAppsEnvironmentId
     configuration: {
       // Internal ingress: only reachable within the Container Apps Environment.
+      // allowInsecure lets sibling apps reach the backend over plain HTTP on the
+      // ingress port (http://backend). Without it, ACA 308-redirects HTTP to
+      // HTTPS; the frontend's Wasm HTTP client does not follow that redirect and
+      // hangs. Safe here because the app is internal-only (external: false).
       ingress: {
         external: false
         targetPort: 8081
         transport: 'http'
+        allowInsecure: true
       }
       registries: registries
       secrets: union([
