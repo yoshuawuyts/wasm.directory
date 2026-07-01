@@ -217,11 +217,23 @@ fn bind_placeholders(backend: DbBackend, sql: &str) -> Cow<'_, str> {
     let mut out = String::with_capacity(sql.len() + 8);
     let mut index = 0u32;
     let mut in_string_literal = false;
-    for ch in sql.chars() {
+
+    let mut chars = sql.chars().peekable();
+    while let Some(ch) = chars.next() {
         match ch {
             '\'' => {
-                in_string_literal = !in_string_literal;
-                out.push(ch);
+                out.push('\'');
+                if in_string_literal {
+                    // SQL escapes single quotes inside string literals by doubling them: ''
+                    if matches!(chars.peek(), Some('\'')) {
+                        out.push('\'');
+                        chars.next();
+                    } else {
+                        in_string_literal = false;
+                    }
+                } else {
+                    in_string_literal = true;
+                }
             }
             '?' if !in_string_literal => {
                 index += 1;
