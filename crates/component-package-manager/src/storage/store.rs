@@ -1613,6 +1613,56 @@ async fn upsert_oci_manifest(
     Ok((manifest_id, !already_exists))
 }
 
+/// Build the shared `INSERT … SELECT` used to ingest indexable tags into
+/// `fetch_queue`, adapting the one backend-specific fragment to the active
+/// dialect.
+///
+/// `enqueue_reindex_all` and `seed_completed_from_tags` differ only in their
+/// column list and SELECT projection; everything else (the FROM/JOIN/WHERE
+/// filter, GROUP BY, and ON CONFLICT tail) is identical, so it lives here to
+/// keep the two call sites in sync.
+///
+/// The filter skips `latest`, signature tags (`sha256-*`), and bare 40-char
+/// lowercase-hex git commit SHAs. That last exclusion is the only dialect
+/// difference: SQLite has `GLOB` but Postgres does not, so Postgres uses an
+/// equivalent POSIX regex. `columns` and `projection` are internal SQL
+/// literals (never user input), so interpolating them is safe.
+///
+/// `t.created_at`/`t.updated_at` are in the GROUP BY because
+/// `seed_completed_from_tags` selects them and Postgres (unlike SQLite) rejects
+/// bare non-aggregated columns. They are functionally dependent on `t.tag`
+/// (one `oci_tag` row per repository+tag), so grouping by them is a no-op on
+/// the row count for both statements.
+fn tag_ingest_sql(backend: DbBackend, columns: &str, projection: &str) -> String {
+    // Exclude tags that are exactly 40 lowercase-hex chars (a commit SHA).
+    // The two forms are semantically identical; only the dialect differs.
+    let commit_sha_exclusion = match backend {
+        DbBackend::Postgres => "AND t.tag !~ '^[0-9a-f]{40}$'",
+        // SQLite is the only other backend that reaches these queries
+        // (`Manager::open` rejects everything except sqlite:// and
+        // postgres://), and it is what the in-memory test store uses.
+        _ => {
+            "AND NOT (length(t.tag) = 40 \
+              AND t.tag GLOB '[0-9a-f]*' \
+              AND t.tag NOT GLOB '*[^0-9a-f]*')"
+        }
+    };
+    format!(
+        "INSERT INTO fetch_queue ({columns}) \
+         SELECT {projection} \
+         FROM oci_tag t \
+         JOIN oci_repository r ON r.id = t.oci_repository_id \
+         JOIN oci_manifest m ON m.oci_repository_id = r.id \
+                             AND m.digest = t.manifest_digest \
+         JOIN oci_layer l ON l.oci_manifest_id = m.id \
+         WHERE t.tag != 'latest' \
+           AND t.tag NOT LIKE 'sha256-%' \
+           {commit_sha_exclusion} \
+         GROUP BY r.registry, r.repository, t.tag, t.created_at, t.updated_at \
+         ON CONFLICT(registry, repository, tag, task) DO NOTHING"
+    )
+}
+
 /// Upsert an `oci_tag` row pointing at `manifest_digest`.
 async fn upsert_oci_tag(
     db: &DatabaseConnection,
@@ -2932,24 +2982,15 @@ impl Store {
         // Bulk INSERT … SELECT to enqueue reindex tasks for every tag that
         // has cached layers. Same filter rules as legacy: skip 'latest',
         // signature tags (sha256-*), and bare 40-char hex commit SHAs.
-        let sql = "\
-            INSERT INTO fetch_queue (registry, repository, tag, task) \
-            SELECT r.registry, r.repository, t.tag, 'reindex' \
-            FROM oci_tag t \
-            JOIN oci_repository r ON r.id = t.oci_repository_id \
-            JOIN oci_manifest m ON m.oci_repository_id = r.id \
-                                AND m.digest = t.manifest_digest \
-            JOIN oci_layer l ON l.oci_manifest_id = m.id \
-            WHERE t.tag != 'latest' \
-              AND t.tag NOT LIKE 'sha256-%' \
-              AND NOT (length(t.tag) = 40 \
-                       AND t.tag GLOB '[0-9a-f]*' \
-                       AND t.tag NOT GLOB '*[^0-9a-f]*') \
-            GROUP BY r.registry, r.repository, t.tag \
-            ON CONFLICT(registry, repository, tag, task) DO NOTHING";
+        let backend = self.db.get_database_backend();
+        let sql = tag_ingest_sql(
+            backend,
+            "registry, repository, tag, task",
+            "r.registry, r.repository, t.tag, 'reindex'",
+        );
         let result = self
             .db
-            .execute_raw(Statement::from_string(self.db.get_database_backend(), sql))
+            .execute_raw(Statement::from_string(backend, sql))
             .await?;
         Ok(result.rows_affected())
     }
@@ -2957,24 +2998,15 @@ impl Store {
     pub(crate) async fn seed_completed_from_tags(&self) -> anyhow::Result<u64> {
         // Same filter as enqueue_reindex_all but inserts 'completed' rows so
         // history shows tags that pre-date the queue.
-        let sql = "\
-            INSERT INTO fetch_queue (registry, repository, tag, task, status, created_at, updated_at) \
-            SELECT r.registry, r.repository, t.tag, 'pull', 'completed', t.created_at, t.updated_at \
-            FROM oci_tag t \
-            JOIN oci_repository r ON r.id = t.oci_repository_id \
-            JOIN oci_manifest m ON m.oci_repository_id = r.id \
-                                AND m.digest = t.manifest_digest \
-            JOIN oci_layer l ON l.oci_manifest_id = m.id \
-            WHERE t.tag != 'latest' \
-              AND t.tag NOT LIKE 'sha256-%' \
-              AND NOT (length(t.tag) = 40 \
-                       AND t.tag GLOB '[0-9a-f]*' \
-                       AND t.tag NOT GLOB '*[^0-9a-f]*') \
-            GROUP BY r.registry, r.repository, t.tag \
-            ON CONFLICT(registry, repository, tag, task) DO NOTHING";
+        let backend = self.db.get_database_backend();
+        let sql = tag_ingest_sql(
+            backend,
+            "registry, repository, tag, task, status, created_at, updated_at",
+            "r.registry, r.repository, t.tag, 'pull', 'completed', t.created_at, t.updated_at",
+        );
         let result = self
             .db
-            .execute_raw(Statement::from_string(self.db.get_database_backend(), sql))
+            .execute_raw(Statement::from_string(backend, sql))
             .await?;
         Ok(result.rows_affected())
     }
@@ -3847,6 +3879,128 @@ mod smoke_tests {
         assert_eq!(snapshot_a.current, snapshot_a.total);
         assert_eq!(snapshot_b.current, snapshot_b.total);
         assert_eq!(snapshot_a.current, snapshot_b.current);
+    }
+
+    /// Seed a repo + manifest + layer + a spread of tags, run both tag-ingest
+    /// queries, and confirm the filter keeps real version tags while dropping
+    /// `latest`, signature tags, and bare 40-char hex commit SHAs — on whatever
+    /// backend `store` is bound to.
+    ///
+    /// This is the regression guard for the Postgres GLOB dialect bug: SQLite's
+    /// `GLOB` operator doesn't exist in Postgres, so before the fix these two
+    /// functions raised `syntax error at or near "AND"` on Postgres.
+    async fn assert_commit_sha_filter(store: &Store, registry: &str, repository: &str) {
+        let digest = "sha256:deadbeef";
+        let repo_id =
+            upsert_oci_repository_full(store.db(), registry, repository, None, None, None)
+                .await
+                .expect("insert oci_repository");
+        let (manifest_id, _) = upsert_oci_manifest(
+            store.db(),
+            repo_id,
+            digest,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &HashMap::new(),
+        )
+        .await
+        .expect("insert oci_manifest");
+        // The ingest query JOINs oci_layer, so the manifest needs one.
+        insert_oci_layer(
+            store.db(),
+            manifest_id,
+            "sha256:layer0",
+            Some("application/vnd.oci.image.layer.v1.tar+gzip"),
+            Some(1),
+            0,
+        )
+        .await
+        .expect("insert oci_layer");
+
+        // 40 lowercase-hex chars: a bare git commit SHA — must be filtered out.
+        let commit_sha = "0123456789abcdef0123456789abcdef01234567";
+        assert_eq!(commit_sha.len(), 40, "commit_sha fixture must be 40 chars");
+        // 40 chars but not all-hex, so it is NOT a commit SHA and must survive
+        // the filter. Exercises the GLOB-vs-regex equivalence at the boundary.
+        let not_a_sha = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz";
+        assert_eq!(not_a_sha.len(), 40, "not_a_sha fixture must be 40 chars");
+        let sig_tag = "sha256-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+        let indexable = ["0.2.0", "1.0.0-rc.1", not_a_sha];
+        let excluded = [commit_sha, "latest", sig_tag];
+        for tag in indexable.iter().chain(excluded.iter()) {
+            upsert_oci_tag(store.db(), repo_id, tag, digest)
+                .await
+                .expect("insert oci_tag");
+        }
+
+        // The core of the regression: both statements must parse and run on
+        // this backend. On Postgres the GLOB form used to blow up here.
+        store
+            .seed_completed_from_tags()
+            .await
+            .expect("seed_completed_from_tags must run on this backend");
+        store
+            .enqueue_reindex_all()
+            .await
+            .expect("enqueue_reindex_all must run on this backend");
+
+        let rows = fetch_queue::Entity::find()
+            .filter(fetch_queue::Column::Registry.eq(registry))
+            .filter(fetch_queue::Column::Repository.eq(repository))
+            .all(store.db())
+            .await
+            .expect("query fetch_queue");
+
+        // Assert per-task, not just tag membership: `seed_completed_from_tags`
+        // enqueues task=Pull and `enqueue_reindex_all` enqueues task=Reindex, so
+        // an indexable tag must show up under BOTH. A tag-only set would hide a
+        // regression where just one of the two statements dropped the tag.
+        let enqueued = |tag: &str, task: fetch_queue::FetchTask| {
+            rows.iter().any(|r| r.tag == tag && r.task == task)
+        };
+        for tag in indexable {
+            assert!(
+                enqueued(tag, fetch_queue::FetchTask::Pull),
+                "seed_completed_from_tags should enqueue `{tag}` (task=pull)"
+            );
+            assert!(
+                enqueued(tag, fetch_queue::FetchTask::Reindex),
+                "enqueue_reindex_all should enqueue `{tag}` (task=reindex)"
+            );
+        }
+        for tag in excluded {
+            assert!(
+                !rows.iter().any(|r| r.tag == tag),
+                "neither statement should enqueue `{tag}`"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn tag_filter_excludes_commit_shas_sqlite() {
+        let store = Store::open_in_memory().await.expect("open in-memory store");
+        assert_commit_sha_filter(&store, "sqlite.test.local", "regression/commit-sha").await;
+    }
+
+    #[tokio::test]
+    async fn tag_filter_excludes_commit_shas_postgres() {
+        let Ok(url) = std::env::var("COMPONENT_DATABASE_URL") else {
+            return;
+        };
+        let lower = url.to_ascii_lowercase();
+        if !(lower.starts_with("postgres:") || lower.starts_with("postgresql:")) {
+            return;
+        }
+        let data_dir = tempfile::tempdir().expect("create temp dir");
+        let store = Store::open_at(data_dir.path().to_path_buf())
+            .await
+            .expect("open Postgres store");
+        assert_commit_sha_filter(&store, "postgres.test.local", "regression/commit-sha").await;
     }
 }
 
