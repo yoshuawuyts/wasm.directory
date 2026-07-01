@@ -2408,6 +2408,71 @@ impl Store {
         Ok(())
     }
 
+    /// Look up a fully-described cached manifest for a concrete reference.
+    ///
+    /// Reconstructs the [`OciImageManifest`] from the stored `raw_json` for
+    /// the `(registry, repository, tag)` triple, returning it together with
+    /// the manifest digest. Returns `None` when the repository, tag, or
+    /// manifest row is absent, or when the stored manifest has no `raw_json`
+    /// payload to deserialize.
+    ///
+    /// This performs no network I/O — it is the basis of the local-cache
+    /// fast-path in [`Manager::install`](crate::manager::Manager::install).
+    pub(crate) async fn cached_manifest_for_reference(
+        &self,
+        registry: &str,
+        repository: &str,
+        tag: &str,
+    ) -> anyhow::Result<Option<(String, OciImageManifest)>> {
+        let Some(repo) = oci_repository::Entity::find()
+            .filter(oci_repository::Column::Registry.eq(registry))
+            .filter(oci_repository::Column::Repository.eq(repository))
+            .one(&self.db)
+            .await?
+        else {
+            return Ok(None);
+        };
+
+        let Some(tag_row) = oci_tag::Entity::find()
+            .filter(oci_tag::Column::OciRepositoryId.eq(repo.id))
+            .filter(oci_tag::Column::Tag.eq(tag))
+            .one(&self.db)
+            .await?
+        else {
+            return Ok(None);
+        };
+
+        let Some(manifest_row) = oci_manifest::Entity::find()
+            .filter(oci_manifest::Column::OciRepositoryId.eq(repo.id))
+            .filter(oci_manifest::Column::Digest.eq(&tag_row.manifest_digest))
+            .one(&self.db)
+            .await?
+        else {
+            return Ok(None);
+        };
+
+        let Some(raw_json) = manifest_row.raw_json else {
+            return Ok(None);
+        };
+        let manifest: OciImageManifest = serde_json::from_str(&raw_json)?;
+        Ok(Some((tag_row.manifest_digest, manifest)))
+    }
+
+    /// Return `true` when every layer referenced by `manifest` has its
+    /// content blob present in the local content-addressable store.
+    ///
+    /// Used to confirm a cache hit is complete before serving an install
+    /// without touching the network.
+    pub(crate) async fn all_layers_cached(&self, manifest: &OciImageManifest) -> bool {
+        let cache = self.state_info.store_dir();
+        for layer in &manifest.layers {
+            if !matches!(cacache::metadata(cache, &layer.digest).await, Ok(Some(_))) {
+                return false;
+            }
+        }
+        true
+    }
+
     pub(crate) async fn reindex_wit_packages(&self) -> anyhow::Result<u64> {
         // Re-derive WIT metadata for every wit_package that has a cached
         // layer. The legacy implementation considered two sources:
@@ -4008,6 +4073,7 @@ mod smoke_tests {
 mod component_tests {
     use super::*;
     use component_meta_registry_types::{ComponentSummary, WitInterfaceRef};
+    use oci_client::manifest::OciDescriptor;
 
     #[test]
     fn parse_component_extern_name_full() {
@@ -4238,5 +4304,98 @@ mod component_tests {
             .await
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    // ── local-cache fast-path lookups ───────────────────────────────────
+
+    /// A concrete `(registry, repository, tag)` triple resolves back to the
+    /// stored manifest (deserialized from `raw_json`) together with its
+    /// digest, and an unknown tag misses.
+    #[tokio::test]
+    async fn cached_manifest_for_reference_round_trips_and_misses() {
+        let store = Store::open_in_memory().await.unwrap();
+        let reference: Reference = "ghcr.io/example/comp:1.2.3".parse().unwrap();
+        let layer_digest =
+            "sha256:1111111111111111111111111111111111111111111111111111111111111111";
+        let manifest_digest =
+            "sha256:2222222222222222222222222222222222222222222222222222222222222222";
+        let manifest = OciImageManifest {
+            layers: vec![OciDescriptor {
+                media_type: "application/wasm".to_string(),
+                digest: layer_digest.to_string(),
+                size: 4,
+                urls: None,
+                annotations: None,
+            }],
+            ..Default::default()
+        };
+
+        let (result, _manifest_id) = store
+            .insert_metadata(&reference, Some(manifest_digest), &manifest, 4)
+            .await
+            .unwrap();
+        assert_eq!(result, InsertResult::Inserted);
+
+        let (digest, got) = store
+            .cached_manifest_for_reference("ghcr.io", "example/comp", "1.2.3")
+            .await
+            .unwrap()
+            .expect("stored manifest should be found");
+        assert_eq!(digest, manifest_digest);
+        assert_eq!(got.layers.len(), 1);
+        assert_eq!(got.layers[0].digest, layer_digest);
+
+        // An unknown tag on the same repository misses.
+        assert!(
+            store
+                .cached_manifest_for_reference("ghcr.io", "example/comp", "9.9.9")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        // An unknown repository misses.
+        assert!(
+            store
+                .cached_manifest_for_reference("ghcr.io", "other/comp", "1.2.3")
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    /// `all_layers_cached` is false until every referenced layer blob has been
+    /// written to the content store, then true.
+    #[tokio::test]
+    async fn all_layers_cached_reflects_blob_presence() {
+        let store = Store::open_in_memory().await.unwrap();
+        let layer_digest =
+            "sha256:3333333333333333333333333333333333333333333333333333333333333333";
+        let manifest = OciImageManifest {
+            layers: vec![OciDescriptor {
+                media_type: "application/wasm".to_string(),
+                digest: layer_digest.to_string(),
+                size: 3,
+                urls: None,
+                annotations: None,
+            }],
+            ..Default::default()
+        };
+
+        // Nothing written yet: a missing blob means the cache is incomplete.
+        assert!(!store.all_layers_cached(&manifest).await);
+
+        // Write the layer blob into the content store keyed by its digest.
+        store
+            .insert_layer(
+                layer_digest,
+                b"abc",
+                None,
+                Some("application/wasm"),
+                0,
+                None,
+            )
+            .await
+            .unwrap();
+        assert!(store.all_layers_cached(&manifest).await);
     }
 }

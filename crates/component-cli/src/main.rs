@@ -46,7 +46,7 @@ pub(crate) struct Cli {
 impl Cli {
     async fn run(self) -> miette::Result<()> {
         match self.command {
-            Some(Command::Run(opts)) => opts.run(self.offline).await?,
+            Some(Command::Run(opts)) => Box::pin(opts.run(self.offline)).await?,
             Some(Command::Local(opts)) => {
                 opts.run();
             }
@@ -163,7 +163,7 @@ async fn main() -> miette::Result<()> {
     let argv = quarantine_run_trailing_args(std::env::args().collect());
     let cli = Cli::parse_from(argv);
     let _tracing_guard = init_tracing(cli.verbosity.tracing_level_filter())?;
-    cli.run().await?;
+    Box::pin(cli.run()).await?;
     Ok(())
 }
 
