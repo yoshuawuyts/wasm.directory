@@ -188,24 +188,32 @@ pub fn derive_component_name<S: std::hash::BuildHasher>(
         .unwrap_or_else(|| repository.to_string())
 }
 
-/// Try to parse a tag as a semantic version, accepting an optional leading
-/// `v` prefix (e.g. `v1.2.3`) while leaving the original tag string untouched.
+/// Try to parse a tag as a semantic version.
+///
+/// Reverses the `+`->`_` OCI-tag mapping that [`crate::publish::oci_tag`]
+/// applies on publish. OCI tags cannot contain `+`, so a SemVer with build
+/// metadata such as `0.1.0+2022-11-15` is stored under the tag
+/// `0.1.0_2022-11-15`. When we read tags back from a registry during indexing
+/// we decode the first `_` to `+` so they round-trip and parse as SemVer,
+/// instead of being discarded as non-semver (which skips the whole package).
 pub(crate) fn parse_tag_as_semver(tag: &str) -> Option<semver::Version> {
     if let Ok(version) = semver::Version::parse(tag) {
         return Some(version);
     }
-    // Accept a leading `v` when followed by a digit.
-    let stripped = tag.strip_prefix('v')?;
-    if !stripped.starts_with(|c: char| c.is_ascii_digit()) {
-        return None;
+    // Reverse the `+`->`_` OCI-tag mapping (see `publish::oci_tag`). SemVer has
+    // at most one `+` (all build metadata follows it and cannot itself contain
+    // `_`), so `oci_tag` introduces at most one `_`; decode the first `_` back
+    // to `+` and retry.
+    if tag.contains('_') {
+        return semver::Version::parse(&tag.replacen('_', "+", 1)).ok();
     }
-    semver::Version::parse(stripped).ok()
+    None
 }
 
 /// Pick the latest stable semver tag from a list of tags.
 ///
 /// Filters out:
-/// - Tags that are not valid semver versions (accepts optional `v` prefix)
+/// - Tags that are not valid semver versions
 /// - Pre-release tags (e.g. `0.3.0-preview-2026-02-20`)
 /// - The literal `latest` tag
 /// - Hash-based tags (e.g. `sha256-abc123.sig`)
@@ -245,7 +253,7 @@ pub fn pick_latest_stable_tag(tags: &[String]) -> Option<String> {
 /// `0.3.0-preview-2026-02-20`) are included.
 ///
 /// In all cases, `latest`, hash-based tags, and non-semver tags are
-/// excluded. Tags with a leading `v` prefix (e.g. `v0.2.0`) are accepted.
+/// excluded.
 ///
 /// # Example
 ///
@@ -560,18 +568,20 @@ mod tests {
     }
 
     #[test]
-    fn pick_latest_stable_tag_v_prefixed() {
+    fn pick_latest_stable_tag_ignores_v_prefixed() {
+        // `v`-prefixed tags are not valid SemVer and are not accepted.
         let tags = vec![
             "v0.2.0".into(),
             "v0.2.10".into(),
             "v0.3.0-preview-2026-02-20".into(),
             "latest".into(),
         ];
-        assert_eq!(pick_latest_stable_tag(&tags), Some("v0.2.10".to_string()));
+        assert_eq!(pick_latest_stable_tag(&tags), None);
     }
 
     #[test]
     fn pick_latest_stable_tag_mixed_v_and_bare() {
+        // Only the bare SemVer tag is considered; `v`-prefixed tags are ignored.
         let tags = vec!["v1.0.0".into(), "2.0.0".into(), "v0.9.0".into()];
         assert_eq!(pick_latest_stable_tag(&tags), Some("2.0.0".to_string()));
     }
@@ -653,7 +663,8 @@ mod tests {
     }
 
     #[test]
-    fn filter_tag_suggestions_v_prefixed_tags() {
+    fn filter_tag_suggestions_excludes_v_prefixed_tags() {
+        // `v`-prefixed tags are not valid SemVer and are excluded.
         let tags = vec![
             "v0.2.0".into(),
             "v0.2.10".into(),
@@ -661,7 +672,7 @@ mod tests {
             "latest".into(),
         ];
         let suggestions = filter_tag_suggestions(&tags, None);
-        assert_eq!(suggestions, vec!["v0.2.0", "v0.2.10"]);
+        assert!(suggestions.is_empty());
     }
 
     #[test]
@@ -670,5 +681,54 @@ mod tests {
         // "v0.3" request should match 0.3.* pre-release tags
         let suggestions = filter_tag_suggestions(&tags, Some("v0.3"));
         assert_eq!(suggestions, vec!["0.2.0", "0.3.0-preview"]);
+    }
+
+    // ── parse_tag_as_semver ─────────────────────────────────────────────
+
+    #[test]
+    fn parse_tag_as_semver_decodes_underscore_build_metadata() {
+        // OCI tags cannot contain `+`, so `publish::oci_tag` maps SemVer build
+        // metadata `0.1.0+2022-11-15` onto `0.1.0_2022-11-15`. The read path
+        // must reverse this so the tag round-trips as SemVer.
+        let cases = [
+            ("0.1.0_2022-11-15", (0, 1, 0), "2022-11-15"),
+            ("0.2.0_stripe-2022-11-15", (0, 2, 0), "stripe-2022-11-15"),
+            ("0.1.0_3.7.1-pre.0", (0, 1, 0), "3.7.1-pre.0"),
+        ];
+        for (tag, (major, minor, patch), build) in cases {
+            let v = parse_tag_as_semver(tag).expect("underscore tag should parse");
+            assert_eq!((v.major, v.minor, v.patch), (major, minor, patch));
+            assert!(v.pre.is_empty(), "{tag} should have no pre-release");
+            assert!(!v.build.is_empty(), "{tag} should have build metadata");
+            assert_eq!(v.build.as_str(), build);
+        }
+    }
+
+    #[test]
+    fn parse_tag_as_semver_plain_and_rejects_v_prefix() {
+        let plain = parse_tag_as_semver("1.2.3").expect("plain should parse");
+        assert_eq!((plain.major, plain.minor, plain.patch), (1, 2, 3));
+        assert!(plain.build.is_empty());
+
+        // `v`-prefixed tags are not valid SemVer and are rejected.
+        assert!(parse_tag_as_semver("v1.2.3").is_none());
+    }
+
+    #[test]
+    fn parse_tag_as_semver_rejects_non_semver() {
+        assert!(parse_tag_as_semver("latest").is_none());
+        assert!(parse_tag_as_semver("sha256-abc").is_none());
+        assert!(parse_tag_as_semver("not-a-version").is_none());
+    }
+
+    #[test]
+    fn pick_latest_stable_tag_underscore_build_metadata() {
+        let tags = vec!["0.1.0_2022-11-15".into(), "0.2.0_stripe-2022-11-15".into()];
+        // Build metadata is ignored for precedence, and the raw underscore tag
+        // is returned unchanged so it can be used to pull the artifact.
+        assert_eq!(
+            pick_latest_stable_tag(&tags),
+            Some("0.2.0_stripe-2022-11-15".to_string())
+        );
     }
 }
