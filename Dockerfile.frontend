@@ -1,7 +1,14 @@
 # ───── Stage 1: Build component-frontend as a wasm32-wasip2 component ─────
 FROM rust:1-slim-bookworm AS builder
 
-ARG API_BASE_URL=http://backend:8081
+# Compile-time backend URL, baked into the Wasm via option_env!("API_BASE_URL").
+# Defaults to the Azure Container Apps form: the backend app is reached by name
+# on its ingress port (80), which forwards to the container's targetPort (8081).
+# Do NOT use http://backend:8081 here — that does not route in ACA and makes the
+# frontend panic on every backend-backed request. docker-compose overrides this
+# to http://backend:8081 for local dev, where services talk directly on their
+# container ports.
+ARG API_BASE_URL=http://backend
 
 WORKDIR /build
 

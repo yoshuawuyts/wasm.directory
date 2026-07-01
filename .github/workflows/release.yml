@@ -203,8 +203,14 @@ jobs:
           # fails to push to a freshly created GHCR package with
           # "denied: permission_denied: write_package".
           provenance: false
+          # API_BASE_URL is baked into the Wasm at build time via
+          # option_env!("API_BASE_URL"). In Azure Container Apps the backend is
+          # reached by its app name on the ingress port (80), which forwards to
+          # the container's targetPort (8081). Using http://backend:8081 here
+          # does NOT route in ACA and makes the frontend panic (connection
+          # reset) on every backend-backed request, so use http://backend.
           build-args: |
-            API_BASE_URL=http://backend:8081
+            API_BASE_URL=http://backend
           tags: |
             ${{ env.IMAGE_BASE }}/frontend:${{ needs.resolve-version.outputs.version }}
             ${{ env.IMAGE_BASE }}/frontend:latest
