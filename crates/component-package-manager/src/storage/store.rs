@@ -3955,13 +3955,29 @@ mod smoke_tests {
             .all(store.db())
             .await
             .expect("query fetch_queue");
-        let queued: std::collections::HashSet<&str> = rows.iter().map(|r| r.tag.as_str()).collect();
 
+        // Assert per-task, not just tag membership: `seed_completed_from_tags`
+        // enqueues task=Pull and `enqueue_reindex_all` enqueues task=Reindex, so
+        // an indexable tag must show up under BOTH. A tag-only set would hide a
+        // regression where just one of the two statements dropped the tag.
+        let enqueued = |tag: &str, task: fetch_queue::FetchTask| {
+            rows.iter().any(|r| r.tag == tag && r.task == task)
+        };
         for tag in indexable {
-            assert!(queued.contains(tag), "expected `{tag}` to be indexed");
+            assert!(
+                enqueued(tag, fetch_queue::FetchTask::Pull),
+                "seed_completed_from_tags should enqueue `{tag}` (task=pull)"
+            );
+            assert!(
+                enqueued(tag, fetch_queue::FetchTask::Reindex),
+                "enqueue_reindex_all should enqueue `{tag}` (task=reindex)"
+            );
         }
         for tag in excluded {
-            assert!(!queued.contains(tag), "expected `{tag}` to be filtered out");
+            assert!(
+                !rows.iter().any(|r| r.tag == tag),
+                "neither statement should enqueue `{tag}`"
+            );
         }
     }
 
