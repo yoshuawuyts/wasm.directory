@@ -190,12 +190,34 @@ pub fn derive_component_name<S: std::hash::BuildHasher>(
 
 /// Try to parse a tag as a semantic version, accepting an optional leading
 /// `v` prefix (e.g. `v1.2.3`) while leaving the original tag string untouched.
+///
+/// Also reverses the `+`->`_` OCI-tag mapping applied on publish by
+/// [`crate::publish::oci_tag`]: OCI tags cannot contain `+`, so a SemVer with
+/// build metadata such as `0.1.0+2022-11-15` is stored under the tag
+/// `0.1.0_2022-11-15`. When we read tags back from a registry during indexing
+/// we decode the first `_` to `+` so they round-trip and parse as SemVer,
+/// instead of being discarded as non-semver (which skips the whole package).
 pub(crate) fn parse_tag_as_semver(tag: &str) -> Option<semver::Version> {
-    if let Ok(version) = semver::Version::parse(tag) {
+    if let Some(version) = parse_semver_allow_v_prefix(tag) {
         return Some(version);
     }
-    // Accept a leading `v` when followed by a digit.
-    let stripped = tag.strip_prefix('v')?;
+    // Reverse the `+`->`_` OCI-tag mapping (see `publish::oci_tag`). SemVer has
+    // at most one `+` (all build metadata follows it and cannot itself contain
+    // `_`), so `oci_tag` introduces at most one `_`; decode the first `_` back
+    // to `+` and retry.
+    if tag.contains('_') {
+        return parse_semver_allow_v_prefix(&tag.replacen('_', "+", 1));
+    }
+    None
+}
+
+/// Parse `s` as SemVer, accepting a single optional leading `v` when it is
+/// immediately followed by a digit (e.g. `v1.2.3`).
+fn parse_semver_allow_v_prefix(s: &str) -> Option<semver::Version> {
+    if let Ok(version) = semver::Version::parse(s) {
+        return Some(version);
+    }
+    let stripped = s.strip_prefix('v')?;
     if !stripped.starts_with(|c: char| c.is_ascii_digit()) {
         return None;
     }
@@ -670,5 +692,54 @@ mod tests {
         // "v0.3" request should match 0.3.* pre-release tags
         let suggestions = filter_tag_suggestions(&tags, Some("v0.3"));
         assert_eq!(suggestions, vec!["0.2.0", "0.3.0-preview"]);
+    }
+
+    // ── parse_tag_as_semver ─────────────────────────────────────────────
+
+    #[test]
+    fn parse_tag_as_semver_decodes_underscore_build_metadata() {
+        // OCI tags cannot contain `+`, so `publish::oci_tag` maps SemVer build
+        // metadata `0.1.0+2022-11-15` onto `0.1.0_2022-11-15`. The read path
+        // must reverse this so the tag round-trips as SemVer.
+        let cases = [
+            ("0.1.0_2022-11-15", (0, 1, 0), "2022-11-15"),
+            ("0.2.0_stripe-2022-11-15", (0, 2, 0), "stripe-2022-11-15"),
+            ("0.1.0_3.7.1-pre.0", (0, 1, 0), "3.7.1-pre.0"),
+        ];
+        for (tag, (major, minor, patch), build) in cases {
+            let v = parse_tag_as_semver(tag).expect("underscore tag should parse");
+            assert_eq!((v.major, v.minor, v.patch), (major, minor, patch));
+            assert!(v.pre.is_empty(), "{tag} should have no pre-release");
+            assert!(!v.build.is_empty(), "{tag} should have build metadata");
+            assert_eq!(v.build.as_str(), build);
+        }
+    }
+
+    #[test]
+    fn parse_tag_as_semver_plain_and_v_prefixed() {
+        let plain = parse_tag_as_semver("1.2.3").expect("plain should parse");
+        assert_eq!((plain.major, plain.minor, plain.patch), (1, 2, 3));
+        assert!(plain.build.is_empty());
+
+        let prefixed = parse_tag_as_semver("v1.2.3").expect("v-prefixed should parse");
+        assert_eq!((prefixed.major, prefixed.minor, prefixed.patch), (1, 2, 3));
+    }
+
+    #[test]
+    fn parse_tag_as_semver_rejects_non_semver() {
+        assert!(parse_tag_as_semver("latest").is_none());
+        assert!(parse_tag_as_semver("sha256-abc").is_none());
+        assert!(parse_tag_as_semver("not-a-version").is_none());
+    }
+
+    #[test]
+    fn pick_latest_stable_tag_underscore_build_metadata() {
+        let tags = vec!["0.1.0_2022-11-15".into(), "0.2.0_stripe-2022-11-15".into()];
+        // Build metadata is ignored for precedence, and the raw underscore tag
+        // is returned unchanged so it can be used to pull the artifact.
+        assert_eq!(
+            pick_latest_stable_tag(&tags),
+            Some("0.2.0_stripe-2022-11-15".to_string())
+        );
     }
 }
