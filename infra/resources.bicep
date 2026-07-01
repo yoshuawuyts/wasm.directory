@@ -115,10 +115,10 @@ module frontend './modules/frontend.bicep' = {
 // to issue a managed certificate for the apex domain:
 //   * an A record at "@" pointing at the environment's static ingress IP, and
 //   * an "asuid" TXT record carrying the frontend's domainVerificationId.
-// The actual hostname binding + managed certificate is applied out-of-band by
-// the postprovision hook once the registrar delegates the zone and DNS has
-// propagated — doing it here would create a module dependency cycle (the cert
-// needs the TXT record, which needs the frontend's verification id).
+// The actual hostname binding + managed certificate is applied out-of-band
+// (e.g. via `az containerapp hostname bind`) once the registrar delegates the
+// zone and DNS has propagated — doing it here would create a module dependency
+// cycle (the cert needs the TXT record, which needs the frontend's verification id).
 module dns './modules/dns.bicep' = if (!empty(customDomainName)) {
   name: 'dns'
   params: {
