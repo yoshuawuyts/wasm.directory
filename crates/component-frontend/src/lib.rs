@@ -772,13 +772,30 @@ fn pick_latest_semver(
 ) -> Option<String> {
     tags.iter()
         .filter_map(|tag| {
-            semver::Version::parse(tag)
-                .ok()
+            parse_tag_as_semver(tag)
                 .filter(|version| predicate(version))
                 .map(|version| (version, tag))
         })
         .max_by(|(acc_version, _), (candidate_version, _)| acc_version.cmp(candidate_version))
         .map(|(_, tag)| tag.clone())
+}
+
+/// Parse an OCI tag as a semantic version, reversing the `+`->`_` mapping that
+/// publishing applies. OCI tags cannot contain `+`, so a SemVer with build
+/// metadata such as `0.2.0+circleci-v1` is stored under the tag
+/// `0.2.0_circleci-v1`. SemVer has at most one `+` and build metadata cannot
+/// contain `_`, so decoding the first `_` back to `+` round-trips the tag and
+/// lets it parse as semver instead of being discarded (which would leave the
+/// package with no redirectable version). Mirrors
+/// `component_package_manager::manager::parse_tag_as_semver`.
+fn parse_tag_as_semver(tag: &str) -> Option<semver::Version> {
+    if let Ok(version) = semver::Version::parse(tag) {
+        return Some(version);
+    }
+    if tag.contains('_') {
+        return semver::Version::parse(&tag.replacen('_', "+", 1)).ok();
+    }
+    None
 }
 
 #[cfg(test)]
@@ -1028,6 +1045,20 @@ mod tests {
     fn pick_redirect_version_returns_none_for_unusable_tags() {
         let tags = vec!["sha256-deadbeef".to_string()];
         assert_eq!(pick_redirect_version(&tags), None);
+    }
+
+    // r[verify frontend.pages.package-redirect]
+    #[test]
+    fn pick_redirect_version_decodes_build_metadata_tags() {
+        // OCI tags cannot contain `+`, so a SemVer with build metadata like
+        // `0.2.0+circleci-v1` is published as `0.2.0_circleci-v1`. The redirect
+        // MUST decode the first `_` back to `+`, pick the highest version, and
+        // preserve the original tag string so the detail page resolves.
+        let tags = vec!["0.2.0_circleci-v1".to_string(), "0.1.0_v1".to_string()];
+        assert_eq!(
+            pick_redirect_version(&tags),
+            Some("0.2.0_circleci-v1".to_string())
+        );
     }
 
     /// Trailing-slash URLs must be handled: the router must register
