@@ -35,6 +35,17 @@ pub enum ManagerError {
     )]
     OfflinePull,
 
+    /// An install was requested in offline mode for a package that is not
+    /// present in the local cache.
+    #[diagnostic(
+        code(component::manager::offline_not_cached),
+        help("run without `--offline` to fetch '{reference}' from the registry")
+    )]
+    OfflineNotCached {
+        /// The reference that could not be served from the local cache.
+        reference: String,
+    },
+
     /// An attempt was made to index a package while in offline mode.
     #[diagnostic(
         code(component::manager::offline_index),
@@ -110,6 +121,9 @@ impl std::fmt::Display for ManagerError {
             ManagerError::OfflinePull => {
                 write!(f, "cannot pull packages in offline mode")
             }
+            ManagerError::OfflineNotCached { reference } => {
+                write!(f, "'{reference}' is not in the local cache")
+            }
             ManagerError::OfflineIndex => {
                 write!(f, "cannot index packages in offline mode")
             }
@@ -170,6 +184,21 @@ mod tests {
         assert!(
             offline_pull.help().is_some(),
             "OfflinePull must have a help message"
+        );
+
+        let offline_not_cached = ManagerError::OfflineNotCached {
+            reference: "ghcr.io/example/comp:1.2.3".to_string(),
+        };
+        assert_eq!(
+            offline_not_cached
+                .code()
+                .expect("OfflineNotCached must have a diagnostic code")
+                .to_string(),
+            "component::manager::offline_not_cached",
+        );
+        assert!(
+            offline_not_cached.help().is_some(),
+            "OfflineNotCached must have a help message"
         );
 
         let offline_index = ManagerError::OfflineIndex;

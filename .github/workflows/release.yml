@@ -19,7 +19,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@v7.0.0
         with:
           fetch-depth: 0
 
@@ -81,7 +81,7 @@ jobs:
             archive: zip
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@v7.0.0
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -89,7 +89,7 @@ jobs:
           targets: ${{ matrix.cross && matrix.target || '' }}
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -153,10 +153,10 @@ jobs:
       IMAGE_BASE: ghcr.io/${{ github.repository }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@v7.0.0
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -166,10 +166,10 @@ jobs:
         run: python scripts/set_workspace_version.py
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -203,8 +203,14 @@ jobs:
           # fails to push to a freshly created GHCR package with
           # "denied: permission_denied: write_package".
           provenance: false
+          # API_BASE_URL is baked into the Wasm at build time via
+          # option_env!("API_BASE_URL"). In Azure Container Apps the backend is
+          # reached by its app name on the ingress port (80), which forwards to
+          # the container's targetPort (8081). Using http://backend:8081 here
+          # does NOT route in ACA and makes the frontend panic (connection
+          # reset) on every backend-backed request, so use http://backend.
           build-args: |
-            API_BASE_URL=http://backend:8081
+            API_BASE_URL=http://backend
           tags: |
             ${{ env.IMAGE_BASE }}/frontend:${{ needs.resolve-version.outputs.version }}
             ${{ env.IMAGE_BASE }}/frontend:latest
@@ -219,7 +225,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@v7.0.0
 
       - name: Download all binary artifacts
         uses: actions/download-artifact@v8

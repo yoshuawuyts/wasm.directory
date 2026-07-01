@@ -1,0 +1,383 @@
+[namespace]
+name = "autostamp"
+registry = "ghcr.io/autostamp"
+
+[[component]]
+name = "adobe"
+repository = "adobe"
+
+[[component]]
+name = "adyen"
+repository = "adyen"
+
+[[component]]
+name = "amadeus"
+repository = "amadeus"
+
+[[component]]
+name = "amazonaws"
+repository = "amazonaws"
+
+[[component]]
+name = "apple"
+repository = "apple"
+
+[[component]]
+name = "asana"
+repository = "asana"
+
+[[component]]
+name = "atlassian"
+repository = "atlassian"
+
+[[component]]
+name = "azure"
+repository = "azure"
+
+[[component]]
+name = "bitbucket"
+repository = "bitbucket"
+
+[[component]]
+name = "box-api"
+repository = "box-api"
+
+[[component]]
+name = "braze"
+repository = "braze"
+
+[[component]]
+name = "bulksms"
+repository = "bulksms"
+
+[[component]]
+name = "bungie"
+repository = "bungie"
+
+[[component]]
+name = "circleci"
+repository = "circleci"
+
+[[component]]
+name = "clicksend"
+repository = "clicksend"
+
+[[component]]
+name = "deutschebahn"
+repository = "deutschebahn"
+
+[[component]]
+name = "dev"
+repository = "dev"
+
+[[component]]
+name = "digitalocean"
+repository = "digitalocean"
+
+[[component]]
+name = "docker"
+repository = "docker"
+
+[[component]]
+name = "ebay"
+repository = "ebay"
+
+[[component]]
+name = "elevenlabs"
+repository = "elevenlabs"
+
+[[component]]
+name = "getpostman"
+repository = "getpostman"
+
+[[component]]
+name = "giphy"
+repository = "giphy"
+
+[[component]]
+name = "github"
+repository = "github"
+
+[[component]]
+name = "gitlab"
+repository = "gitlab"
+
+[[component]]
+name = "google"
+repository = "google"
+
+[[component]]
+name = "googleapis"
+repository = "googleapis"
+
+[[component]]
+name = "graphhopper"
+repository = "graphhopper"
+
+[[component]]
+name = "here"
+repository = "here"
+
+[[component]]
+name = "hubapi"
+repository = "hubapi"
+
+[[component]]
+name = "instagram"
+repository = "instagram"
+
+[[component]]
+name = "interactivebrokers"
+repository = "interactivebrokers"
+
+[[component]]
+name = "ip2location"
+repository = "ip2location"
+
+[[component]]
+name = "klarna"
+repository = "klarna"
+
+[[component]]
+name = "kubernetes"
+repository = "kubernetes"
+
+[[component]]
+name = "languagetool"
+repository = "languagetool"
+
+[[component]]
+name = "launchdarkly"
+repository = "launchdarkly"
+
+[[component]]
+name = "linode"
+repository = "linode"
+
+[[component]]
+name = "lufthansa"
+repository = "lufthansa"
+
+[[component]]
+name = "magento"
+repository = "magento"
+
+[[component]]
+name = "mailchimp"
+repository = "mailchimp"
+
+[[component]]
+name = "mandrillapp"
+repository = "mandrillapp"
+
+[[component]]
+name = "mastercard"
+repository = "mastercard"
+
+[[component]]
+name = "medium"
+repository = "medium"
+
+[[component]]
+name = "meilisearch"
+repository = "meilisearch"
+
+[[component]]
+name = "microsoft"
+repository = "microsoft"
+
+[[component]]
+name = "musixmatch"
+repository = "musixmatch"
+
+[[component]]
+name = "nasa"
+repository = "nasa"
+
+[[component]]
+name = "netlify"
+repository = "netlify"
+
+[[component]]
+name = "nordigen"
+repository = "nordigen"
+
+[[component]]
+name = "notion"
+repository = "notion"
+
+[[component]]
+name = "nytimes"
+repository = "nytimes"
+
+[[component]]
+name = "omdbapi"
+repository = "omdbapi"
+
+[[component]]
+name = "openai"
+repository = "openai"
+
+[[component]]
+name = "opencagedata"
+repository = "opencagedata"
+
+[[component]]
+name = "openfigi"
+repository = "openfigi"
+
+[[component]]
+name = "pinecone"
+repository = "pinecone"
+
+[[component]]
+name = "plaid"
+repository = "plaid"
+
+[[component]]
+name = "polygon"
+repository = "polygon"
+
+[[component]]
+name = "postmarkapp"
+repository = "postmarkapp"
+
+[[component]]
+name = "qualtrics"
+repository = "qualtrics"
+
+[[component]]
+name = "rawg"
+repository = "rawg"
+
+[[component]]
+name = "sendgrid"
+repository = "sendgrid"
+
+[[component]]
+name = "shutterstock"
+repository = "shutterstock"
+
+[[component]]
+name = "slack"
+repository = "slack"
+
+[[component]]
+name = "snyk"
+repository = "snyk"
+
+[[component]]
+name = "soundcloud"
+repository = "soundcloud"
+
+[[component]]
+name = "spoonacular"
+repository = "spoonacular"
+
+[[component]]
+name = "spotify"
+repository = "spotify"
+
+[[component]]
+name = "squareup"
+repository = "squareup"
+
+[[component]]
+name = "stackexchange"
+repository = "stackexchange"
+
+[[component]]
+name = "stormglass"
+repository = "stormglass"
+
+[[component]]
+name = "stripe"
+repository = "stripe"
+
+[[component]]
+name = "telegram"
+repository = "telegram"
+
+[[component]]
+name = "telnyx"
+repository = "telnyx"
+
+[[component]]
+name = "tfl"
+repository = "tfl"
+
+[[component]]
+name = "thetvdb"
+repository = "thetvdb"
+
+[[component]]
+name = "ticketmaster"
+repository = "ticketmaster"
+
+[[component]]
+name = "tomtom"
+repository = "tomtom"
+
+[[component]]
+name = "trakt"
+repository = "trakt"
+
+[[component]]
+name = "trello"
+repository = "trello"
+
+[[component]]
+name = "tvmaze"
+repository = "tvmaze"
+
+[[component]]
+name = "twilio"
+repository = "twilio"
+
+[[component]]
+name = "twitter"
+repository = "twitter"
+
+[[component]]
+name = "vimeo"
+repository = "vimeo"
+
+[[component]]
+name = "visualcrossing"
+repository = "visualcrossing"
+
+[[component]]
+name = "vonage"
+repository = "vonage"
+
+[[component]]
+name = "walmart"
+repository = "walmart"
+
+[[component]]
+name = "weatherbit"
+repository = "weatherbit"
+
+[[component]]
+name = "wikimedia"
+repository = "wikimedia"
+
+[[component]]
+name = "wolframalpha"
+repository = "wolframalpha"
+
+[[component]]
+name = "xero"
+repository = "xero"
+
+[[component]]
+name = "zapier"
+repository = "zapier"
+
+[[component]]
+name = "zoom"
+repository = "zoom"
+
+[[component]]
+name = "zuora"
+repository = "zuora"

@@ -74,6 +74,7 @@ via `readEnvironmentVariable(...)`.
 | `AZURE_RESOURCE_GROUP`    | no       | Override the default resource group name (`rg-${AZURE_ENV_NAME}`).                                   |
 | `POSTGRES_ADMIN_LOGIN`    | no       | Postgres admin user. Defaults to `pgadmin`.                                                          |
 | `POSTGRES_DB`             | no       | Postgres database name. Defaults to `componentregistry`.                                             |
+| `CUSTOM_DOMAIN_NAME`      | no       | Apex domain to serve the frontend on (e.g. `wasm.directory`). When set, provisioning also creates a DNS zone for it. See [Bind a custom domain](#7-optional-bind-a-custom-domain). |
 
 Set them with `azd env set`:
 
@@ -125,8 +126,8 @@ What happens:
 1. The `preprovision` hook ([infra/hooks/preprovision.sh](../infra/hooks/preprovision.sh))
    registers required resource providers (`Microsoft.App`,
    `Microsoft.OperationalInsights`, `Microsoft.ContainerRegistry`,
-   `Microsoft.DBforPostgreSQL`, `Microsoft.Insights`) and waits for them
-   to reach `Registered`.
+   `Microsoft.DBforPostgreSQL`, `Microsoft.Insights`, `Microsoft.Network`)
+   and waits for them to reach `Registered`.
 2. `azd` runs the subscription-scoped deployment defined in
    [infra/main.bicep](../infra/main.bicep), which creates the resource group
    and then deploys the resources composed in
@@ -182,7 +183,60 @@ The service URLs are printed at the end. You can also retrieve them later:
 azd env get-values | grep _URL
 ```
 
-## 7. Tear down
+## 7. (Optional) Bind a custom domain
+
+By default the frontend is reachable only on its generated
+`*.azurecontainerapps.io` URL. To serve it on an apex domain you own (for
+example `wasm.directory`), set `CUSTOM_DOMAIN_NAME` before provisioning:
+
+```sh
+azd env set CUSTOM_DOMAIN_NAME wasm.directory
+azd provision
+```
+
+With the variable set, `azd provision` also deploys
+[infra/modules/dns.bicep](../infra/modules/dns.bicep), which creates a public
+DNS zone for the domain with:
+
+- an apex `A` record pointing at the Container Apps environment's static
+  ingress IP, and
+- an `asuid` `TXT` record carrying the frontend's domain-verification id, used
+  by Azure to validate ownership before issuing a managed certificate.
+
+The bind itself is a one-time manual step because it depends on your registrar
+delegating the zone to Azure — something only you can do:
+
+1. **Delegate the zone.** Read the name servers Azure assigned and point your
+   registrar's `NS` records at exactly that set:
+
+   ```sh
+   azd env get-value DNS_NAME_SERVERS
+   ```
+
+   Then wait for propagation (`dig +short NS wasm.directory` should return the
+   Azure name servers; `dig +short TXT asuid.wasm.directory` should return the
+   verification id).
+
+2. **Bind the hostname and request a managed certificate.** Once the records
+   resolve publicly, run:
+
+   ```sh
+   az containerapp hostname bind \
+     --resource-group "$(azd env get-value AZURE_RESOURCE_GROUP)" \
+     --name "$(azd env get-value SERVICE_FRONTEND_NAME)" \
+     --hostname "$(azd env get-value CUSTOM_DOMAIN_NAME)" \
+     --environment "$(azd env get-value AZURE_CONTAINER_APPS_ENVIRONMENT_NAME)" \
+     --validation-method TXT
+   ```
+
+   This adds the hostname, validates ownership via the `asuid` `TXT` record,
+   and provisions a free Azure-managed TLS certificate that auto-renews.
+   Certificate issuance can take a few minutes. The command is idempotent, so
+   it is safe to re-run if DNS had not finished propagating the first time.
+
+After it completes, the site is reachable at `https://wasm.directory`.
+
+## 8. Tear down
 
 To delete everything provisioned by this template:
 

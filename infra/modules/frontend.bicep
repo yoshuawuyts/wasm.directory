@@ -74,3 +74,6 @@ resource frontendApp 'Microsoft.App/containerApps@2024-03-01' = {
 
 output fqdn string = frontendApp.properties.configuration.ingress.fqdn
 output name string = frontendApp.name
+
+@description('Azure-generated token published as the "asuid" TXT record to prove domain ownership before a managed certificate is issued.')
+output customDomainVerificationId string = frontendApp.properties.customDomainVerificationId

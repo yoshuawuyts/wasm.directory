@@ -26,3 +26,6 @@ resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = {
 output id string = environment.id
 output name string = environment.name
 output defaultDomain string = environment.properties.defaultDomain
+
+@description('Static outbound/ingress IP of the environment. Custom-domain apex A records point here.')
+output staticIp string = environment.properties.staticIp

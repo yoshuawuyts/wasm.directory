@@ -37,6 +37,9 @@ param registryUsername string = ''
 @description('Container registry password or PAT (e.g. GitHub PAT with read:packages scope).')
 param registryPassword string = ''
 
+@description('Custom apex domain to serve the frontend on, e.g. "wasm.directory". Leave empty to skip DNS/custom-domain setup.')
+param customDomainName string = ''
+
 var rgName = empty(resourceGroupName) ? 'rg-${environmentName}' : resourceGroupName
 var tags = { 'azd-env-name': environmentName }
 
@@ -61,6 +64,7 @@ module resources './resources.bicep' = {
     registryServer: registryServer
     registryUsername: registryUsername
     registryPassword: registryPassword
+    customDomainName: customDomainName
   }
 }
 
@@ -71,3 +75,6 @@ output AZURE_CONTAINER_APPS_ENVIRONMENT_NAME string = resources.outputs.AZURE_CO
 output POSTGRES_SERVER_FQDN string = resources.outputs.POSTGRES_SERVER_FQDN
 output SERVICE_FRONTEND_URL string = resources.outputs.SERVICE_FRONTEND_URL
 output SERVICE_BACKEND_URL string = resources.outputs.SERVICE_BACKEND_URL
+output SERVICE_FRONTEND_NAME string = resources.outputs.SERVICE_FRONTEND_NAME
+output CUSTOM_DOMAIN_NAME string = resources.outputs.CUSTOM_DOMAIN_NAME
+output DNS_NAME_SERVERS array = resources.outputs.DNS_NAME_SERVERS

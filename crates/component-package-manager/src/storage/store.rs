@@ -16,6 +16,7 @@
 // of statement position by clippy in this file; the patterns are intentional.
 #![allow(clippy::items_after_statements)]
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
@@ -200,6 +201,51 @@ async fn run_postgres_migrations_with_advisory_lock(
     Ok(())
 }
 
+/// Rewrite `?` positional placeholders into the backend's native form.
+///
+/// Our raw SQL is written once with SQLite/MySQL-style `?` placeholders and
+/// dispatched to whichever backend the store is bound to. PostgreSQL instead
+/// uses numbered `$1`, `$2`, … placeholders and rejects a bare `?` with a
+/// `syntax error at or near "…"`, so for Postgres we translate each `?` into
+/// the matching `$N` (in left-to-right order). `?` characters inside
+/// single-quoted string literals are left untouched. On SQLite (and MySQL) the
+/// SQL is returned borrowed and unchanged.
+fn bind_placeholders(backend: DbBackend, sql: &str) -> Cow<'_, str> {
+    if !matches!(backend, DbBackend::Postgres) {
+        return Cow::Borrowed(sql);
+    }
+    let mut out = String::with_capacity(sql.len() + 8);
+    let mut index = 0u32;
+    let mut in_string_literal = false;
+
+    let mut chars = sql.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\'' => {
+                out.push('\'');
+                if in_string_literal {
+                    // SQL escapes single quotes inside string literals by doubling them: ''
+                    if matches!(chars.peek(), Some('\'')) {
+                        out.push('\'');
+                        chars.next();
+                    } else {
+                        in_string_literal = false;
+                    }
+                } else {
+                    in_string_literal = true;
+                }
+            }
+            '?' if !in_string_literal => {
+                index += 1;
+                out.push('$');
+                out.push_str(&index.to_string());
+            }
+            other => out.push(other),
+        }
+    }
+    Cow::Owned(out)
+}
+
 /// Parse the OCI repository's `kind` text column into a [`PackageKind`].
 fn parse_kind(s: Option<&str>) -> Option<component_meta_registry_types::PackageKind> {
     use component_meta_registry_types::PackageKind;
@@ -331,8 +377,9 @@ impl Store {
             JOIN wit_package wp ON wpd.dependent_id = wp.id \
             WHERE wp.oci_manifest_id = ? \
             ORDER BY wpd.declared_package";
+        let backend = self.db.get_database_backend();
         let stmt =
-            Statement::from_sql_and_values(self.db.get_database_backend(), sql, [m.id.into()]);
+            Statement::from_sql_and_values(backend, bind_placeholders(backend, sql), [m.id.into()]);
         #[derive(FromQueryResult)]
         struct DepRow {
             declared_package: String,
@@ -732,7 +779,7 @@ impl Store {
         let backend = self.db.get_database_backend();
         let stmt = Statement::from_sql_and_values(
             backend,
-            &sql,
+            bind_placeholders(backend, &sql),
             [
                 interface.into(),
                 i64::from(limit).into(),
@@ -1380,9 +1427,10 @@ async fn resolve_import_foreign_keys(
         ) \
         WHERE wit_world_id IN (SELECT id FROM wit_world WHERE wit_package_id = ?) \
           AND resolved_package_id IS NULL";
+    let backend = db.get_database_backend();
     db.execute_raw(Statement::from_sql_and_values(
-        db.get_database_backend(),
-        sql,
+        backend,
+        bind_placeholders(backend, sql),
         [wit_package_id.into()],
     ))
     .await?;
@@ -1403,9 +1451,10 @@ async fn resolve_export_foreign_keys(
         ) \
         WHERE wit_world_id IN (SELECT id FROM wit_world WHERE wit_package_id = ?) \
           AND resolved_package_id IS NULL";
+    let backend = db.get_database_backend();
     db.execute_raw(Statement::from_sql_and_values(
-        db.get_database_backend(),
-        sql,
+        backend,
+        bind_placeholders(backend, sql),
         [wit_package_id.into()],
     ))
     .await?;
@@ -1426,9 +1475,10 @@ async fn resolve_dependency_foreign_keys(
         ) \
         WHERE dependent_id = ? \
           AND resolved_package_id IS NULL";
+    let backend = db.get_database_backend();
     db.execute_raw(Statement::from_sql_and_values(
-        db.get_database_backend(),
-        sql,
+        backend,
+        bind_placeholders(backend, sql),
         [wit_package_id.into()],
     ))
     .await?;
@@ -1453,9 +1503,10 @@ async fn resolve_component_target_foreign_keys(
             SELECT id FROM wasm_component WHERE oci_manifest_id = ? \
         ) \
         AND wit_world_id IS NULL";
+    let backend = db.get_database_backend();
     db.execute_raw(Statement::from_sql_and_values(
-        db.get_database_backend(),
-        sql,
+        backend,
+        bind_placeholders(backend, sql),
         [manifest_id.into()],
     ))
     .await?;
@@ -1611,6 +1662,56 @@ async fn upsert_oci_manifest(
     }
 
     Ok((manifest_id, !already_exists))
+}
+
+/// Build the shared `INSERT … SELECT` used to ingest indexable tags into
+/// `fetch_queue`, adapting the one backend-specific fragment to the active
+/// dialect.
+///
+/// `enqueue_reindex_all` and `seed_completed_from_tags` differ only in their
+/// column list and SELECT projection; everything else (the FROM/JOIN/WHERE
+/// filter, GROUP BY, and ON CONFLICT tail) is identical, so it lives here to
+/// keep the two call sites in sync.
+///
+/// The filter skips `latest`, signature tags (`sha256-*`), and bare 40-char
+/// lowercase-hex git commit SHAs. That last exclusion is the only dialect
+/// difference: SQLite has `GLOB` but Postgres does not, so Postgres uses an
+/// equivalent POSIX regex. `columns` and `projection` are internal SQL
+/// literals (never user input), so interpolating them is safe.
+///
+/// `t.created_at`/`t.updated_at` are in the GROUP BY because
+/// `seed_completed_from_tags` selects them and Postgres (unlike SQLite) rejects
+/// bare non-aggregated columns. They are functionally dependent on `t.tag`
+/// (one `oci_tag` row per repository+tag), so grouping by them is a no-op on
+/// the row count for both statements.
+fn tag_ingest_sql(backend: DbBackend, columns: &str, projection: &str) -> String {
+    // Exclude tags that are exactly 40 lowercase-hex chars (a commit SHA).
+    // The two forms are semantically identical; only the dialect differs.
+    let commit_sha_exclusion = match backend {
+        DbBackend::Postgres => "AND t.tag !~ '^[0-9a-f]{40}$'",
+        // SQLite is the only other backend that reaches these queries
+        // (`Manager::open` rejects everything except sqlite:// and
+        // postgres://), and it is what the in-memory test store uses.
+        _ => {
+            "AND NOT (length(t.tag) = 40 \
+              AND t.tag GLOB '[0-9a-f]*' \
+              AND t.tag NOT GLOB '*[^0-9a-f]*')"
+        }
+    };
+    format!(
+        "INSERT INTO fetch_queue ({columns}) \
+         SELECT {projection} \
+         FROM oci_tag t \
+         JOIN oci_repository r ON r.id = t.oci_repository_id \
+         JOIN oci_manifest m ON m.oci_repository_id = r.id \
+                             AND m.digest = t.manifest_digest \
+         JOIN oci_layer l ON l.oci_manifest_id = m.id \
+         WHERE t.tag != 'latest' \
+           AND t.tag NOT LIKE 'sha256-%' \
+           {commit_sha_exclusion} \
+         GROUP BY r.registry, r.repository, t.tag, t.created_at, t.updated_at \
+         ON CONFLICT(registry, repository, tag, task) DO NOTHING"
+    )
 }
 
 /// Upsert an `oci_tag` row pointing at `manifest_digest`.
@@ -2358,6 +2459,71 @@ impl Store {
         Ok(())
     }
 
+    /// Look up a fully-described cached manifest for a concrete reference.
+    ///
+    /// Reconstructs the [`OciImageManifest`] from the stored `raw_json` for
+    /// the `(registry, repository, tag)` triple, returning it together with
+    /// the manifest digest. Returns `None` when the repository, tag, or
+    /// manifest row is absent, or when the stored manifest has no `raw_json`
+    /// payload to deserialize.
+    ///
+    /// This performs no network I/O — it is the basis of the local-cache
+    /// fast-path in [`Manager::install`](crate::manager::Manager::install).
+    pub(crate) async fn cached_manifest_for_reference(
+        &self,
+        registry: &str,
+        repository: &str,
+        tag: &str,
+    ) -> anyhow::Result<Option<(String, OciImageManifest)>> {
+        let Some(repo) = oci_repository::Entity::find()
+            .filter(oci_repository::Column::Registry.eq(registry))
+            .filter(oci_repository::Column::Repository.eq(repository))
+            .one(&self.db)
+            .await?
+        else {
+            return Ok(None);
+        };
+
+        let Some(tag_row) = oci_tag::Entity::find()
+            .filter(oci_tag::Column::OciRepositoryId.eq(repo.id))
+            .filter(oci_tag::Column::Tag.eq(tag))
+            .one(&self.db)
+            .await?
+        else {
+            return Ok(None);
+        };
+
+        let Some(manifest_row) = oci_manifest::Entity::find()
+            .filter(oci_manifest::Column::OciRepositoryId.eq(repo.id))
+            .filter(oci_manifest::Column::Digest.eq(&tag_row.manifest_digest))
+            .one(&self.db)
+            .await?
+        else {
+            return Ok(None);
+        };
+
+        let Some(raw_json) = manifest_row.raw_json else {
+            return Ok(None);
+        };
+        let manifest: OciImageManifest = serde_json::from_str(&raw_json)?;
+        Ok(Some((tag_row.manifest_digest, manifest)))
+    }
+
+    /// Return `true` when every layer referenced by `manifest` has its
+    /// content blob present in the local content-addressable store.
+    ///
+    /// Used to confirm a cache hit is complete before serving an install
+    /// without touching the network.
+    pub(crate) async fn all_layers_cached(&self, manifest: &OciImageManifest) -> bool {
+        let cache = self.state_info.store_dir();
+        for layer in &manifest.layers {
+            if !matches!(cacache::metadata(cache, &layer.digest).await, Ok(Some(_))) {
+                return false;
+            }
+        }
+        true
+    }
+
     pub(crate) async fn reindex_wit_packages(&self) -> anyhow::Result<u64> {
         // Re-derive WIT metadata for every wit_package that has a cached
         // layer. The legacy implementation considered two sources:
@@ -2932,24 +3098,15 @@ impl Store {
         // Bulk INSERT … SELECT to enqueue reindex tasks for every tag that
         // has cached layers. Same filter rules as legacy: skip 'latest',
         // signature tags (sha256-*), and bare 40-char hex commit SHAs.
-        let sql = "\
-            INSERT INTO fetch_queue (registry, repository, tag, task) \
-            SELECT r.registry, r.repository, t.tag, 'reindex' \
-            FROM oci_tag t \
-            JOIN oci_repository r ON r.id = t.oci_repository_id \
-            JOIN oci_manifest m ON m.oci_repository_id = r.id \
-                                AND m.digest = t.manifest_digest \
-            JOIN oci_layer l ON l.oci_manifest_id = m.id \
-            WHERE t.tag != 'latest' \
-              AND t.tag NOT LIKE 'sha256-%' \
-              AND NOT (length(t.tag) = 40 \
-                       AND t.tag GLOB '[0-9a-f]*' \
-                       AND t.tag NOT GLOB '*[^0-9a-f]*') \
-            GROUP BY r.registry, r.repository, t.tag \
-            ON CONFLICT(registry, repository, tag, task) DO NOTHING";
+        let backend = self.db.get_database_backend();
+        let sql = tag_ingest_sql(
+            backend,
+            "registry, repository, tag, task",
+            "r.registry, r.repository, t.tag, 'reindex'",
+        );
         let result = self
             .db
-            .execute_raw(Statement::from_string(self.db.get_database_backend(), sql))
+            .execute_raw(Statement::from_string(backend, sql))
             .await?;
         Ok(result.rows_affected())
     }
@@ -2957,24 +3114,15 @@ impl Store {
     pub(crate) async fn seed_completed_from_tags(&self) -> anyhow::Result<u64> {
         // Same filter as enqueue_reindex_all but inserts 'completed' rows so
         // history shows tags that pre-date the queue.
-        let sql = "\
-            INSERT INTO fetch_queue (registry, repository, tag, task, status, created_at, updated_at) \
-            SELECT r.registry, r.repository, t.tag, 'pull', 'completed', t.created_at, t.updated_at \
-            FROM oci_tag t \
-            JOIN oci_repository r ON r.id = t.oci_repository_id \
-            JOIN oci_manifest m ON m.oci_repository_id = r.id \
-                                AND m.digest = t.manifest_digest \
-            JOIN oci_layer l ON l.oci_manifest_id = m.id \
-            WHERE t.tag != 'latest' \
-              AND t.tag NOT LIKE 'sha256-%' \
-              AND NOT (length(t.tag) = 40 \
-                       AND t.tag GLOB '[0-9a-f]*' \
-                       AND t.tag NOT GLOB '*[^0-9a-f]*') \
-            GROUP BY r.registry, r.repository, t.tag \
-            ON CONFLICT(registry, repository, tag, task) DO NOTHING";
+        let backend = self.db.get_database_backend();
+        let sql = tag_ingest_sql(
+            backend,
+            "registry, repository, tag, task, status, created_at, updated_at",
+            "r.registry, r.repository, t.tag, 'pull', 'completed', t.created_at, t.updated_at",
+        );
         let result = self
             .db
-            .execute_raw(Statement::from_string(self.db.get_database_backend(), sql))
+            .execute_raw(Statement::from_string(backend, sql))
             .await?;
         Ok(result.rows_affected())
     }
@@ -3185,9 +3333,10 @@ impl Store {
         struct IdRow {
             id: i64,
         }
+        let backend = self.db.get_database_backend();
         let row = IdRow::find_by_statement(Statement::from_sql_and_values(
-            self.db.get_database_backend(),
-            sql,
+            backend,
+            bind_placeholders(backend, sql),
             [registry.into(), repository.into(), tag.into()],
         ))
         .one(&self.db)
@@ -3401,9 +3550,10 @@ impl Store {
                 ) \
               ) \
             ORDER BY wpd.declared_package";
+        let backend = self.db.get_database_backend();
         let stmt = Statement::from_sql_and_values(
-            self.db.get_database_backend(),
-            sql,
+            backend,
+            bind_placeholders(backend, sql),
             [
                 registry.into(),
                 repository.into(),
@@ -3445,9 +3595,10 @@ impl Store {
                 LIMIT 1 \
             ) \
             ORDER BY wpd.declared_package";
+        let backend = self.db.get_database_backend();
         let stmt = Statement::from_sql_and_values(
-            self.db.get_database_backend(),
-            sql,
+            backend,
+            bind_placeholders(backend, sql),
             [package_name.into(), version.unwrap_or("").into()],
         );
         #[derive(FromQueryResult)]
@@ -3848,12 +3999,259 @@ mod smoke_tests {
         assert_eq!(snapshot_b.current, snapshot_b.total);
         assert_eq!(snapshot_a.current, snapshot_b.current);
     }
+
+    /// Seed a repo + manifest + layer + a spread of tags, run both tag-ingest
+    /// queries, and confirm the filter keeps real version tags while dropping
+    /// `latest`, signature tags, and bare 40-char hex commit SHAs — on whatever
+    /// backend `store` is bound to.
+    ///
+    /// This is the regression guard for the Postgres GLOB dialect bug: SQLite's
+    /// `GLOB` operator doesn't exist in Postgres, so before the fix these two
+    /// functions raised `syntax error at or near "AND"` on Postgres.
+    async fn assert_commit_sha_filter(store: &Store, registry: &str, repository: &str) {
+        let digest = "sha256:deadbeef";
+        let repo_id =
+            upsert_oci_repository_full(store.db(), registry, repository, None, None, None)
+                .await
+                .expect("insert oci_repository");
+        let (manifest_id, _) = upsert_oci_manifest(
+            store.db(),
+            repo_id,
+            digest,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &HashMap::new(),
+        )
+        .await
+        .expect("insert oci_manifest");
+        // The ingest query JOINs oci_layer, so the manifest needs one.
+        insert_oci_layer(
+            store.db(),
+            manifest_id,
+            "sha256:layer0",
+            Some("application/vnd.oci.image.layer.v1.tar+gzip"),
+            Some(1),
+            0,
+        )
+        .await
+        .expect("insert oci_layer");
+
+        // 40 lowercase-hex chars: a bare git commit SHA — must be filtered out.
+        let commit_sha = "0123456789abcdef0123456789abcdef01234567";
+        assert_eq!(commit_sha.len(), 40, "commit_sha fixture must be 40 chars");
+        // 40 chars but not all-hex, so it is NOT a commit SHA and must survive
+        // the filter. Exercises the GLOB-vs-regex equivalence at the boundary.
+        let not_a_sha = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz";
+        assert_eq!(not_a_sha.len(), 40, "not_a_sha fixture must be 40 chars");
+        let sig_tag = "sha256-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+        let indexable = ["0.2.0", "1.0.0-rc.1", not_a_sha];
+        let excluded = [commit_sha, "latest", sig_tag];
+        for tag in indexable.iter().chain(excluded.iter()) {
+            upsert_oci_tag(store.db(), repo_id, tag, digest)
+                .await
+                .expect("insert oci_tag");
+        }
+
+        // The core of the regression: both statements must parse and run on
+        // this backend. On Postgres the GLOB form used to blow up here.
+        store
+            .seed_completed_from_tags()
+            .await
+            .expect("seed_completed_from_tags must run on this backend");
+        store
+            .enqueue_reindex_all()
+            .await
+            .expect("enqueue_reindex_all must run on this backend");
+
+        let rows = fetch_queue::Entity::find()
+            .filter(fetch_queue::Column::Registry.eq(registry))
+            .filter(fetch_queue::Column::Repository.eq(repository))
+            .all(store.db())
+            .await
+            .expect("query fetch_queue");
+
+        // Assert per-task, not just tag membership: `seed_completed_from_tags`
+        // enqueues task=Pull and `enqueue_reindex_all` enqueues task=Reindex, so
+        // an indexable tag must show up under BOTH. A tag-only set would hide a
+        // regression where just one of the two statements dropped the tag.
+        let enqueued = |tag: &str, task: fetch_queue::FetchTask| {
+            rows.iter().any(|r| r.tag == tag && r.task == task)
+        };
+        for tag in indexable {
+            assert!(
+                enqueued(tag, fetch_queue::FetchTask::Pull),
+                "seed_completed_from_tags should enqueue `{tag}` (task=pull)"
+            );
+            assert!(
+                enqueued(tag, fetch_queue::FetchTask::Reindex),
+                "enqueue_reindex_all should enqueue `{tag}` (task=reindex)"
+            );
+        }
+        for tag in excluded {
+            assert!(
+                !rows.iter().any(|r| r.tag == tag),
+                "neither statement should enqueue `{tag}`"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn tag_filter_excludes_commit_shas_sqlite() {
+        let store = Store::open_in_memory().await.expect("open in-memory store");
+        assert_commit_sha_filter(&store, "sqlite.test.local", "regression/commit-sha").await;
+    }
+
+    #[tokio::test]
+    async fn tag_filter_excludes_commit_shas_postgres() {
+        let Ok(url) = std::env::var("COMPONENT_DATABASE_URL") else {
+            return;
+        };
+        let lower = url.to_ascii_lowercase();
+        if !(lower.starts_with("postgres:") || lower.starts_with("postgresql:")) {
+            return;
+        }
+        let data_dir = tempfile::tempdir().expect("create temp dir");
+        let store = Store::open_at(data_dir.path().to_path_buf())
+            .await
+            .expect("open Postgres store");
+        assert_commit_sha_filter(&store, "postgres.test.local", "regression/commit-sha").await;
+    }
+
+    #[test]
+    fn bind_placeholders_translates_only_for_postgres() {
+        // SQLite and MySQL keep `?` verbatim.
+        assert_eq!(
+            bind_placeholders(DbBackend::Sqlite, "WHERE a = ? AND b = ?"),
+            "WHERE a = ? AND b = ?"
+        );
+        assert_eq!(
+            bind_placeholders(DbBackend::MySql, "WHERE a = ?"),
+            "WHERE a = ?"
+        );
+        // Postgres gets positional `$1`, `$2`, … in left-to-right `?` order.
+        assert_eq!(
+            bind_placeholders(DbBackend::Postgres, "WHERE a = ? AND b = ? OR c = ?"),
+            "WHERE a = $1 AND b = $2 OR c = $3"
+        );
+        // `?` inside a single-quoted string literal must be left untouched.
+        assert_eq!(
+            bind_placeholders(DbBackend::Postgres, "SELECT '? kept' WHERE y = ?"),
+            "SELECT '? kept' WHERE y = $1"
+        );
+        // An escaped quote (`''`) inside a literal must not prematurely close the
+        // string: a `?` following such a literal is still a real placeholder.
+        assert_eq!(
+            bind_placeholders(DbBackend::Postgres, "SELECT 'it''s ok' WHERE y = ?"),
+            "SELECT 'it''s ok' WHERE y = $1"
+        );
+        // A `?` inside a literal that also contains escaped quotes stays literal,
+        // while the trailing placeholder is still translated.
+        assert_eq!(
+            bind_placeholders(DbBackend::Postgres, "SELECT 'a ''?'' b' WHERE y = ?"),
+            "SELECT 'a ''?'' b' WHERE y = $1"
+        );
+    }
+
+    /// Seed a repo + manifest + wit_package + one dependency, then run the raw
+    /// dependency queries against whatever backend `store` is bound to.
+    ///
+    /// Regression guard for the Postgres placeholder-dialect bug: these queries
+    /// used SQLite-style `?` placeholders dispatched to both backends via
+    /// `Statement::from_sql_and_values(self.db.get_database_backend(), …)`. On
+    /// Postgres the `?` reached the server verbatim and raised
+    /// `syntax error at or near "AND"`, which aborted every package discovery
+    /// (`index_package` calls `get_package_dependencies` for each package), so
+    /// the database stayed empty and the frontend showed no packages. SQLite
+    /// accepts `?`, which is why it went unnoticed locally.
+    async fn assert_package_dependencies_query(store: &Store, registry: &str, repository: &str) {
+        let digest = "sha256:deadbeef";
+        let repo_id =
+            upsert_oci_repository_full(store.db(), registry, repository, None, None, None)
+                .await
+                .expect("insert oci_repository");
+        let (manifest_id, _) = upsert_oci_manifest(
+            store.db(),
+            repo_id,
+            digest,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &HashMap::new(),
+        )
+        .await
+        .expect("insert oci_manifest");
+        let wit_id = upsert_wit_package(
+            store.db(),
+            "example:greeter",
+            Some("1.0.0"),
+            None,
+            None,
+            Some(manifest_id),
+            None,
+        )
+        .await
+        .expect("insert wit_package");
+        insert_wit_package_dependency(store.db(), wit_id, "wasi:io", Some("0.2.0"))
+            .await
+            .expect("insert wit_package_dependency");
+
+        // The core of the regression: each raw `?`-placeholder query must parse
+        // and run on this backend. On Postgres they used to fail here. Cover
+        // both the 4-placeholder repo lookup and the 2-placeholder by-name
+        // variant (which also exercises `COALESCE(?, '')`).
+        let deps = store
+            .get_package_dependencies(registry, repository)
+            .await
+            .expect("get_package_dependencies must run on this backend");
+        assert_eq!(deps.len(), 1, "expected exactly one dependency");
+        assert_eq!(deps[0].package, "wasi:io");
+        assert_eq!(deps[0].version.as_deref(), Some("0.2.0"));
+
+        let by_name = store
+            .get_package_dependencies_by_name("example:greeter", Some("1.0.0"))
+            .await
+            .expect("get_package_dependencies_by_name must run on this backend");
+        assert_eq!(by_name.len(), 1);
+        assert_eq!(by_name[0].package, "wasi:io");
+        assert_eq!(by_name[0].version.as_deref(), Some("0.2.0"));
+    }
+
+    #[tokio::test]
+    async fn package_dependencies_query_runs_sqlite() {
+        let store = Store::open_in_memory().await.expect("open in-memory store");
+        assert_package_dependencies_query(&store, "sqlite.test.local", "regression/deps").await;
+    }
+
+    #[tokio::test]
+    async fn package_dependencies_query_runs_postgres() {
+        let Ok(url) = std::env::var("COMPONENT_DATABASE_URL") else {
+            return;
+        };
+        let lower = url.to_ascii_lowercase();
+        if !(lower.starts_with("postgres:") || lower.starts_with("postgresql:")) {
+            return;
+        }
+        let data_dir = tempfile::tempdir().expect("create temp dir");
+        let store = Store::open_at(data_dir.path().to_path_buf())
+            .await
+            .expect("open Postgres store");
+        assert_package_dependencies_query(&store, "postgres.test.local", "regression/deps").await;
+    }
 }
 
 #[cfg(test)]
 mod component_tests {
     use super::*;
     use component_meta_registry_types::{ComponentSummary, WitInterfaceRef};
+    use oci_client::manifest::OciDescriptor;
 
     #[test]
     fn parse_component_extern_name_full() {
@@ -4084,5 +4482,98 @@ mod component_tests {
             .await
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    // ── local-cache fast-path lookups ───────────────────────────────────
+
+    /// A concrete `(registry, repository, tag)` triple resolves back to the
+    /// stored manifest (deserialized from `raw_json`) together with its
+    /// digest, and an unknown tag misses.
+    #[tokio::test]
+    async fn cached_manifest_for_reference_round_trips_and_misses() {
+        let store = Store::open_in_memory().await.unwrap();
+        let reference: Reference = "ghcr.io/example/comp:1.2.3".parse().unwrap();
+        let layer_digest =
+            "sha256:1111111111111111111111111111111111111111111111111111111111111111";
+        let manifest_digest =
+            "sha256:2222222222222222222222222222222222222222222222222222222222222222";
+        let manifest = OciImageManifest {
+            layers: vec![OciDescriptor {
+                media_type: "application/wasm".to_string(),
+                digest: layer_digest.to_string(),
+                size: 4,
+                urls: None,
+                annotations: None,
+            }],
+            ..Default::default()
+        };
+
+        let (result, _manifest_id) = store
+            .insert_metadata(&reference, Some(manifest_digest), &manifest, 4)
+            .await
+            .unwrap();
+        assert_eq!(result, InsertResult::Inserted);
+
+        let (digest, got) = store
+            .cached_manifest_for_reference("ghcr.io", "example/comp", "1.2.3")
+            .await
+            .unwrap()
+            .expect("stored manifest should be found");
+        assert_eq!(digest, manifest_digest);
+        assert_eq!(got.layers.len(), 1);
+        assert_eq!(got.layers[0].digest, layer_digest);
+
+        // An unknown tag on the same repository misses.
+        assert!(
+            store
+                .cached_manifest_for_reference("ghcr.io", "example/comp", "9.9.9")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        // An unknown repository misses.
+        assert!(
+            store
+                .cached_manifest_for_reference("ghcr.io", "other/comp", "1.2.3")
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    /// `all_layers_cached` is false until every referenced layer blob has been
+    /// written to the content store, then true.
+    #[tokio::test]
+    async fn all_layers_cached_reflects_blob_presence() {
+        let store = Store::open_in_memory().await.unwrap();
+        let layer_digest =
+            "sha256:3333333333333333333333333333333333333333333333333333333333333333";
+        let manifest = OciImageManifest {
+            layers: vec![OciDescriptor {
+                media_type: "application/wasm".to_string(),
+                digest: layer_digest.to_string(),
+                size: 3,
+                urls: None,
+                annotations: None,
+            }],
+            ..Default::default()
+        };
+
+        // Nothing written yet: a missing blob means the cache is incomplete.
+        assert!(!store.all_layers_cached(&manifest).await);
+
+        // Write the layer blob into the content store keyed by its digest.
+        store
+            .insert_layer(
+                layer_digest,
+                b"abc",
+                None,
+                Some("application/wasm"),
+                0,
+                None,
+            )
+            .await
+            .unwrap();
+        assert!(store.all_layers_cached(&manifest).await);
     }
 }

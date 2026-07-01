@@ -35,6 +35,9 @@ param registryUsername string
 @description('Container registry password.')
 param registryPassword string
 
+@description('Custom apex domain to serve the frontend on, e.g. "wasm.directory". When empty (default) no DNS zone or custom-domain wiring is created and the app is reachable only on its *.azurecontainerapps.io URL.')
+param customDomainName string = ''
+
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 
 // ── Observability ────────────────────────────────────────────────────────────
@@ -106,6 +109,25 @@ module frontend './modules/frontend.bicep' = {
   }
 }
 
+// ── Custom domain (optional) ─────────────────────────────────────────────────
+//
+// Creates the public DNS zone plus the two records Azure Container Apps needs
+// to issue a managed certificate for the apex domain:
+//   * an A record at "@" pointing at the environment's static ingress IP, and
+//   * an "asuid" TXT record carrying the frontend's domainVerificationId.
+// The actual hostname binding + managed certificate is applied out-of-band
+// (e.g. via `az containerapp hostname bind`) once the registrar delegates the
+// zone and DNS has propagated — doing it here would create a module dependency
+// cycle (the cert needs the TXT record, which needs the frontend's verification id).
+module dns './modules/dns.bicep' = if (!empty(customDomainName)) {
+  name: 'dns'
+  params: {
+    zoneName: customDomainName
+    staticIp: containerAppsEnv.outputs.staticIp
+    verificationId: frontend.outputs.customDomainVerificationId
+  }
+}
+
 // ── Outputs ──────────────────────────────────────────────────────────────────
 
 output AZURE_CONTAINER_APPS_ENVIRONMENT_ID string = containerAppsEnv.outputs.id
@@ -113,3 +135,8 @@ output AZURE_CONTAINER_APPS_ENVIRONMENT_NAME string = containerAppsEnv.outputs.n
 output POSTGRES_SERVER_FQDN string = postgresql.outputs.fqdn
 output SERVICE_FRONTEND_URL string = 'https://${frontend.outputs.fqdn}'
 output SERVICE_BACKEND_URL string = 'https://${backend.outputs.fqdn}'
+output SERVICE_FRONTEND_NAME string = frontend.outputs.name
+output CUSTOM_DOMAIN_NAME string = customDomainName
+@description('Name servers assigned to the created DNS zone. Delegate the domain at the registrar to exactly this set. Empty when no custom domain is configured.')
+#disable-next-line BCP318 // `dns` is deployed iff customDomainName is non-empty, which the ternary guards.
+output DNS_NAME_SERVERS array = empty(customDomainName) ? [] : dns.outputs.nameServers

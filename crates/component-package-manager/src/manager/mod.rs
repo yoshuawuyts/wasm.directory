@@ -188,12 +188,17 @@ impl Manager {
             )
             .await?;
 
-        self.store_related_tags(&reference).await?;
+        // Enrichment (tag listing + referrer discovery) hits the network and
+        // only matters when we stored a new manifest. Skip it on cache hits so
+        // re-pulling an already-present version stays local.
+        if result == InsertResult::Inserted {
+            self.store_related_tags(&reference).await?;
 
-        // Best-effort: discover and store referrers (signatures, SBOMs, etc.)
-        if let (Some(manifest_id), Some(digest)) = (manifest_id, &digest) {
-            self.try_store_referrers(&reference, digest, manifest_id)
-                .await;
+            // Best-effort: discover and store referrers (signatures, SBOMs, etc.)
+            if let (Some(manifest_id), Some(digest)) = (manifest_id, &digest) {
+                self.try_store_referrers(&reference, digest, manifest_id)
+                    .await;
+            }
         }
 
         Ok(PullResult {
@@ -354,12 +359,17 @@ impl Manager {
             )
             .await?;
 
-        self.store_related_tags(&reference).await?;
+        // Enrichment (tag listing + referrer discovery) hits the network and
+        // only matters when we stored a new manifest. Skip it on cache hits so
+        // re-pulling an already-present version stays local.
+        if result == InsertResult::Inserted {
+            self.store_related_tags(&reference).await?;
 
-        // Best-effort: discover and store referrers (signatures, SBOMs, etc.)
-        if let Some(manifest_id) = image_id {
-            self.try_store_referrers(&reference, &digest, manifest_id)
-                .await;
+            // Best-effort: discover and store referrers (signatures, SBOMs, etc.)
+            if let Some(manifest_id) = image_id {
+                self.try_store_referrers(&reference, &digest, manifest_id)
+                    .await;
+            }
         }
 
         Ok(PullResult {
@@ -444,8 +454,27 @@ impl Manager {
         vendor_dir: &Path,
         progress_tx: Option<&tokio::sync::mpsc::Sender<ProgressEvent>>,
     ) -> anyhow::Result<InstallResult> {
-        use crate::oci::filter_wasm_layers;
+        // Fast path: a fully-cached concrete version is served by reflinking
+        // from the local store with zero network round-trips.
+        if let Some(result) = self
+            .try_install_from_cache(&reference, vendor_dir, progress_tx)
+            .await?
+        {
+            return Ok(result);
+        }
 
+        // Offline mode can only serve packages already in the cache; if the
+        // fast path missed there is nothing more we can do without network.
+        if self.offline {
+            return Err(ManagerError::OfflineNotCached {
+                reference: reference.to_string(),
+            }
+            .into());
+        }
+
+        // Network path: pull the manifest (and any missing layers) from the
+        // registry, then vendor exactly as the cache path does.
+        //
         // `Box::pin` keeps the (large) pull futures on the heap so this shared
         // method's own future stays small enough to satisfy `clippy::large_futures`.
         let pull_result = match progress_tx {
@@ -453,52 +482,168 @@ impl Manager {
             None => Box::pin(self.pull(reference.clone())).await?,
         };
 
-        let mut vendored_files = Vec::new();
-        let mut package_name = None;
-        let mut is_component = true; // Default to component
-        let mut dependencies = Vec::new();
-
-        // Extract the OCI image.title annotation from the manifest.
-        let oci_title = pull_result
-            .manifest
-            .as_ref()
-            .and_then(|m| m.annotations.as_ref())
-            .and_then(|a| a.get("org.opencontainers.image.title").cloned());
-
-        if let Some(ref manifest) = pull_result.manifest {
-            let wasm_layers = filter_wasm_layers(&manifest.layers);
-
-            let inspected = self.inspect_wasm_layers(&wasm_layers).await;
-            package_name = inspected.0;
-            is_component = inspected.1;
-            dependencies = inspected.2;
-
-            if !wasm_layers.is_empty() {
-                let name = package_name.as_deref().ok_or_else(|| {
-                    anyhow::anyhow!("could not determine WIT package name from `{reference}`")
-                })?;
-                let filename = vendor_filename(name, reference.tag());
-                vendored_files = self
-                    .vendor_wasm_layers(&wasm_layers, vendor_dir, &filename)
-                    .await?;
+        let result = match pull_result.manifest {
+            Some(ref manifest) => {
+                self.vendor_manifest(&reference, vendor_dir, manifest, pull_result.digest)
+                    .await?
             }
-        }
+            // A wasm artifact always carries a manifest; the `None` case is
+            // purely defensive and yields an otherwise-empty result.
+            None => InstallResult {
+                registry: reference.registry().to_string(),
+                repository: reference.repository().to_string(),
+                tag: reference.tag().map(str::to_string),
+                digest: pull_result.digest,
+                package_name: None,
+                oci_title: None,
+                vendored_files: Vec::new(),
+                is_component: true,
+                dependencies: Vec::new(),
+            },
+        };
 
         if let Some(tx) = progress_tx {
             let _ = tx.send(ProgressEvent::InstallComplete).await;
+        }
+
+        Ok(result)
+    }
+
+    /// Attempt to install `reference` entirely from the local cache, without
+    /// any network I/O.
+    ///
+    /// Returns `Ok(Some(result))` on a full cache hit — a concrete version tag
+    /// whose manifest and every layer are already stored locally. Returns
+    /// `Ok(None)` when the caller should fall back to the network: the
+    /// reference has no tag or a floating `latest` tag, the manifest is not
+    /// cached, or some layer blob is missing.
+    async fn try_install_from_cache(
+        &self,
+        reference: &Reference,
+        vendor_dir: &Path,
+        progress_tx: Option<&tokio::sync::mpsc::Sender<ProgressEvent>>,
+    ) -> anyhow::Result<Option<InstallResult>> {
+        // Only trust the cache for concrete version tags. `latest` (and the
+        // no-tag case, which OCI treats as `latest`) is mutable, so we must
+        // re-check the registry for freshness.
+        let tag = match reference.tag() {
+            Some(tag) if tag != "latest" => tag,
+            _ => return Ok(None),
+        };
+
+        let Some((digest, manifest)) = self
+            .store
+            .cached_manifest_for_reference(reference.registry(), reference.repository(), tag)
+            .await?
+        else {
+            return Ok(None);
+        };
+
+        // Every referenced layer blob must be present locally, otherwise we
+        // cannot vendor without the network — fall back to the pull path.
+        if !self.store.all_layers_cached(&manifest).await {
+            return Ok(None);
+        }
+
+        // Drive the progress display from cached metadata so the CLI renders
+        // the same phases as a network install, just instantly.
+        Self::emit_cached_progress(progress_tx, &manifest, &digest).await;
+
+        let result = self
+            .vendor_manifest(reference, vendor_dir, &manifest, Some(digest))
+            .await?;
+
+        if let Some(tx) = progress_tx {
+            let _ = tx.send(ProgressEvent::InstallComplete).await;
+        }
+
+        Ok(Some(result))
+    }
+
+    /// Build an [`InstallResult`] by vendoring the wasm layer(s) of an
+    /// already-available manifest — whether just pulled from the registry or
+    /// loaded from the local cache.
+    ///
+    /// Inspects the (cached) wasm layers for their WIT package name, kind, and
+    /// dependencies, then reflinks them into `vendor_dir`. Performs no network
+    /// I/O; both the fast path and the network path share it so their results
+    /// are constructed identically.
+    async fn vendor_manifest(
+        &self,
+        reference: &Reference,
+        vendor_dir: &Path,
+        manifest: &oci_client::manifest::OciImageManifest,
+        digest: Option<String>,
+    ) -> anyhow::Result<InstallResult> {
+        use crate::oci::filter_wasm_layers;
+
+        let oci_title = manifest
+            .annotations
+            .as_ref()
+            .and_then(|a| a.get("org.opencontainers.image.title").cloned());
+
+        let wasm_layers = filter_wasm_layers(&manifest.layers);
+        let (package_name, is_component, dependencies) =
+            self.inspect_wasm_layers(&wasm_layers).await;
+
+        let mut vendored_files = Vec::new();
+        if !wasm_layers.is_empty() {
+            let name = package_name.as_deref().ok_or_else(|| {
+                anyhow::anyhow!("could not determine WIT package name from `{reference}`")
+            })?;
+            let filename = vendor_filename(name, reference.tag());
+            vendored_files = self
+                .vendor_wasm_layers(&wasm_layers, vendor_dir, &filename)
+                .await?;
         }
 
         Ok(InstallResult {
             registry: reference.registry().to_string(),
             repository: reference.repository().to_string(),
             tag: reference.tag().map(str::to_string),
-            digest: pull_result.digest,
+            digest,
             package_name,
             oci_title,
             vendored_files,
             is_component,
             dependencies,
         })
+    }
+
+    /// Emit synthetic progress events for a cache hit so the CLI progress bars
+    /// advance through the manifest and per-layer phases before completing.
+    async fn emit_cached_progress(
+        progress_tx: Option<&tokio::sync::mpsc::Sender<ProgressEvent>>,
+        manifest: &oci_client::manifest::OciImageManifest,
+        digest: &str,
+    ) {
+        let Some(tx) = progress_tx else { return };
+        let _ = tx
+            .send(ProgressEvent::ManifestFetched {
+                layer_count: manifest.layers.len(),
+                image_digest: digest.to_string(),
+            })
+            .await;
+        for (index, layer) in manifest.layers.iter().enumerate() {
+            let total_bytes = if layer.size > 0 {
+                u64::try_from(layer.size).ok()
+            } else {
+                None
+            };
+            let _ = tx
+                .send(ProgressEvent::LayerStarted {
+                    index,
+                    digest: layer.digest.clone(),
+                    total_bytes,
+                    title: layer
+                        .annotations
+                        .as_ref()
+                        .and_then(|a| a.get("org.opencontainers.image.title").cloned()),
+                    media_type: layer.media_type.clone(),
+                })
+                .await;
+            let _ = tx.send(ProgressEvent::LayerStored { index }).await;
+        }
     }
 
     /// Inspect cached wasm layers up-front to learn the WIT package name; this
