@@ -106,10 +106,6 @@ fn render_page_inner(
     #[allow(clippy::items_after_statements)]
     const LINKS: &[NavLink] = &[
         NavLink {
-            label: "Docs",
-            href: "/docs",
-        },
-        NavLink {
             label: "Downloads",
             href: "/downloads",
         },

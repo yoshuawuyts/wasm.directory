@@ -4,8 +4,11 @@ use html::content::Footer as FooterEl;
 
 /// A single link in a footer column.
 pub(crate) struct FooterLink {
+    /// Visible link text.
     pub label: &'static str,
-    pub href: &'static str,
+    /// Destination URL. `None` marks an in-progress placeholder that is
+    /// rendered as a non-navigable, visibly muted label instead of a link.
+    pub href: Option<&'static str>,
 }
 
 /// A column of footer links.
@@ -71,21 +74,37 @@ fn push_column(parent: &mut html::text_content::builders::DivisionBuilder, col: 
                 .text(kicker)
         });
         d.unordered_list(|ul| {
-            let mut ul = ul.class("mt-3 space-y-2 text-ink-700");
+            let ul = ul.class("mt-3 space-y-2 text-ink-700");
             for link in col.links {
-                let label = link.label.to_owned();
-                let href = link.href.to_owned();
-                ul = ul.list_item(|li| {
-                    li.anchor(|a| {
-                        a.href(href)
-                            .class("hover:text-ink-900 no-underline")
-                            .text(label)
-                    })
-                });
+                push_link(ul, link);
             }
             ul
         })
     });
+}
+
+/// Append a single footer link. A link with `href: None` renders as a
+/// non-navigable, muted span so it stays visible while signalling that the
+/// destination is still in progress. This mirrors the design system's
+/// disabled-control convention (see `PAGINATION_DISABLED_CLASS`): a plain
+/// muted span with no interactive semantics.
+fn push_link(ul: &mut html::text_content::builders::UnorderedListBuilder, link: &FooterLink) {
+    let label = link.label.to_owned();
+    match link.href {
+        Some(href) => {
+            let href = href.to_owned();
+            ul.list_item(|li| {
+                li.anchor(|a| {
+                    a.href(href)
+                        .class("hover:text-ink-900 no-underline")
+                        .text(label)
+                })
+            });
+        }
+        None => {
+            ul.list_item(|li| li.span(|s| s.class("text-ink-400 cursor-not-allowed").text(label)));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -97,31 +116,31 @@ mod tests {
         const BROWSE: &[FooterLink] = &[
             FooterLink {
                 label: "Packages",
-                href: "/packages",
+                href: Some("/packages"),
             },
             FooterLink {
                 label: "Categories",
-                href: "/categories",
+                href: Some("/categories"),
             },
         ];
         const COMMUNITY: &[FooterLink] = &[
             FooterLink {
                 label: "GitHub",
-                href: "https://github.com/yoshuawuyts/component-cli",
+                href: Some("https://github.com/yoshuawuyts/component-cli"),
             },
             FooterLink {
                 label: "Spec",
-                href: "/spec",
+                href: None,
             },
         ];
         const LEGAL: &[FooterLink] = &[
             FooterLink {
                 label: "Privacy",
-                href: "/privacy",
+                href: Some("/privacy"),
             },
             FooterLink {
                 label: "Terms",
-                href: "/terms",
+                href: Some("/terms"),
             },
         ];
         let html = render(&Footer {

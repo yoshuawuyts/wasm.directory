@@ -135,9 +135,9 @@ fn compose_body(stats: &Stats, notice_html: Option<&str>) -> String {
                     <code class=\"px-1 py-0.5 rounded-sm bg-surfaceMuted text-ink-900 mono text-[0.875em]\">component publish</code>. \
                     Every release is signed end-to-end.",
         primary_label: "Open the publishing guide",
-        primary_href: "/docs",
+        primary_href: None,
         secondary_label: "Read the spec",
-        secondary_href: "/docs",
+        secondary_href: None,
     });
 
     let notice_html = notice_html.unwrap_or("");

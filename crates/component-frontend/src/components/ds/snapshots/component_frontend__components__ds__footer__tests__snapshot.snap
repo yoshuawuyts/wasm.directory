@@ -45,9 +45,9 @@ expression: "crate::components::ds::pretty_html(&html)"
           </a>
         </li>
         <li>
-          <a href="/spec" class="hover:text-ink-900 no-underline">
+          <span class="text-ink-400 cursor-not-allowed">
             Spec
-          </a>
+          </span>
         </li>
       </ul>
     </div>

@@ -71,16 +71,10 @@ pub(crate) fn render_page_with_crumbs(
     }
 
     #[allow(clippy::items_after_statements)]
-    const LINKS: &[NavLink] = &[
-        NavLink {
-            label: "Docs",
-            href: "/docs",
-        },
-        NavLink {
-            label: "Downloads",
-            href: "/downloads",
-        },
-    ];
+    const LINKS: &[NavLink] = &[NavLink {
+        label: "Downloads",
+        href: "/downloads",
+    }];
     let nav = navbar::render_bar_grid(&crumbs, LINKS);
 
     // Sidebar navigation (interfaces/worlds tree) — already an <aside> with
