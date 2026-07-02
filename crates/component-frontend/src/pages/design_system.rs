@@ -556,9 +556,9 @@ fn render_landing_components() -> String {
         title: "Publish your component.",
         body_html: "Add your namespace and run <code class=\"px-1 py-0.5 rounded-sm bg-surfaceMuted text-ink-900 mono text-[0.875em]\">component publish</code>.",
         primary_label: "Publishing guide",
-        primary_href: "#",
+        primary_href: Some("#"),
         secondary_label: "Read the spec",
-        secondary_href: "#",
+        secondary_href: Some("#"),
     });
     html.push_str(RULE_MT);
     html.push_str(&ds::section(
@@ -572,7 +572,7 @@ fn render_landing_components() -> String {
     // C13 — Footer
     let footer_demo = footer::render(&Footer {
         brand: "component",
-        lede: "A package manager and registry for WebAssembly components.",
+        lede: "A meta-registry and package manager for WebAssembly components.",
         status: "All systems operational",
         columns: &[
             FooterColumn {
@@ -580,11 +580,11 @@ fn render_landing_components() -> String {
                 links: &[
                     FooterLink {
                         label: "Packages",
-                        href: "#",
+                        href: Some("#"),
                     },
                     FooterLink {
                         label: "Authors",
-                        href: "#",
+                        href: Some("#"),
                     },
                 ],
             },
@@ -593,11 +593,11 @@ fn render_landing_components() -> String {
                 links: &[
                     FooterLink {
                         label: "Docs",
-                        href: "#",
+                        href: Some("#"),
                     },
                     FooterLink {
                         label: "Spec",
-                        href: "#",
+                        href: Some("#"),
                     },
                 ],
             },
@@ -605,7 +605,7 @@ fn render_landing_components() -> String {
                 kicker: "Community",
                 links: &[FooterLink {
                     label: "GitHub",
-                    href: "#",
+                    href: Some("#"),
                 }],
             },
         ],

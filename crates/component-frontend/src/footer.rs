@@ -6,49 +6,45 @@ use crate::components::ds::footer::{Footer, FooterColumn, FooterLink};
 const BROWSE: &[FooterLink] = &[
     FooterLink {
         label: "Packages",
-        href: "/all",
+        href: Some("/all"),
     },
     FooterLink {
         label: "Authors",
-        href: "/all",
+        href: None,
     },
     FooterLink {
         label: "Registries",
-        href: "/about",
+        href: None,
     },
     FooterLink {
         label: "Changelog",
-        href: "/about",
+        href: None,
     },
 ];
 
 const DEVELOP: &[FooterLink] = &[
     FooterLink {
         label: "Documentation",
-        href: "/docs",
+        href: None,
     },
     FooterLink {
         label: "CLI reference",
-        href: "/docs",
+        href: None,
     },
     FooterLink {
         label: "Spec",
-        href: "/docs",
-    },
-    FooterLink {
-        label: "Design system",
-        href: "/design-system",
+        href: None,
     },
 ];
 
 const COMMUNITY: &[FooterLink] = &[
     FooterLink {
         label: "GitHub",
-        href: "https://github.com/yoshuawuyts/component-cli",
+        href: Some("https://github.com/yoshuawuyts/component-cli"),
     },
     FooterLink {
         label: "Status",
-        href: "/health",
+        href: Some("/status"),
     },
 ];
 
@@ -72,7 +68,7 @@ const COLUMNS: &[FooterColumn] = &[
 pub(crate) fn render() -> String {
     crate::components::ds::footer::render(&Footer {
         brand: "component",
-        lede: "A package manager and registry for WebAssembly components. Made by Yosh Wuyts and contributors. To be donated to the Bytecode Alliance.",
+        lede: "A meta-registry and package manager for WebAssembly components. Made by Yosh Wuyts and contributors. To be donated to the Bytecode Alliance.",
         status: "All systems operational",
         columns: COLUMNS,
     })

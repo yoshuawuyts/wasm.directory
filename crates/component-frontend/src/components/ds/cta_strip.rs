@@ -4,6 +4,7 @@
 //! left, primary + secondary CTA buttons on the right.
 
 use html::content::Section;
+use html::text_content::builders::DivisionBuilder;
 
 /// Configuration for [`render`].
 pub(crate) struct CtaStrip<'a> {
@@ -12,9 +13,13 @@ pub(crate) struct CtaStrip<'a> {
     /// HTML body — callers may include `<code>` spans inline.
     pub body_html: &'a str,
     pub primary_label: &'a str,
-    pub primary_href: &'a str,
+    /// Primary CTA destination. `None` renders a disabled, muted button that
+    /// stays visible but is not navigable.
+    pub primary_href: Option<&'a str>,
     pub secondary_label: &'a str,
-    pub secondary_href: &'a str,
+    /// Secondary CTA destination. `None` renders a disabled, muted button that
+    /// stays visible but is not navigable.
+    pub secondary_href: Option<&'a str>,
 }
 
 const ARROW_RIGHT: &str = r#"<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>"#;
@@ -26,9 +31,9 @@ pub(crate) fn render(cfg: &CtaStrip<'_>) -> String {
     let title = cfg.title.to_owned();
     let body = cfg.body_html.to_owned();
     let plabel = cfg.primary_label.to_owned();
-    let phref = cfg.primary_href.to_owned();
+    let phref = cfg.primary_href.map(ToOwned::to_owned);
     let slabel = cfg.secondary_label.to_owned();
-    let shref = cfg.secondary_href.to_owned();
+    let shref = cfg.secondary_href.map(ToOwned::to_owned);
 
     Section::builder()
         .class("mx-auto mx-auto max-w-[1280px] w-full px-4 md:px-8 mt-12 md:mt-16")
@@ -48,22 +53,58 @@ pub(crate) fn render(cfg: &CtaStrip<'_>) -> String {
                     })
                 })
                 .division(|right| {
-                    right.class("flex flex-wrap items-center gap-3 md:justify-end")
-                        .anchor(|a| {
-                            a.href(phref)
-                                .class("h-9 px-4 inline-flex items-center gap-2 rounded-lg bg-ink-900 text-canvas text-[13px] hover:opacity-90 no-underline")
-                                .text(plabel)
-                                .text(format!(" {ARROW_RIGHT}"))
-                        })
-                        .anchor(|a| {
-                            a.href(shref)
-                                .class("h-9 px-4 inline-flex items-center gap-2 rounded-lg border-[1.5px] border-ink-900 bg-canvas text-ink-900 text-[13px] hover:bg-surfaceMuted no-underline")
-                                .text(slabel)
-                        })
+                    let right = right.class("flex flex-wrap items-center gap-3 md:justify-end");
+                    push_primary(right, plabel, phref);
+                    push_secondary(right, slabel, shref);
+                    right
                 })
         })
         .build()
         .to_string()
+}
+
+/// Append the primary (filled) CTA. A `None` href renders a disabled, muted,
+/// non-navigable button so it stays visible while signalling work in progress.
+fn push_primary(parent: &mut DivisionBuilder, label: String, href: Option<String>) {
+    match href {
+        Some(href) => {
+            parent.anchor(|a| {
+                a.href(href)
+                    .class("h-9 px-4 inline-flex items-center gap-2 rounded-lg bg-ink-900 text-canvas text-[13px] hover:opacity-90 no-underline")
+                    .text(label)
+                    .text(format!(" {ARROW_RIGHT}"))
+            });
+        }
+        None => {
+            parent.span(|s| {
+                s.aria_disabled(true)
+                    .class("h-9 px-4 inline-flex items-center gap-2 rounded-lg bg-surfaceMuted text-ink-400 text-[13px] cursor-not-allowed")
+                    .text(label)
+                    .text(format!(" {ARROW_RIGHT}"))
+            });
+        }
+    }
+}
+
+/// Append the secondary (outline) CTA. A `None` href renders a disabled, muted,
+/// non-navigable button so it stays visible while signalling work in progress.
+fn push_secondary(parent: &mut DivisionBuilder, label: String, href: Option<String>) {
+    match href {
+        Some(href) => {
+            parent.anchor(|a| {
+                a.href(href)
+                    .class("h-9 px-4 inline-flex items-center gap-2 rounded-lg border-[1.5px] border-ink-900 bg-canvas text-ink-900 text-[13px] hover:bg-surfaceMuted no-underline")
+                    .text(label)
+            });
+        }
+        None => {
+            parent.span(|s| {
+                s.aria_disabled(true)
+                    .class("h-9 px-4 inline-flex items-center gap-2 rounded-lg border-[1.5px] border-lineSoft bg-canvas text-ink-400 text-[13px] cursor-not-allowed")
+                    .text(label)
+            });
+        }
+    }
 }
 
 #[cfg(test)]
@@ -77,9 +118,9 @@ mod tests {
             title: "Build with components today.",
             body_html: r#"Install the CLI with <code class="mono text-[12px]">brew install component</code> and start composing."#,
             primary_label: "Get started",
-            primary_href: "/docs",
+            primary_href: Some("/docs"),
             secondary_label: "View on GitHub",
-            secondary_href: "https://github.com/yoshuawuyts/component-cli",
+            secondary_href: Some("https://github.com/yoshuawuyts/component-cli"),
         });
         insta::assert_snapshot!(crate::components::ds::pretty_html(&html));
     }
