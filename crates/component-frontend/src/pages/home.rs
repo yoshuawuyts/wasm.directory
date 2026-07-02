@@ -7,8 +7,7 @@ use component_meta_registry_client::{ApiError, KnownPackage, RegistryClient};
 use crate::components::ds::{
     cta_strip::{self, CtaStrip},
     hero::{self, Hero},
-    principles_grid::{self, Principle},
-    search_bar,
+    navbar, search_bar,
 };
 use crate::layout;
 
@@ -83,23 +82,34 @@ impl Stats {
     }
 }
 
-/// Compose the full landing page body. `notice_html` is rendered above
-/// the hero when present (for example, a registry-offline banner).
+/// Persistent call-out marking the registry as alpha. Slotted into the hero's
+/// left column directly below the lede (and above the search card in reading
+/// order) on every visit, so it is clear the project is early and its data and
+/// APIs are not yet stable. It reuses the navbar's alpha badge for a consistent
+/// header treatment, sits on the white `surface` paper, and borrows the badge's
+/// orange border so the two read as one family without shouting.
+fn alpha_notice() -> String {
+    format!(
+        r#"<div role="note" class="mt-8 max-w-2xl flex items-start gap-3 rounded-lg border border-orange-200 bg-surface px-4 py-3">{badge}<span class="text-[13px] text-ink-700 leading-relaxed">This registry is in <strong class="font-semibold text-ink-900">alpha</strong>. Indexed data may be incomplete or reset without notice, and both the site and APIs can still change or break. Explore freely and <a href="https://github.com/yoshuawuyts/component-registry/issues" class="font-medium text-ink-900 underline underline-offset-2 hover:no-underline">share feedback</a> — but don't depend on it in production yet.</span></div>"#,
+        badge = navbar::ALPHA_BADGE,
+    )
+}
+
+/// Compose the full landing page body. The alpha call-out lives inside the
+/// hero (below the lede); `notice_html` is rendered above the hero when
+/// present (for example, a registry-offline banner).
 fn compose_body(stats: &Stats, notice_html: Option<&str>) -> String {
     let pkg_count = format_count(stats.packages);
     let ns_count = format_count(stats.namespaces);
     let version_count = format_count(stats.versions);
 
     let examples = [
-        (
+        search_bar::Example::search(
             "wasi:http",
             "Find components that can handle incoming HTTP requests",
         ),
-        ("wasi", "Browse the reusable standard WASI interfaces"),
-        (
-            "wasi:keyvalue",
-            "Discover key-value storage backends to plug into",
-        ),
+        search_bar::Example::link("/wasi", "Browse the reusable standard WASI interfaces"),
+        search_bar::Example::link("/autostamp", "Discover HTTP client programs"),
     ];
     let search_card = search_bar::landing_card(
         &search_bar::LandingStats {
@@ -111,41 +121,34 @@ fn compose_body(stats: &Stats, notice_html: Option<&str>) -> String {
     )
     .to_string();
 
+    let alpha_notice = alpha_notice();
     let hero_html = hero::render(&Hero {
         kicker: &[],
-        title: "The package manager for wasm components.",
-        lede: "Resolve, vendor, and compose WebAssembly components from any registry. \
-               Reproducible builds and semantic versioning — so the dependency you \
-               shipped is the dependency you keep.",
+        title: "A meta-registry for WebAssembly",
+        lede: "Find WebAssembly applications, libraries, and interface types published to any OCI 1.1-compliant registry. \
+               This includes GitHub Packages, AWS ECR, JFrog Artifactory, and more. \
+               Wasm Directory never serves packages directly: its only job is to serve metadata and resolve names.",
+        note: &alpha_notice,
         ctas: &[],
         right: &search_card,
     });
 
-    let principles_html = principles_grid::render(
-        "",
-        "Why Wasm Components?",
-        "Wasm Components package core WebAssembly instructions into portable binaries and libraries with fully-typed interfaces.",
-        PRINCIPLES,
-    );
-
     let cta_html = cta_strip::render(&CtaStrip {
         kicker: "For maintainers",
-        title: "Publish your component.",
+        title: "Publish your first component.",
         body_html: "Add your namespace to a registry config and run \
-                    <code class=\"px-1 py-0.5 rounded-sm bg-surfaceMuted text-ink-900 mono text-[0.875em]\">component publish</code>. \
-                    Every release is signed end-to-end.",
+                    <code class=\"px-1 py-0.5 rounded-sm bg-surfaceMuted text-ink-900 mono text-[0.875em]\">component publish</code>.",
         primary_label: "Open the publishing guide",
         primary_href: "/docs",
         secondary_label: "Read the spec",
         secondary_href: "/docs",
     });
 
-    let notice_html = notice_html.unwrap_or("");
+    let offline_notice = notice_html.unwrap_or("");
     format!(
-        r#"{notice_html}
+        r#"{offline_notice}
 {hero_html}
 <div class="pb-16 md:pb-24">
-{principles_html}
 {cta_html}
 </div>"#
     )
@@ -165,53 +168,6 @@ fn format_count(n: usize) -> String {
     out.chars().rev().collect()
 }
 
-const STACK_SVG: &str = concat!(
-    r#"<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">"#,
-    include_str!("../../../../vendor/lucide/layers.svg"),
-    "</svg>",
-);
-const GLOBE_SVG: &str = r#"<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z"/></svg>"#;
-const GRID_SVG: &str = r#"<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>"#;
-const CODE_SVG: &str = r#"<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/></svg>"#;
-
-const PRINCIPLES: &[Principle<'static>] = &[
-    Principle {
-        bg_class: "bg-cat-blue",
-        fg_class: "text-cat-blueInk",
-        icon_svg: STACK_SVG,
-        title: "Compose sandboxes together",
-        body: "Components can be linked together thanks to the strongly typed \
-        WIT interfaces. Each component is always individually sandboxed, so a \
-        problem in one component doesn't become a problem for all other \
-        components.",
-    },
-    Principle {
-        bg_class: "bg-cat-green",
-        fg_class: "text-cat-greenInk",
-        icon_svg: GRID_SVG,
-        title: "Works with (almost) any language",
-        body: "Choose the best language for the job — Rust, Go, JS, Python, C. \
-               The interface is the contract, so if you ever need to switch languages, you can.",
-    },
-    Principle {
-        bg_class: "bg-cat-peach",
-        fg_class: "text-cat-peachInk",
-        icon_svg: GLOBE_SVG,
-        title: "Truly portable binaries",
-        body: "Ship the same binary to your server, editor, or browser. As long as the host \
-               provides the right imports, components will run anywhere.",
-    },
-    Principle {
-        bg_class: "bg-cat-lilac",
-        fg_class: "text-cat-lilacInk",
-        icon_svg: CODE_SVG,
-        title: "SDKs for free",
-        body: "Define your interface once in WIT and every language gets a typed \
-               binding — Rust, Go, JS, Python, C. No hand-written client library \
-               to write and maintain per language.",
-    },
-];
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,6 +178,41 @@ mod tests {
         assert_eq!(format_count(73), "73");
         assert_eq!(format_count(1248), "1\u{2009}248");
         assert_eq!(format_count(1_234_567), "1\u{2009}234\u{2009}567");
+    }
+
+    #[test]
+    fn body_includes_alpha_notice() {
+        let body = compose_body(&Stats::default(), None);
+        assert!(
+            body.contains(r#"role="note""#),
+            "alpha call-out should render as a note landmark"
+        );
+        // Reuses the navbar's alpha badge styling.
+        assert!(
+            body.contains(">alpha</span>") && body.contains("text-orange-700"),
+            "alpha call-out should reuse the header alpha badge"
+        );
+        // Border matches the header badge (orange) on a white surface.
+        assert!(
+            body.contains("border-orange-200 bg-surface "),
+            "alpha call-out border should match the badge on a white background"
+        );
+        // Left-aligned and capped to the hero text width.
+        assert!(
+            body.contains("max-w-2xl"),
+            "alpha call-out should be left-aligned at the hero text width"
+        );
+        // The notice sits inside the hero: below the lede and above the
+        // search card in reading order.
+        let lede_at = body.find("resolve names").expect("hero lede present");
+        let notice_at = body.find(r#"role="note""#).expect("notice present");
+        let search_at = body
+            .find("Search the meta-registry.")
+            .expect("search card present");
+        assert!(
+            lede_at < notice_at && notice_at < search_at,
+            "alpha notice should sit below the lede and before the search box"
+        );
     }
 
     fn pkg(ns: &str, name: &str, tags: &[&str], description: Option<&str>) -> KnownPackage {

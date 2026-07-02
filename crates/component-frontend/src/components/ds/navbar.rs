@@ -101,7 +101,7 @@ pub(crate) struct NavLink {
 /// The Component Registry is in its alpha phase — not yet beta — so every
 /// page advertises that fact in the header. Orange is used to draw the eye
 /// without competing with the purple accent reserved for primary actions.
-const ALPHA_BADGE: &str = r#"<span class="inline-flex items-center h-5 px-1.5 rounded text-[10px] font-semibold uppercase tracking-wider text-orange-700 bg-orange-100 border border-orange-200 whitespace-nowrap" title="This service is in alpha — expect breaking changes." aria-label="Alpha release">alpha</span>"#;
+pub(crate) const ALPHA_BADGE: &str = r#"<span class="inline-flex items-center h-5 px-1.5 rounded text-[10px] font-semibold uppercase tracking-wider text-orange-700 bg-orange-100 border border-orange-200 whitespace-nowrap" title="This service is in alpha — expect breaking changes." aria-label="Alpha release">alpha</span>"#;
 
 /// SVG icons for the theme dropdown (14px, currentColor).
 const THEME_SUN: &str = r#"<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>"#;
