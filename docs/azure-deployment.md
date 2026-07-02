@@ -6,6 +6,11 @@ using the Azure Developer CLI (`azd`). The deployment uses
 Analytics workspace, Container Apps environment, two Container Apps
 (frontend + backend), and an Azure Database for PostgreSQL Flexible Server.
 
+> **Two ways to deploy.** The numbered steps below are the manual `azd`
+> walkthrough. To deploy automatically from CI instead — including GitHub
+> deployment status tracking — see
+> [Automated deployment via GitHub Actions](#automated-deployment-via-github-actions).
+
 ## Prerequisites
 
 Install the following tools:
@@ -282,6 +287,149 @@ azd down --purge --force
 
 `--purge` also removes soft-deleted resources (Key Vault, Log Analytics)
 so the same `AZURE_ENV_NAME` can be reused immediately.
+
+## Automated deployment via GitHub Actions
+
+The [`Release` workflow](../.github/workflows/release.yml) deploys to Azure
+automatically. After its `publish-images` job builds and pushes the `backend`
+and `frontend` images to GHCR, the `deploy` job rolls them out to the Container
+Apps and records the rollout through the [GitHub Deployments API][deployments]
+(visible under the repository's **Environments → production** tab).
+
+The `deploy` job runs `azd up` — the same entry point as a manual deploy —
+against [azure.yaml](../azure.yaml) + [infra/main.bicep](../infra/main.bicep),
+seeding the parameters that [infra/main.bicepparam](../infra/main.bicepparam)
+reads via `readEnvironmentVariable(...)` into an ephemeral azd environment with
+`azd env set`, so the Bicep template stays the single source of truth and
+secrets never touch the command line. Because `azure.yaml` declares no
+`services:`, the deploy phase is a no-op and only the infrastructure is
+provisioned, pointed at the images that were just published and pinned to the
+exact released `:X.Y.Z` tag (not `:latest`). Provisioning is incremental, so it
+keeps the existing resource group and applies only what changed. The frontend
+URL is reported back as the deployment's `environment_url`.
+
+azd reuses the Azure CLI's OIDC session (`azd config set auth.useAzCliAuth
+true`), which the `preprovision` hook also depends on since it registers the
+required resource providers through `az`.
+
+Deploys are **not gated**: every successful `Release` run deploys to production.
+
+### One-time setup
+
+The workflow assumes the infrastructure already exists and that an Entra
+identity is available for GitHub to authenticate as. Do this once:
+
+1. **Provision the infrastructure.** Follow sections 1–6 above so the resource
+   group, Container Apps environment, Postgres server, and the two Container
+   Apps exist. The `deploy` job self-heals drift on later runs, but the first
+   provision uses the interactive `azd`/`az` flow.
+
+2. **Create an OIDC identity for GitHub Actions.** Register an Entra
+   application and add a **federated credential** so GitHub can sign in without
+   a stored secret. Because `release.yml` is triggered by `workflow_dispatch`,
+   the OIDC token's subject is the branch ref, so scope the credential to the
+   branch you release from:
+
+   ```sh
+   # Create the app registration and a service principal for it.
+   appId=$(az ad app create --display-name "component-registry-gha-deploy" \
+     --query appId -o tsv)
+   az ad sp create --id "$appId"
+
+   # Federated credential: GitHub OIDC, subject = the release branch.
+   az ad app federated-credential create --id "$appId" --parameters '{
+     "name": "github-actions-release-main",
+     "issuer": "https://token.actions.githubusercontent.com",
+     "subject": "repo:yoshuawuyts/component-registry:ref:refs/heads/main",
+     "audiences": ["api://AzureADTokenExchange"]
+   }'
+   ```
+
+   > If you later add an approval gate by giving the `deploy` job a
+   > `environment: production`, switch the subject to
+   > `repo:yoshuawuyts/component-registry:environment:production`.
+
+3. **Grant the identity access.** `infra/main.bicep` is subscription-scoped and
+   creates the resource group, so assign **Contributor** at subscription scope:
+
+   ```sh
+   subId=$(az account show --query id -o tsv)
+   az role assignment create --assignee "$appId" \
+     --role Contributor --scope "/subscriptions/$subId"
+   ```
+
+4. **Configure repository secrets and variables** (Settings → Secrets and
+   variables → Actions).
+
+   Secrets:
+
+   | Secret | Description |
+   | ------ | ----------- |
+   | `AZURE_CLIENT_ID`         | `appId` of the app registration above. |
+   | `AZURE_TENANT_ID`         | Directory (tenant) ID. |
+   | `AZURE_SUBSCRIPTION_ID`   | Target subscription ID. |
+   | `POSTGRES_ADMIN_PASSWORD` | Must match the provisioned Postgres server's password (Bicep re-applies it on every deploy). |
+   | `GHCR_PULL_TOKEN`         | PAT with `read:packages` so Azure Container Apps can pull the images. Only needed if the GHCR packages are **private** — see below. |
+
+   Variables:
+
+   | Variable               | Description |
+   | ---------------------- | ----------- |
+   | `AZURE_ENV_NAME`       | Environment name used for resource naming (e.g. `wasm-registry`). Must match what you provisioned. |
+   | `AZURE_LOCATION`       | Azure region (e.g. `centralus`). |
+   | `AZURE_RESOURCE_GROUP` | Optional. Overrides the default `rg-<AZURE_ENV_NAME>`. |
+   | `CUSTOM_DOMAIN_NAME`   | Optional. Apex domain for the frontend (see section 7). |
+
+   The [`scripts/setup-azure-deploy.sh`](../scripts/setup-azure-deploy.sh)
+   helper sets all of these with `gh`, prompting for anything not already in
+   the environment (secret values are read without echo). It **skips any
+   secret or variable that is already set on the repo**, so it's safe to re-run
+   after adding a single new value; pass `-f` to overwrite existing ones:
+
+   ```sh
+   ./scripts/setup-azure-deploy.sh -a   # -a fills tenant + subscription from `az`
+   ./scripts/setup-azure-deploy.sh -f   # overwrite values already set on the repo
+   ```
+
+   Or set them by hand:
+
+   ```sh
+   gh secret set AZURE_CLIENT_ID          # prompts for the value
+   gh secret set AZURE_TENANT_ID
+   gh secret set AZURE_SUBSCRIPTION_ID
+   gh secret set POSTGRES_ADMIN_PASSWORD
+   gh secret set GHCR_PULL_TOKEN          # only if the images are private
+   gh variable set AZURE_ENV_NAME --body wasm-registry
+   gh variable set AZURE_LOCATION --body centralus
+   # optional:
+   gh variable set AZURE_RESOURCE_GROUP --body rg-wasm-registry
+   gh variable set CUSTOM_DOMAIN_NAME --body wasm.directory
+   ```
+
+### Container image visibility
+
+If `GHCR_PULL_TOKEN` is set, the `deploy` job wires GHCR pull credentials
+(`REGISTRY_SERVER=ghcr.io`, `REGISTRY_USERNAME` = the release actor,
+`REGISTRY_PASSWORD=GHCR_PULL_TOKEN`) into the Container Apps, so the token must
+belong to an account that can read the packages.
+
+If the `backend` and `frontend` packages are **public** (GHCR package → Package
+settings → Change visibility), leave `GHCR_PULL_TOKEN` **unset**: the job then
+configures no registry credentials and Azure pulls the images anonymously. Do
+not set it to a placeholder value — the Bicep modules treat any non-empty
+`registryServer` as a private registry (`useRegistry = !empty(registryServer)`),
+so a bogus token would configure a registry with an invalid password and break
+image pulls.
+
+### Running and observing a deploy
+
+Trigger a release as usual (`just release`, or the **Release** workflow's *Run
+workflow* button). The `deploy` job runs after the images are published; watch
+its progress under **Actions**, and the deployment lifecycle (`in_progress` →
+`success`/`failure`, with the live frontend URL) under
+**Environments → production**.
+
+[deployments]: https://docs.github.com/en/rest/deployments/deployments
 
 ## Troubleshooting
 

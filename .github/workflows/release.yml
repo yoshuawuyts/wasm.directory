@@ -217,6 +217,166 @@ jobs:
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
+  deploy:
+    name: Deploy to Azure
+    runs-on: ubuntu-latest
+    needs: [resolve-version, publish-images]
+    permissions:
+      contents: read # checkout
+      id-token: write # OIDC token for azure/login
+      deployments: write # create + update GitHub deployments
+    env:
+      IMAGE_BASE: ghcr.io/${{ github.repository }}
+      VERSION: ${{ needs.resolve-version.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.0
+
+      # Record the rollout through the GitHub Deployments API so it shows up in
+      # the repo's Environments tab with a live status. No job-level
+      # `environment:` is used on purpose: that would auto-create a second,
+      # duplicate deployment alongside the ones created here.
+      - name: Create GitHub deployment
+        id: deployment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const deployment = await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: context.sha,
+              environment: 'production',
+              description: `Release ${process.env.VERSION}`,
+              auto_merge: false,
+              required_contexts: [],
+              production_environment: true,
+            });
+            if (!('id' in deployment.data)) {
+              core.setFailed(`Failed to create deployment: ${deployment.data.message}`);
+              return;
+            }
+            core.setOutput('deployment_id', deployment.data.id);
+
+      - name: Mark deployment in progress
+        uses: actions/github-script@v7
+        env:
+          DEPLOYMENT_ID: ${{ steps.deployment.outputs.deployment_id }}
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: Number(process.env.DEPLOYMENT_ID),
+              state: 'in_progress',
+              description: 'Deploying to Azure Container Apps',
+              log_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            });
+
+      - name: Log in to Azure (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install the Azure Developer CLI (azd)
+        uses: Azure/setup-azd@v2
+
+      # Deploy with `azd up`, the same entry point as a manual deploy, so CI and
+      # local runs share one path through azure.yaml + infra/main.bicep. azd
+      # reuses the az CLI's OIDC session (auth.useAzCliAuth) — the preprovision
+      # hook shells out to `az`, so `az` must stay authenticated too. azure.yaml
+      # declares no `services:`, so `azd up`'s deploy phase is a no-op: it only
+      # provisions the infra, pointing the Container Apps at the images that
+      # `publish-images` just pushed (pinned to :$VERSION, never :latest).
+      #
+      # Registry credentials are configured only when GHCR_PULL_TOKEN is set. The
+      # Bicep modules treat any non-empty registryServer as "use a private
+      # registry" (useRegistry = !empty(registryServer)), so leaving these unset
+      # lets public images deploy without credentials.
+      - name: Deploy to Azure Container Apps
+        id: azure-deploy
+        env:
+          AZURE_ENV_NAME: ${{ vars.AZURE_ENV_NAME }}
+          AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          CUSTOM_DOMAIN_NAME: ${{ vars.CUSTOM_DOMAIN_NAME }}
+          POSTGRES_ADMIN_PASSWORD: ${{ secrets.POSTGRES_ADMIN_PASSWORD }}
+          BACKEND_IMAGE: ${{ env.IMAGE_BASE }}/backend:${{ env.VERSION }}
+          FRONTEND_IMAGE: ${{ env.IMAGE_BASE }}/frontend:${{ env.VERSION }}
+          GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+          REGISTRY_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+
+          # Let azd (and its hooks) reuse the OIDC session from azure/login.
+          azd config set auth.useAzCliAuth true
+
+          # Create + select an ephemeral azd environment for this run, then seed
+          # the parameters infra/main.bicepparam reads via readEnvironmentVariable.
+          azd env new "${AZURE_ENV_NAME}" --no-prompt \
+            --subscription "${AZURE_SUBSCRIPTION_ID}" \
+            --location "${AZURE_LOCATION}"
+          azd env set POSTGRES_ADMIN_PASSWORD "${POSTGRES_ADMIN_PASSWORD}"
+          azd env set BACKEND_IMAGE "${BACKEND_IMAGE}"
+          azd env set FRONTEND_IMAGE "${FRONTEND_IMAGE}"
+          if [ -n "${AZURE_RESOURCE_GROUP:-}" ]; then
+            azd env set AZURE_RESOURCE_GROUP "${AZURE_RESOURCE_GROUP}"
+          fi
+          if [ -n "${CUSTOM_DOMAIN_NAME:-}" ]; then
+            azd env set CUSTOM_DOMAIN_NAME "${CUSTOM_DOMAIN_NAME}"
+          fi
+          if [ -n "${GHCR_PULL_TOKEN:-}" ]; then
+            azd env set REGISTRY_SERVER "ghcr.io"
+            azd env set REGISTRY_USERNAME "${REGISTRY_ACTOR}"
+            azd env set REGISTRY_PASSWORD "${GHCR_PULL_TOKEN}"
+          fi
+
+          azd up --no-prompt
+
+          frontend_url="$(azd env get-value SERVICE_FRONTEND_URL 2>/dev/null || true)"
+          if [ -z "${frontend_url}" ] || [ "${frontend_url}" = "null" ]; then
+            echo "error: azd up did not produce a SERVICE_FRONTEND_URL output" >&2
+            exit 1
+          fi
+          echo "frontend_url=${frontend_url}" >> "$GITHUB_OUTPUT"
+          echo "Deployed release ${VERSION}. Frontend URL: ${frontend_url}"
+
+      - name: Mark deployment successful
+        if: success()
+        uses: actions/github-script@v7
+        env:
+          DEPLOYMENT_ID: ${{ steps.deployment.outputs.deployment_id }}
+          ENVIRONMENT_URL: ${{ steps.azure-deploy.outputs.frontend_url }}
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: Number(process.env.DEPLOYMENT_ID),
+              state: 'success',
+              description: 'Deployed to Azure Container Apps',
+              environment_url: process.env.ENVIRONMENT_URL,
+              log_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            });
+
+      - name: Mark deployment failed
+        if: failure() && steps.deployment.outputs.deployment_id != ''
+        uses: actions/github-script@v7
+        env:
+          DEPLOYMENT_ID: ${{ steps.deployment.outputs.deployment_id }}
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: Number(process.env.DEPLOYMENT_ID),
+              state: 'failure',
+              description: 'Azure deployment failed',
+              log_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            });
+
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
