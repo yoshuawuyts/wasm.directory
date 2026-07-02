@@ -79,12 +79,6 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/yoshuawuyts/component-c
 irm https://github.com/yoshuawuyts/component-cli/releases/latest/download/install.ps1 | iex
 ```
 
-### Cargo (Rust)
-
-```sh
-cargo install component
-```
-
 ## Local development
 
 To stand up the full stack (frontend, backend, and Postgres) locally using Docker:
