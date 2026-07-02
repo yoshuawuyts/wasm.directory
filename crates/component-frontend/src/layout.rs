@@ -134,7 +134,7 @@ fn render_document(title: &str, body_class: &str, body_children: &str) -> String
   <style>html{{background:#F4F4F5;scrollbar-gutter:stable}}@media(prefers-color-scheme:dark){{html:not([data-theme=light]){{background:#1C1C20}}}}html[data-theme=dark]{{background:#1C1C20}}html[data-theme=light]{{background:#F4F4F5}}</style>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Browse and discover WebAssembly components and WIT interfaces published to OCI registries.">
-  <title>{escaped_title} — component registry</title>
+  <title>{escaped_title} — Wasm Directory</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     /* Early theme init — prevent flash of wrong theme */
