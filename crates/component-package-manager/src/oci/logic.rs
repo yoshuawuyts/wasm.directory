@@ -22,6 +22,7 @@ use std::ffi::OsStr;
 ///         size: 100,
 ///         urls: None,
 ///         annotations: None,
+///         artifact_type: None,
 ///     },
 ///     OciDescriptor {
 ///         media_type: "application/json".to_string(),
@@ -29,6 +30,7 @@ use std::ffi::OsStr;
 ///         size: 50,
 ///         urls: None,
 ///         annotations: None,
+///         artifact_type: None,
 ///     },
 /// ];
 /// let wasm = filter_wasm_layers(&layers);
@@ -212,6 +214,7 @@ mod tests {
                 size: 100,
                 urls: None,
                 annotations: None,
+                artifact_type: None,
             },
             OciDescriptor {
                 media_type: "application/vnd.oci.image.config.v1+json".to_string(),
@@ -219,6 +222,7 @@ mod tests {
                 size: 50,
                 urls: None,
                 annotations: None,
+                artifact_type: None,
             },
             OciDescriptor {
                 media_type: "application/wasm".to_string(),
@@ -226,6 +230,7 @@ mod tests {
                 size: 200,
                 urls: None,
                 annotations: None,
+                artifact_type: None,
             },
         ];
         let wasm = filter_wasm_layers(&layers);
@@ -243,6 +248,7 @@ mod tests {
             size: 10,
             urls: None,
             annotations: None,
+            artifact_type: None,
         }];
         assert!(filter_wasm_layers(&layers).is_empty());
     }
@@ -265,6 +271,7 @@ mod tests {
             size: 100,
             urls: None,
             annotations: None,
+            artifact_type: None,
         }];
         assert!(validate_single_wasm_layer(&layers).is_ok());
     }
@@ -278,6 +285,7 @@ mod tests {
                 size: 100,
                 urls: None,
                 annotations: None,
+                artifact_type: None,
             },
             OciDescriptor {
                 media_type: "application/wasm".to_string(),
@@ -285,6 +293,7 @@ mod tests {
                 size: 200,
                 urls: None,
                 annotations: None,
+                artifact_type: None,
             },
         ];
         let err = validate_single_wasm_layer(&layers).unwrap_err();
@@ -305,6 +314,7 @@ mod tests {
             size: 100,
             urls: None,
             annotations: None,
+            artifact_type: None,
         }];
         let err = validate_single_wasm_layer(&layers).unwrap_err();
         assert!(err.to_string().contains("application/wasm"));
@@ -455,6 +465,7 @@ mod tests {
                 size: 50,
                 urls: None,
                 annotations: None,
+                artifact_type: None,
             },
             OciDescriptor {
                 media_type: "application/wasm".to_string(),
@@ -462,6 +473,7 @@ mod tests {
                 size: data.len() as i64,
                 urls: None,
                 annotations: None,
+                artifact_type: None,
             },
         ];
 

@@ -800,6 +800,7 @@ mod tests {
             WorldItem::Interface {
                 id: dep_iface_id,
                 stability: Default::default(),
+                docs: Default::default(),
                 span: Default::default(),
             },
         );
