@@ -85,7 +85,9 @@ fn push_column(parent: &mut html::text_content::builders::DivisionBuilder, col: 
 
 /// Append a single footer link. A link with `href: None` renders as a
 /// non-navigable, muted span so it stays visible while signalling that the
-/// destination is still in progress.
+/// destination is still in progress. This mirrors the design system's
+/// disabled-control convention (see `PAGINATION_DISABLED_CLASS`): a plain
+/// muted span with no interactive semantics.
 fn push_link(ul: &mut html::text_content::builders::UnorderedListBuilder, link: &FooterLink) {
     let label = link.label.to_owned();
     match link.href {
@@ -100,13 +102,7 @@ fn push_link(ul: &mut html::text_content::builders::UnorderedListBuilder, link: 
             });
         }
         None => {
-            ul.list_item(|li| {
-                li.span(|s| {
-                    s.aria_disabled(true)
-                        .class("text-ink-400 cursor-not-allowed")
-                        .text(label)
-                })
-            });
+            ul.list_item(|li| li.span(|s| s.class("text-ink-400 cursor-not-allowed").text(label)));
         }
     }
 }

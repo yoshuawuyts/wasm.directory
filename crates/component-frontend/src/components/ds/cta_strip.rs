@@ -77,8 +77,7 @@ fn push_primary(parent: &mut DivisionBuilder, label: String, href: Option<String
         }
         None => {
             parent.span(|s| {
-                s.aria_disabled(true)
-                    .class("h-9 px-4 inline-flex items-center gap-2 rounded-lg bg-surfaceMuted text-ink-400 text-[13px] cursor-not-allowed")
+                s.class("h-9 px-4 inline-flex items-center gap-2 rounded-lg bg-surfaceMuted text-ink-400 text-[13px] cursor-not-allowed")
                     .text(label)
                     .text(format!(" {ARROW_RIGHT}"))
             });
@@ -99,8 +98,7 @@ fn push_secondary(parent: &mut DivisionBuilder, label: String, href: Option<Stri
         }
         None => {
             parent.span(|s| {
-                s.aria_disabled(true)
-                    .class("h-9 px-4 inline-flex items-center gap-2 rounded-lg border-[1.5px] border-lineSoft bg-canvas text-ink-400 text-[13px] cursor-not-allowed")
+                s.class("h-9 px-4 inline-flex items-center gap-2 rounded-lg border-[1.5px] border-lineSoft bg-canvas text-ink-400 text-[13px] cursor-not-allowed")
                     .text(label)
             });
         }
@@ -121,6 +119,22 @@ mod tests {
             primary_href: Some("/docs"),
             secondary_label: "View on GitHub",
             secondary_href: Some("https://github.com/yoshuawuyts/component-cli"),
+        });
+        insta::assert_snapshot!(crate::components::ds::pretty_html(&html));
+    }
+
+    #[test]
+    fn snapshot_disabled() {
+        // Both CTAs render as muted, non-navigable spans when their href is
+        // `None`, matching the design system's disabled-control convention.
+        let html = render(&CtaStrip {
+            kicker: "Ship",
+            title: "Build with components today.",
+            body_html: r#"Install the CLI with <code class="mono text-[12px]">brew install component</code> and start composing."#,
+            primary_label: "Get started",
+            primary_href: None,
+            secondary_label: "View on GitHub",
+            secondary_href: None,
         });
         insta::assert_snapshot!(crate::components::ds::pretty_html(&html));
     }

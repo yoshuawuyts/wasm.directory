@@ -1,0 +1,35 @@
+---
+source: crates/component-frontend/src/components/ds/cta_strip.rs
+expression: "crate::components::ds::pretty_html(&html)"
+---
+<section class="mx-auto mx-auto max-w-[1280px] w-full px-4 md:px-8 mt-12 md:mt-16">
+  <div class="grid md:grid-cols-[1fr_auto] gap-6 items-center border-t border-lineSoft pt-10 md:pt-12">
+    <div>
+      <div class="text-[12px] mono uppercase tracking-wider text-ink-500">
+        Ship
+      </div>
+      <h3 class="mt-2 text-[24px] font-semibold tracking-tight">
+        Build with components today.
+      </h3>
+      <p class="mt-2 max-w-xl text-[13px] text-ink-700 leading-relaxed">
+        Install the CLI with
+        <code class="mono text-[12px]">
+          brew install component
+        </code>
+        and start composing.
+      </p>
+    </div>
+    <div class="flex flex-wrap items-center gap-3 md:justify-end">
+      <span class="h-9 px-4 inline-flex items-center gap-2 rounded-lg bg-surfaceMuted text-ink-400 text-[13px] cursor-not-allowed">
+        Get started
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 12h14"/>
+          <path d="m12 5 7 7-7 7"/>
+        </svg>
+      </span>
+      <span class="h-9 px-4 inline-flex items-center gap-2 rounded-lg border-[1.5px] border-lineSoft bg-canvas text-ink-400 text-[13px] cursor-not-allowed">
+        View on GitHub
+      </span>
+    </div>
+  </div>
+</section>

@@ -45,7 +45,7 @@ expression: "crate::components::ds::pretty_html(&html)"
           </a>
         </li>
         <li>
-          <span aria-disabled class="text-ink-400 cursor-not-allowed">
+          <span class="text-ink-400 cursor-not-allowed">
             Spec
           </span>
         </li>
