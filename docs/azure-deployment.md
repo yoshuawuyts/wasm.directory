@@ -296,13 +296,21 @@ and `frontend` images to GHCR, the `deploy` job rolls them out to the Container
 Apps and records the rollout through the [GitHub Deployments API][deployments]
 (visible under the repository's **Environments → production** tab).
 
-The `deploy` job performs a full, idempotent Bicep redeploy —
-`az deployment sub create` against [infra/main.bicep](../infra/main.bicep) with
-parameters read from [infra/main.bicepparam](../infra/main.bicepparam), the same
-`readEnvironmentVariable(...)` wiring `azd provision` uses — so the Bicep
-template stays the single source of truth and secrets never touch the command
-line. Images are pinned to the exact released `:X.Y.Z` tag (not `:latest`), and
-the frontend URL is reported back as the deployment's `environment_url`.
+The `deploy` job runs `azd up` — the same entry point as a manual deploy —
+against [azure.yaml](../azure.yaml) + [infra/main.bicep](../infra/main.bicep),
+seeding the parameters that [infra/main.bicepparam](../infra/main.bicepparam)
+reads via `readEnvironmentVariable(...)` into an ephemeral azd environment with
+`azd env set`, so the Bicep template stays the single source of truth and
+secrets never touch the command line. Because `azure.yaml` declares no
+`services:`, the deploy phase is a no-op and only the infrastructure is
+provisioned, pointed at the images that were just published and pinned to the
+exact released `:X.Y.Z` tag (not `:latest`). Provisioning is incremental, so it
+keeps the existing resource group and applies only what changed. The frontend
+URL is reported back as the deployment's `environment_url`.
+
+azd reuses the Azure CLI's OIDC session (`azd config set auth.useAzCliAuth
+true`), which the `preprovision` hook also depends on since it registers the
+required resource providers through `az`.
 
 Deploys are **not gated**: every successful `Release` run deploys to production.
 
@@ -400,12 +408,18 @@ identity is available for GitHub to authenticate as. Do this once:
 
 ### Container image visibility
 
-The `deploy` job wires GHCR pull credentials (`REGISTRY_SERVER=ghcr.io`,
-`REGISTRY_USERNAME` = the release actor, `REGISTRY_PASSWORD=GHCR_PULL_TOKEN`)
-into the Container Apps, so `GHCR_PULL_TOKEN` must belong to an account that can
-read the packages. Alternatively, make the `backend` and `frontend` packages
-**public** (GHCR package → Package settings → Change visibility); Azure then
-pulls them anonymously and `GHCR_PULL_TOKEN` can be any placeholder value.
+If `GHCR_PULL_TOKEN` is set, the `deploy` job wires GHCR pull credentials
+(`REGISTRY_SERVER=ghcr.io`, `REGISTRY_USERNAME` = the release actor,
+`REGISTRY_PASSWORD=GHCR_PULL_TOKEN`) into the Container Apps, so the token must
+belong to an account that can read the packages.
+
+If the `backend` and `frontend` packages are **public** (GHCR package → Package
+settings → Change visibility), leave `GHCR_PULL_TOKEN` **unset**: the job then
+configures no registry credentials and Azure pulls the images anonymously. Do
+not set it to a placeholder value — the Bicep modules treat any non-empty
+`registryServer` as a private registry (`useRegistry = !empty(registryServer)`),
+so a bogus token would configure a registry with an invalid password and break
+image pulls.
 
 ### Running and observing a deploy
 
