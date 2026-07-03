@@ -25,9 +25,6 @@ use progress_bar::{
     InstallDisplay, oci_repo_display_name, package_display_parts, run_progress_bars,
 };
 
-/// Default meta-registry URL.
-const REGISTRY_URL: &str = Manager::DEFAULT_REGISTRY_URL;
-
 /// Default sync interval in seconds (1 hour).
 const SYNC_INTERVAL: u64 = Manager::DEFAULT_SYNC_INTERVAL;
 
@@ -101,8 +98,9 @@ impl Opts {
         // names and search-based lookups can be resolved.
         if !offline {
             display.lock().await.start_sync();
+            let registry_url = Manager::default_registry_url();
             let sync_result = manager
-                .sync_from_meta_registry(REGISTRY_URL, SYNC_INTERVAL, SyncPolicy::IfStale)
+                .sync_from_meta_registry(&registry_url, SYNC_INTERVAL, SyncPolicy::IfStale)
                 .await;
             match sync_result {
                 Ok(SyncResult::Degraded { error }) => {

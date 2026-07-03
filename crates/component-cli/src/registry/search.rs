@@ -4,9 +4,6 @@ use anyhow::Result;
 use comfy_table::{ContentArrangement, Table};
 use component_package_manager::manager::{Manager, SyncPolicy, SyncResult};
 
-/// Default meta-registry URL.
-const REGISTRY_URL: &str = Manager::DEFAULT_REGISTRY_URL;
-
 /// Default sync interval in seconds (1 hour).
 const SYNC_INTERVAL: u64 = Manager::DEFAULT_SYNC_INTERVAL;
 
@@ -40,8 +37,9 @@ impl SearchOpts {
 
         // Attempt to sync from meta-registry if not offline.
         if !offline {
+            let registry_url = Manager::default_registry_url();
             match manager
-                .sync_from_meta_registry(REGISTRY_URL, SYNC_INTERVAL, SyncPolicy::IfStale)
+                .sync_from_meta_registry(&registry_url, SYNC_INTERVAL, SyncPolicy::IfStale)
                 .await
             {
                 Ok(SyncResult::Degraded { error }) => {

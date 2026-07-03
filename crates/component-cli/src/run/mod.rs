@@ -446,9 +446,10 @@ async fn load_from_global_cache(input: &str, offline: bool) -> miette::Result<Ve
     // packages that haven't been installed locally yet. Failures here are
     // non-fatal — fall through to the local cache lookup below.
     if !offline {
+        let registry_url = Manager::default_registry_url();
         let _ = manager
             .sync_from_meta_registry(
-                Manager::DEFAULT_REGISTRY_URL,
+                &registry_url,
                 Manager::DEFAULT_SYNC_INTERVAL,
                 component_package_manager::manager::SyncPolicy::IfStale,
             )
