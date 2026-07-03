@@ -6,10 +6,20 @@
 # how these values are produced (OIDC app registration, federated credential,
 # role assignment) and what each one means.
 #
-# Values are read from environment variables when set, otherwise the script
-# prompts for them (secret values are read without echo). Optional values are
-# skipped when left blank. Secrets/variables already set on the repository are
-# left untouched unless you pass -f (force overwrite).
+# Values are resolved in this order: explicit environment variable, then the
+# azd environment store (.azure/<env>/.env, queried with `azd env get-value`),
+# then an interactive prompt (secret values are read without echo). azd
+# auto-detection is on by default whenever azd and an environment are
+# available; pass -n to skip it, or -e <name> to target a specific azd
+# environment. Optional values are skipped when left blank. Secrets/variables
+# already set on the repository are left untouched unless you pass -f (force
+# overwrite).
+#
+# Pulled from azd when present: AZURE_ENV_NAME, AZURE_LOCATION,
+# AZURE_SUBSCRIPTION_ID, AZURE_TENANT_ID, AZURE_RESOURCE_GROUP,
+# CUSTOM_DOMAIN_NAME, POSTGRES_ADMIN_PASSWORD. AZURE_CLIENT_ID (the OIDC app
+# registration appId) and GHCR_PULL_TOKEN are not stored by azd, so they still
+# come from the environment or a prompt.
 #
 #   Secrets:    AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID
 #               POSTGRES_ADMIN_PASSWORD  GHCR_PULL_TOKEN (optional)
@@ -18,33 +28,41 @@
 #
 # Prerequisites:
 #   - GitHub CLI (`gh`) authenticated:  gh auth login
+#   - Azure Developer CLI (`azd`) with a provisioned environment — used for
+#     auto-detection; optional (skipped with -n or when unavailable)
 #   - Azure CLI (`az`) logged in — only needed with -a
 #
 # Usage:
-#   ./scripts/setup-azure-deploy.sh                 # prompt for everything
+#   ./scripts/setup-azure-deploy.sh                  # azd auto-detect, prompt for the rest
+#   ./scripts/setup-azure-deploy.sh -e wasm-registry # read from a named azd environment
+#   ./scripts/setup-azure-deploy.sh -n               # skip azd; prompt for everything
 #   AZURE_ENV_NAME=wasm-registry AZURE_LOCATION=centralus \
-#     ./scripts/setup-azure-deploy.sh               # take values from the env
-#   ./scripts/setup-azure-deploy.sh -a              # fill tenant+subscription from `az`
-#   ./scripts/setup-azure-deploy.sh -f              # overwrite values already set on the repo
-#   ./scripts/setup-azure-deploy.sh -r owner/repo   # target a specific repo
+#     ./scripts/setup-azure-deploy.sh                # take values from the env
+#   ./scripts/setup-azure-deploy.sh -a               # backfill tenant+subscription from `az`
+#   ./scripts/setup-azure-deploy.sh -f               # overwrite values already set on the repo
+#   ./scripts/setup-azure-deploy.sh -r owner/repo    # target a specific repo
 #   REPO=owner/repo ./scripts/setup-azure-deploy.sh
 set -euo pipefail
 
 REPO="${REPO:-}"
 FROM_AZ=false
 FORCE=false
+USE_AZD=true
+AZD_ENV=""
 
 usage() {
   awk 'NR==1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"
 }
 
-while getopts "r:afh" opt; do
+while getopts "r:e:nafh" opt; do
   case $opt in
     r) REPO="$OPTARG" ;;
+    e) AZD_ENV="$OPTARG" ;;
+    n) USE_AZD=false ;;
     a) FROM_AZ=true ;;
     f) FORCE=true ;;
     h) usage; exit 0 ;;
-    *) echo "Usage: $0 [-r owner/repo] [-a] [-f] [-h]" >&2; exit 1 ;;
+    *) echo "Usage: $0 [-r owner/repo] [-e azd-env] [-n] [-a] [-f] [-h]" >&2; exit 1 ;;
   esac
 done
 
@@ -58,7 +76,57 @@ fi
 [ -n "$REPO" ] || { echo "error: could not determine repository; pass -r owner/repo or set REPO" >&2; exit 1; }
 echo "==> Target repository: $REPO"
 
-# Optionally fill tenant + subscription from the current az session.
+# Resolve the repo root so azd works regardless of the invocation directory.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+die() { echo "error: $*" >&2; exit 1; }
+
+# Print the value of azd environment key $1 on stdout, or nothing when the key
+# is unset (azd exits non-zero and writes a diagnostic we discard).
+azd_get() { # key
+  local out
+  if [ -n "$AZD_ENV" ]; then
+    out="$(azd -C "$ROOT" env get-value "$1" -e "$AZD_ENV" 2>/dev/null)" || return 0
+  else
+    out="$(azd -C "$ROOT" env get-value "$1" 2>/dev/null)" || return 0
+  fi
+  printf '%s' "$out"
+}
+
+# Prefill any still-unset value from the azd environment store
+# (.azure/<env>/.env). Explicit environment variables win over azd; -n skips
+# azd entirely; -e <name> selects a specific environment.
+if [ "$USE_AZD" = true ] && command -v azd >/dev/null 2>&1; then
+  if [ -n "$AZD_ENV" ]; then
+    azd -C "$ROOT" env get-value AZURE_ENV_NAME -e "$AZD_ENV" >/dev/null 2>&1 \
+      || die "azd environment '$AZD_ENV' not found (see 'azd env list')"
+    azd_label="$AZD_ENV"
+  else
+    azd_label="$(azd_get AZURE_ENV_NAME)"
+  fi
+  if [ -n "$azd_label" ]; then
+    filled=""
+    for key in AZURE_ENV_NAME AZURE_LOCATION AZURE_SUBSCRIPTION_ID \
+               AZURE_TENANT_ID AZURE_RESOURCE_GROUP CUSTOM_DOMAIN_NAME \
+               POSTGRES_ADMIN_PASSWORD; do
+      [ -n "${!key:-}" ] && continue
+      val="$(azd_get "$key")"
+      [ -n "$val" ] || continue
+      printf -v "$key" '%s' "$val"
+      filled="$filled $key"
+    done
+    if [ -n "$filled" ]; then
+      echo "==> From azd env ($azd_label): prefilled$filled"
+    else
+      echo "==> From azd env ($azd_label): nothing to prefill"
+    fi
+  fi
+elif [ "$USE_AZD" = true ] && [ -n "$AZD_ENV" ]; then
+  die "-e requires the Azure Developer CLI (azd) to be installed"
+fi
+
+# Optionally backfill still-unset tenant + subscription from the current az
+# session (azd values, if any, already took precedence above).
 if [ "$FROM_AZ" = true ]; then
   command -v az >/dev/null || { echo "error: -a requires the Azure CLI (az)" >&2; exit 1; }
   : "${AZURE_TENANT_ID:=$(az account show --query tenantId -o tsv)}"
@@ -72,8 +140,6 @@ EXISTING_SECRETS="$(gh secret list --repo "$REPO" --json name --jq '.[].name' 2>
 EXISTING_VARIABLES="$(gh variable list --repo "$REPO" --json name --jq '.[].name' 2>/dev/null || true)"
 
 # --- helpers ---------------------------------------------------------------
-
-die() { echo "error: $*" >&2; exit 1; }
 
 # True when the newline-separated list in $1 contains the exact line $2.
 list_has() { printf '%s\n' "$1" | grep -qxF "$2"; }
