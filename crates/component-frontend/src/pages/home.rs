@@ -132,7 +132,7 @@ fn compose_body(stats: &Stats, notice_html: Option<&str>) -> String {
         title: "A meta-registry for WebAssembly",
         lede: "Find WebAssembly applications, libraries, and interface types published to any OCI 1.1-compliant registry. \
                This includes GitHub Packages, AWS ECR, JFrog Artifactory, and more. \
-               This meta-registry never serves packages directly: its only job is to serve metadata and resolve names.",
+               Wasm Directory never serves packages directly: its only job is to serve metadata and resolve names.",
         note: &alpha_notice,
         ctas: &[],
         right: &search_card,
