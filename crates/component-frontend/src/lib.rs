@@ -44,6 +44,8 @@ fn app() -> Router {
         .route("/downloads", get(downloads))
         .route("/status", get(queue_status))
         .route("/health", get(health))
+        .route("/favicon.svg", get(favicon_svg))
+        .route("/favicon.ico", get(favicon_ico))
         .route("/{namespace}/{name}", get(package_redirect))
         .route("/{namespace}/{name}/", get(package_redirect))
         .route("/{namespace}", get(namespace_page))
@@ -101,6 +103,34 @@ async fn health() -> impl IntoResponse {
         [(header::CACHE_CONTROL, "no-cache")],
         Json(serde_json::json!({ "status": "ok" })),
     )
+}
+
+/// Site favicon, embedded in the binary at build time.
+///
+/// A small on-brand SVG mark that adapts to light and dark browser chrome
+/// via `prefers-color-scheme`.
+const FAVICON_SVG: &str = include_str!("../assets/favicon.svg");
+
+/// Long-lived cache policy for immutable static assets (one week).
+const ASSET_CACHE_CONTROL: &str = "public, max-age=604800";
+
+// r[impl frontend.assets.favicon]
+/// Serve the SVG favicon with a long cache lifetime.
+async fn favicon_svg() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/svg+xml"),
+            (header::CACHE_CONTROL, ASSET_CACHE_CONTROL),
+        ],
+        FAVICON_SVG,
+    )
+}
+
+// r[impl frontend.assets.favicon]
+/// Redirect the browser's default `/favicon.ico` probe to the SVG favicon so
+/// it doesn't fall through to the 404 handler.
+async fn favicon_ico() -> impl IntoResponse {
+    Redirect::permanent("/favicon.svg")
 }
 
 // r[impl frontend.pages.home]
@@ -875,6 +905,54 @@ mod tests {
             .await
             .expect("health response body should be readable");
         assert_eq!(bytes.as_ref(), br#"{"status":"ok"}"#);
+    }
+
+    // r[verify frontend.assets.favicon]
+    #[tokio::test]
+    async fn favicon_svg_has_svg_content_type_and_long_cache() {
+        let response = favicon_svg().await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .expect("content-type header should be set"),
+            "image/svg+xml"
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CACHE_CONTROL)
+                .expect("cache-control header should be set"),
+            "public, max-age=604800"
+        );
+
+        let bytes = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("favicon response body should be readable");
+        assert_eq!(bytes.as_ref(), FAVICON_SVG.as_bytes());
+    }
+
+    // r[verify frontend.assets.favicon]
+    #[tokio::test]
+    async fn favicon_ico_redirects_to_svg() {
+        let response = favicon_ico().await.into_response();
+        assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::LOCATION)
+                .expect("location header should be set"),
+            "/favicon.svg"
+        );
+    }
+
+    // r[verify frontend.assets.favicon]
+    #[test]
+    fn favicon_svg_asset_is_wellformed() {
+        assert!(FAVICON_SVG.starts_with("<svg"));
+        assert!(FAVICON_SVG.contains("viewBox"));
+        assert!(FAVICON_SVG.trim_end().ends_with("</svg>"));
     }
 
     // r[verify frontend.caching.static-pages]

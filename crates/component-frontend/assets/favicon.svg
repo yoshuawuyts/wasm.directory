@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Wasm Directory">
+  <style>
+    /* Baseline colors live on the presentation attributes below so the mark
+       still renders where favicon CSS is ignored; this only inverts the
+       palette for dark browser chrome. Mirrors the site's --c-ink-900 /
+       --c-canvas tokens (see layout.rs). */
+    @media (prefers-color-scheme: dark) {
+      .tile { fill: #ECECEE; }
+      .mark { fill: #1C1C20; }
+    }
+  </style>
+  <rect class="tile" width="32" height="32" rx="7" fill="#18181B"/>
+  <g class="mark" fill="#F4F4F5">
+    <rect x="6.5" y="6.5" width="8" height="8" rx="2"/>
+    <rect x="17.5" y="6.5" width="8" height="8" rx="2"/>
+    <rect x="6.5" y="17.5" width="8" height="8" rx="2"/>
+    <rect x="17.5" y="17.5" width="8" height="8" rx="2"/>
+  </g>
+</svg>
