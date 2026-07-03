@@ -373,10 +373,9 @@ mod tests {
             &[Example::link("#", "Find components that handle HTTP requests").struck()],
         )
         .to_string();
-        // Points at a dead link and crosses the description out.
+        // Points at a dead link and crosses the description out. Assert the
+        // exact struck class attribute rather than a loose global substring.
         assert!(html.contains(r##"href="#""##));
-        assert!(html.contains("line-through"));
-        // A crossed-out row drops the hover underline.
-        assert!(!html.contains("group-hover:underline"));
+        assert!(html.contains(r#"class="text-ink-500 line-through decoration-1""#));
     }
 }

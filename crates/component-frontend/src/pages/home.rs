@@ -32,7 +32,7 @@ fn render_packages(packages: &[KnownPackage]) -> String {
 /// surface a small notice so visitors know the live data is unavailable.
 fn render_error(err: &ApiError) -> String {
     let notice = format!(
-        r#"<div class="mx-auto mx-auto max-w-[1280px] w-full px-4 md:px-8 pt-4"><div role="status" class="flex items-start gap-2 rounded-md border border-line bg-surfaceMuted px-3 py-2 text-[12px] text-ink-700"><span class="mono uppercase tracking-wider text-ink-500">Registry offline</span><span>Live package data is temporarily unavailable, so search may return nothing right now. The <code class="px-1 py-0.5 rounded-sm bg-surface text-ink-900 mono text-[0.875em]">component</code> CLI still works locally without the registry. See the <a href="/docs" class="text-ink-900 hover:underline">docs</a> to get started. ({err})</span></div></div>"#,
+        r#"<div class="mx-auto max-w-[1280px] w-full px-4 md:px-8 pt-4"><div role="status" class="flex items-start gap-2 rounded-md border border-line bg-surfaceMuted px-3 py-2 text-[12px] text-ink-700"><span class="mono uppercase tracking-wider text-ink-500">Registry offline</span><span>Live package data is temporarily unavailable, so search may return nothing right now. The <code class="px-1 py-0.5 rounded-sm bg-surface text-ink-900 mono text-[0.875em]">component</code> CLI still works locally without the registry. See the <a href="/docs" class="text-ink-900 hover:underline">docs</a> to get started. ({err})</span></div></div>"#,
         err = html_escape(&err.to_string()),
     );
     let body = compose_body(&Stats::default(), Some(&notice));
@@ -132,7 +132,7 @@ fn compose_body(stats: &Stats, notice_html: Option<&str>) -> String {
         title: "A meta-registry for WebAssembly",
         lede: "Find WebAssembly applications, libraries, and interface types published to any OCI 1.1-compliant registry. \
                This includes GitHub Packages, AWS ECR, JFrog Artifactory, and more. \
-               Wasm Directory never serves packages directly: its only job is to serve metadata and resolve names.",
+               This meta-registry never serves packages directly: its only job is to serve metadata and resolve names.",
         note: &alpha_notice,
         ctas: &[],
         right: &search_card,

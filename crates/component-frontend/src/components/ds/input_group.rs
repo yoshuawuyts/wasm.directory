@@ -77,6 +77,8 @@ const SCRIPT: &str = r#"<script>
     if(!trigger || !menu) return;
     function open(){ menu.hidden = false; trigger.setAttribute('aria-expanded','true'); }
     function close(){ menu.hidden = true; trigger.setAttribute('aria-expanded','false'); }
+    function focusOption(i){ if(options.length){ options[Math.max(0, Math.min(i, options.length - 1))].focus(); } }
+    function openToOption(){ open(); focusOption(options.findIndex(function(o){ return o.getAttribute('aria-selected') === 'true'; })); }
     function select(opt){
       if(!opt) return;
       options.forEach(function(o){ o.setAttribute('aria-selected', o === opt ? 'true' : 'false'); });
@@ -85,11 +87,20 @@ const SCRIPT: &str = r#"<script>
       close();
     }
     trigger.addEventListener('click', function(e){ e.stopPropagation(); if(menu.hidden){ open(); } else { close(); } });
+    trigger.addEventListener('keydown', function(e){ if(e.key === 'ArrowDown' || e.key === 'ArrowUp'){ e.preventDefault(); openToOption(); } });
     options.forEach(function(o){
       o.addEventListener('click', function(e){ e.stopPropagation(); select(o); trigger.focus(); });
     });
+    menu.addEventListener('keydown', function(e){
+      var i = options.indexOf(document.activeElement);
+      if(e.key === 'ArrowDown'){ e.preventDefault(); focusOption(i + 1); }
+      else if(e.key === 'ArrowUp'){ e.preventDefault(); focusOption(i - 1); }
+      else if(e.key === 'Home'){ e.preventDefault(); focusOption(0); }
+      else if(e.key === 'End'){ e.preventDefault(); focusOption(options.length - 1); }
+      else if(e.key === 'Tab'){ close(); }
+    });
     document.addEventListener('click', function(e){ if(!root.contains(e.target)) close(); });
-    document.addEventListener('keydown', function(e){ if(e.key === 'Escape') close(); });
+    document.addEventListener('keydown', function(e){ if(e.key === 'Escape' && !menu.hidden){ close(); trigger.focus(); } });
     if (field && field.hasAttribute('readonly')) {
       field.addEventListener('focus', function(){ field.select(); });
       field.addEventListener('click', function(){ field.select(); });
@@ -296,6 +307,18 @@ mod tests {
         // The field surrenders its right radius to the fused copy button.
         assert!(copyable.contains("px-3 border"));
         assert!(!copyable.contains("px-3 rounded-r-md border"));
+    }
+
+    #[test]
+    fn supports_keyboard_navigation() {
+        // The listbox ARIA semantics are backed by real keyboard support:
+        // arrow keys, Home/End, and opening straight to the selected option.
+        let html = sample();
+        assert!(html.contains("'ArrowDown'"));
+        assert!(html.contains("'ArrowUp'"));
+        assert!(html.contains("'Home'"));
+        assert!(html.contains("'End'"));
+        assert!(html.contains("openToOption"));
     }
 
     #[test]
