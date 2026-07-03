@@ -120,6 +120,9 @@ if [ "$USE_AZD" = true ] && command -v azd >/dev/null 2>&1; then
     else
       echo "==> From azd env ($azd_label): nothing to prefill"
     fi
+  else
+    echo "==> No azd environment selected; prompting for the values azd could supply."
+    echo "    Provision one ('azd env new <name>' then 'azd provision'), or pass -e <env>."
   fi
 elif [ "$USE_AZD" = true ] && [ -n "$AZD_ENV" ]; then
   die "-e requires the Azure Developer CLI (azd) to be installed"
