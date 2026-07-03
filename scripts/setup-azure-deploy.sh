@@ -98,8 +98,8 @@ azd_get() { # key
 # azd entirely; -e <name> selects a specific environment.
 if [ "$USE_AZD" = true ] && command -v azd >/dev/null 2>&1; then
   if [ -n "$AZD_ENV" ]; then
-    azd -C "$ROOT" env get-value AZURE_ENV_NAME -e "$AZD_ENV" >/dev/null 2>&1 \
-      || die "azd environment '$AZD_ENV' not found (see 'azd env list')"
+    azd -C "$ROOT" env get-values -e "$AZD_ENV" >/dev/null 2>&1 \
+      || die "cannot read azd environment '$AZD_ENV' (does it exist? see 'azd env list')"
     azd_label="$AZD_ENV"
   else
     azd_label="$(azd_get AZURE_ENV_NAME)"
