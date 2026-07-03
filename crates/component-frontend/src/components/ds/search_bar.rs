@@ -23,25 +23,69 @@ pub(crate) struct LandingStats<'a> {
     pub versions: &'a str,
 }
 
+/// A single example row shown beneath the landing search card. Build one with
+/// [`Example::search`] to run a query, or [`Example::link`] to point straight
+/// at a page (for example, a namespace). Chain [`Example::struck`] to cross the
+/// row out when the destination is not working yet.
+pub(crate) struct Example<'a> {
+    /// Search query used to build the default `/search?q=…` link.
+    query: &'a str,
+    /// Human-readable description shown after the "Example:" label.
+    description: &'a str,
+    /// Explicit link target; overrides the derived search URL when set.
+    href: Option<&'a str>,
+    /// Cross the row out to signal the example is not working yet.
+    struck: bool,
+}
+
+impl<'a> Example<'a> {
+    /// An example row that runs a search for `query`.
+    #[allow(dead_code)]
+    pub(crate) fn search(query: &'a str, description: &'a str) -> Self {
+        Self {
+            query,
+            description,
+            href: None,
+            struck: false,
+        }
+    }
+
+    /// An example row that links directly to `href` (e.g. a namespace page).
+    pub(crate) fn link(href: &'a str, description: &'a str) -> Self {
+        Self {
+            query: "",
+            description,
+            href: Some(href),
+            struck: false,
+        }
+    }
+
+    /// Cross the row out and dim it, signalling the example is not working yet.
+    /// Typically paired with a dead (`#`) link.
+    pub(crate) fn struck(mut self) -> Self {
+        self.struck = true;
+        self
+    }
+}
+
 /// Render the landing-page hero search card — a bordered "find a component"
 /// panel that anchors the right column of the hero (callout left, search
 /// right). The card carries a headline, a federated meta-registry subline, a
 /// search input joined to a dark submit button, a stat-bearing "browse all"
-/// link, and a short list of example queries. Each entry in `examples` is a
-/// `(query, description)` pair rendered as a clickable row that runs the
-/// search.
+/// link, and a short list of examples. Each [`Example`] renders as a clickable
+/// row that either runs a search or links straight to a page.
 ///
 /// Submitting the form navigates to `/search?q=...`. The placeholder and the
 /// browse link are formatted from the supplied [`LandingStats`].
-pub(crate) fn landing_card(stats: &LandingStats<'_>, examples: &[(&str, &str)]) -> Division {
+pub(crate) fn landing_card(stats: &LandingStats<'_>, examples: &[Example<'_>]) -> Division {
     let placeholder = format!("Search {} packages\u{2026}", stats.packages);
     let browse_label = format!(
         "Browse {} packages \u{00b7} {} namespaces \u{00b7} {} versions",
         stats.packages, stats.namespaces, stats.versions
     );
-    let examples: Vec<(String, String)> = examples
+    let rows: Vec<(String, String, bool)> = examples
         .iter()
-        .map(|(q, d)| ((*q).to_owned(), (*d).to_owned()))
+        .map(|ex| (example_href(ex), ex.description.to_owned(), ex.struck))
         .collect();
 
     let mut wrapper = Division::builder();
@@ -49,14 +93,7 @@ pub(crate) fn landing_card(stats: &LandingStats<'_>, examples: &[(&str, &str)]) 
         card.class("rounded-lg border border-line bg-surface shadow-card p-5 md:p-6")
             .heading_2(|h| {
                 h.class("text-[22px] md:text-[24px] font-semibold tracking-tight")
-                    .text("Search the registry.".to_owned())
-            })
-            .paragraph(|p| {
-                p.class("mt-1.5 text-[13px] text-ink-500 leading-relaxed")
-                    .text(
-                        "Search for Wasm Components published to any OCI registry."
-                            .to_owned(),
-                    )
+                    .text("Search the meta-registry.".to_owned())
             })
             .form(|form| {
                 let placeholder = placeholder.clone();
@@ -95,36 +132,86 @@ pub(crate) fn landing_card(stats: &LandingStats<'_>, examples: &[(&str, &str)]) 
             })
     });
 
-    if !examples.is_empty() {
-        push_example_queries(&mut wrapper, &examples);
+    if !rows.is_empty() {
+        push_example_queries(&mut wrapper, &rows);
     }
 
     wrapper.build()
 }
 
+/// Resolve the link target for an example row: an explicit `href` when set,
+/// otherwise a `/search?q=…` link derived from the query.
+fn example_href(example: &Example<'_>) -> String {
+    match example.href {
+        Some(href) => href.to_owned(),
+        None => format!("/search?q={}", encode_query(example.query)),
+    }
+}
+
 fn push_example_queries(
     wrapper: &mut html::text_content::builders::DivisionBuilder,
-    examples: &[(String, String)],
+    rows: &[(String, String, bool)],
 ) {
     wrapper.division(|list| {
         let mut list = list.class("mt-5 space-y-2.5");
-        for (i, (query, description)) in examples.iter().enumerate() {
+        for (i, (href, description, struck)) in rows.iter().enumerate() {
             let num = format!("{:02}", i + 1);
-            let href = format!("/search?q={}", encode_query(query));
-            let description = description.clone();
-            list = list.anchor(|row| {
-                row.href(href)
-                    .class("flex gap-3 text-[13px] no-underline group")
-                    .span(|n| n.class("mono tabular-nums text-ink-400").text(num))
-                    .span(|t| {
-                        t.class("text-ink-700 group-hover:text-ink-900")
-                            .span(|e| e.class("text-ink-400").text("Example: ".to_owned()))
-                            .span(|d| d.class("group-hover:underline").text(description))
-                    })
-            });
+            list = if *struck {
+                push_struck_example(list, &num, description)
+            } else {
+                push_link_example(list, href, &num, description)
+            };
         }
         list
     });
+}
+
+/// Append a live example row: a link that runs the search or opens the page.
+fn push_link_example<'a>(
+    list: &'a mut html::text_content::builders::DivisionBuilder,
+    href: &str,
+    num: &str,
+    description: &str,
+) -> &'a mut html::text_content::builders::DivisionBuilder {
+    let href = href.to_owned();
+    let num = num.to_owned();
+    let description = description.to_owned();
+    list.anchor(|row| {
+        row.href(href)
+            .class("flex gap-3 text-[13px] no-underline group")
+            .span(|n| n.class("mono tabular-nums text-ink-400").text(num))
+            .span(|t| {
+                t.class("text-ink-700 group-hover:text-ink-900")
+                    .span(|e| e.class("text-ink-400").text("Example: ".to_owned()))
+                    .span(|d| d.class("group-hover:underline").text(description))
+            })
+    })
+}
+
+/// Append a not-working-yet example row. Rendered as an inert, non-focusable
+/// element (deliberately *not* a link) and crossed out, so keyboard and
+/// screen-reader users are not lured into a dead `#` link. A visually hidden
+/// note spells out the state for assistive tech. See [`Example::struck`].
+fn push_struck_example<'a>(
+    list: &'a mut html::text_content::builders::DivisionBuilder,
+    num: &str,
+    description: &str,
+) -> &'a mut html::text_content::builders::DivisionBuilder {
+    let num = num.to_owned();
+    let description = description.to_owned();
+    list.division(|row| {
+        row.class("flex gap-3 text-[13px] group")
+            .span(|n| n.class("mono tabular-nums text-ink-400").text(num))
+            .span(|t| {
+                t.class("text-ink-500 line-through decoration-1")
+                    .span(|e| e.class("text-ink-400").text("Example: ".to_owned()))
+                    .span(|d| d.text(description))
+            })
+            .span(|note| {
+                note.class("sr-only")
+                    .text(" (not available yet)".to_owned())
+            })
+    })
 }
 
 /// Minimal percent-encoding for an example query placed in a `q=` parameter.
@@ -282,8 +369,8 @@ mod tests {
                 versions: "4 902",
             },
             &[
-                ("wasi:http", "Find components that handle HTTP requests"),
-                ("wasi", "Browse the standard WASI interfaces"),
+                Example::search("wasi:http", "Find components that handle HTTP requests"),
+                Example::link("/wasi", "Browse the standard WASI interfaces"),
             ],
         )
         .to_string();
@@ -297,11 +384,33 @@ mod tests {
         assert!(
             html.contains("Browse 1 248 packages \u{00b7} 73 namespaces \u{00b7} 4 902 versions")
         );
-        // Example queries are numbered, link to search, and show their copy.
+        // Example queries are numbered, link to their target, and show copy.
         assert!(html.contains(">01<"));
         assert!(html.contains(">02<"));
+        // A `search` example links to the encoded search URL.
         assert!(html.contains(r#"href="/search?q=wasi%3Ahttp""#));
+        // A `link` example links straight to the given path.
+        assert!(html.contains(r#"href="/wasi""#));
         assert!(html.contains("Find components that handle HTTP requests"));
         assert!(html.contains("Browse the standard WASI interfaces"));
+    }
+
+    #[test]
+    fn struck_example_is_crossed_out() {
+        let html = landing_card(
+            &LandingStats {
+                packages: "1 248",
+                namespaces: "73",
+                versions: "4 902",
+            },
+            &[Example::link("#", "Find components that handle HTTP requests").struck()],
+        )
+        .to_string();
+        // A not-working-yet row is inert: rendered as a non-link (no dead `#`
+        // anchor to focus or click), crossed out, with a screen-reader-only note.
+        assert!(!html.contains(r##"href="#""##));
+        assert!(html.contains(r#"class="text-ink-500 line-through decoration-1""#));
+        assert!(html.contains(r#"class="sr-only""#));
+        assert!(html.contains("(not available yet)"));
     }
 }

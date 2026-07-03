@@ -30,6 +30,9 @@ pub(crate) struct Hero<'a> {
     pub title: &'a str,
     /// Lede paragraph below the headline.
     pub lede: &'a str,
+    /// Optional HTML slotted into the left column directly below the lede
+    /// (for example, an alpha notice). An empty string renders nothing.
+    pub note: &'a str,
     /// CTA buttons under the lede.
     pub ctas: &'a [HeroCta],
     /// HTML to slot into the right column (e.g. install card).
@@ -46,6 +49,8 @@ pub(crate) fn render(hero: &Hero<'_>) -> String {
     let title = hero.title.to_owned();
     let lede = hero.lede.to_owned();
     let right = hero.right.to_owned();
+    let note = hero.note.to_owned();
+    let has_note = !hero.note.is_empty();
     let has_kicker = !hero.kicker.is_empty();
     let kicker = render_kicker(hero.kicker);
 
@@ -76,6 +81,9 @@ pub(crate) fn render(hero: &Hero<'_>) -> String {
                             p.class("mt-5 max-w-2xl text-[16px] md:text-[17px] text-ink-700 leading-relaxed")
                                 .text(lede)
                         });
+                    if has_note {
+                        left.text(note);
+                    }
                     if has_ctas {
                         left.push(ctas);
                     }
@@ -139,6 +147,7 @@ mod tests {
             kicker: &["v0.4.0", "Stable \u{00b7} WASI 0.2"],
             title: "The package manager for WebAssembly Components.",
             lede: "Discover, install, and compose WIT-defined components from any registry.",
+            note: "",
             ctas: &[
                 HeroCta {
                     label: "Get started",
@@ -159,5 +168,24 @@ mod tests {
             right: r#"<div class="rounded-lg border border-line p-6">install card</div>"#,
         });
         insta::assert_snapshot!(crate::components::ds::pretty_html(&html));
+    }
+
+    #[test]
+    fn note_renders_between_lede_and_search_slot() {
+        let html = render(&Hero {
+            kicker: &[],
+            title: "A meta-registry for WebAssembly",
+            lede: "Find WebAssembly applications, libraries, and interface types.",
+            note: r#"<div role="note">alpha</div>"#,
+            ctas: &[],
+            right: r#"<div class="search-card">Search the registry.</div>"#,
+        });
+        let lede_at = html.find("interface types").expect("lede present");
+        let note_at = html.find(r#"role="note""#).expect("note present");
+        let search_at = html.find("search-card").expect("search slot present");
+        assert!(
+            lede_at < note_at && note_at < search_at,
+            "note should sit below the lede and before the search slot"
+        );
     }
 }

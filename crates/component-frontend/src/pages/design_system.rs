@@ -388,6 +388,7 @@ fn render_landing_components() -> String {
         kicker: &["v1.0", "Stable"],
         title: "The package manager for components.",
         lede: "Resolve, vendor, and compose WebAssembly components from any registry.",
+        note: "",
         ctas: &[
             HeroCta {
                 label: "Get started",
