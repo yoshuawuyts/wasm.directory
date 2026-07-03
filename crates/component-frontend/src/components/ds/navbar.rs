@@ -98,7 +98,7 @@ pub(crate) struct NavLink {
 
 /// Inline "alpha" badge rendered next to the brand mark in the navbar.
 ///
-/// The Component Registry is in its alpha phase — not yet beta — so every
+/// Wasm Directory is in its alpha phase — not yet beta — so every
 /// page advertises that fact in the header. Orange is used to draw the eye
 /// without competing with the purple accent reserved for primary actions.
 const ALPHA_BADGE: &str = r#"<span class="inline-flex items-center h-5 px-1.5 rounded text-[10px] font-semibold uppercase tracking-wider text-orange-700 bg-orange-100 border border-orange-200 whitespace-nowrap" title="This service is in alpha — expect breaking changes." aria-label="Alpha release">alpha</span>"#;
@@ -150,7 +150,7 @@ pub(crate) fn render_bar(crumbs: &[Crumb], links: &[NavLink]) -> String {
         .anchor(|a| {
             a.href("/")
                 .class("text-[13px] font-semibold text-ink-900 no-underline hover:text-ink-700 transition-colors whitespace-nowrap")
-                .text("Component Registry")
+                .text("Wasm Directory")
         })
         .text(ALPHA_BADGE)
         .division(|d| d.class("w-px h-4 bg-line flex-shrink-0"))
@@ -206,7 +206,7 @@ pub(crate) fn render_bar_grid(crumbs: &[Crumb], links: &[NavLink]) -> String {
         .anchor(|a| {
             a.href("/")
                 .class("text-[13px] font-semibold text-ink-900 no-underline hover:text-ink-700 transition-colors whitespace-nowrap")
-                .text("Component Registry")
+                .text("Wasm Directory")
         })
         .text(ALPHA_BADGE)
         .division(|d| d.class("w-px h-4 bg-line flex-shrink-0"))

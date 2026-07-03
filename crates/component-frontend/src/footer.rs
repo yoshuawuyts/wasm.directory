@@ -67,7 +67,7 @@ const COLUMNS: &[FooterColumn] = &[
 #[must_use]
 pub(crate) fn render() -> String {
     crate::components::ds::footer::render(&Footer {
-        brand: "component",
+        brand: "Wasm Directory",
         lede: "A meta-registry and package manager for WebAssembly components. Made by Yosh Wuyts and contributors. To be donated to the Bytecode Alliance.",
         status: "All systems operational",
         columns: COLUMNS,
