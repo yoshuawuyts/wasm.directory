@@ -63,9 +63,18 @@ const COPY_BTN_CLASS: &str = "flex-none inline-flex items-center justify-center 
 const ADDON_CLASS: &str = "flex-none inline-flex items-center px-3 h-9 border border-r-0 border-line bg-surfaceMuted text-[13px] text-ink-500 mono select-none";
 
 /// Behaviour for every input group on the page. Idempotent: re-running it (when
-/// more than one component is rendered) skips roots it has already wired.
+/// more than one component is rendered) skips roots it has already wired, and
+/// the outside-click / Escape handling is a single delegated pair of `document`
+/// listeners attached once, so listener count stays O(1) no matter how many
+/// input groups render.
 const SCRIPT: &str = r#"<script>
 (function(){
+  function closeRoot(root){
+    var menu = root.querySelector('[data-ig-menu]');
+    var trigger = root.querySelector('[data-ig-trigger]');
+    if(menu) menu.hidden = true;
+    if(trigger) trigger.setAttribute('aria-expanded','false');
+  }
   document.querySelectorAll('[data-input-group]').forEach(function(root){
     if (root.dataset.igReady) return;
     root.dataset.igReady = '1';
@@ -99,8 +108,6 @@ const SCRIPT: &str = r#"<script>
       else if(e.key === 'End'){ e.preventDefault(); focusOption(options.length - 1); }
       else if(e.key === 'Tab'){ close(); }
     });
-    document.addEventListener('click', function(e){ if(!root.contains(e.target)) close(); });
-    document.addEventListener('keydown', function(e){ if(e.key === 'Escape' && !menu.hidden){ close(); trigger.focus(); } });
     if (field && field.hasAttribute('readonly')) {
       field.addEventListener('focus', function(){ field.select(); });
       field.addEventListener('click', function(){ field.select(); });
@@ -125,6 +132,22 @@ const SCRIPT: &str = r#"<script>
     }
     root.igSelect = function(id){ select(root.querySelector('[data-ig-option="' + id + '"]')); };
   });
+  if (!document.documentElement.dataset.igGlobal) {
+    document.documentElement.dataset.igGlobal = '1';
+    document.addEventListener('click', function(e){
+      document.querySelectorAll('[data-input-group]').forEach(function(root){
+        var menu = root.querySelector('[data-ig-menu]');
+        if(menu && !menu.hidden && !root.contains(e.target)) closeRoot(root);
+      });
+    });
+    document.addEventListener('keydown', function(e){
+      if(e.key !== 'Escape') return;
+      document.querySelectorAll('[data-input-group]').forEach(function(root){
+        var menu = root.querySelector('[data-ig-menu]');
+        if(menu && !menu.hidden){ closeRoot(root); var t = root.querySelector('[data-ig-trigger]'); if(t) t.focus(); }
+      });
+    });
+  }
 })();
 </script>"#;
 

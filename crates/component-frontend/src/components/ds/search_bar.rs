@@ -156,29 +156,62 @@ fn push_example_queries(
         let mut list = list.class("mt-5 space-y-2.5");
         for (i, (href, description, struck)) in rows.iter().enumerate() {
             let num = format!("{:02}", i + 1);
-            let href = href.clone();
-            let description = description.clone();
-            // A crossed-out row dims the text and drops the hover emphasis,
-            // marking the example as not working yet (see `Example::struck`).
-            let text_class = if *struck {
-                "text-ink-500 line-through decoration-1"
+            list = if *struck {
+                push_struck_example(list, &num, description)
             } else {
-                "text-ink-700 group-hover:text-ink-900"
+                push_link_example(list, href, &num, description)
             };
-            let desc_class = if *struck { "" } else { "group-hover:underline" };
-            list = list.anchor(|row| {
-                row.href(href)
-                    .class("flex gap-3 text-[13px] no-underline group")
-                    .span(|n| n.class("mono tabular-nums text-ink-400").text(num))
-                    .span(|t| {
-                        t.class(text_class)
-                            .span(|e| e.class("text-ink-400").text("Example: ".to_owned()))
-                            .span(|d| d.class(desc_class).text(description))
-                    })
-            });
         }
         list
     });
+}
+
+/// Append a live example row: a link that runs the search or opens the page.
+fn push_link_example<'a>(
+    list: &'a mut html::text_content::builders::DivisionBuilder,
+    href: &str,
+    num: &str,
+    description: &str,
+) -> &'a mut html::text_content::builders::DivisionBuilder {
+    let href = href.to_owned();
+    let num = num.to_owned();
+    let description = description.to_owned();
+    list.anchor(|row| {
+        row.href(href)
+            .class("flex gap-3 text-[13px] no-underline group")
+            .span(|n| n.class("mono tabular-nums text-ink-400").text(num))
+            .span(|t| {
+                t.class("text-ink-700 group-hover:text-ink-900")
+                    .span(|e| e.class("text-ink-400").text("Example: ".to_owned()))
+                    .span(|d| d.class("group-hover:underline").text(description))
+            })
+    })
+}
+
+/// Append a not-working-yet example row. Rendered as an inert, non-focusable
+/// element (deliberately *not* a link) and crossed out, so keyboard and
+/// screen-reader users are not lured into a dead `#` link. A visually hidden
+/// note spells out the state for assistive tech. See [`Example::struck`].
+fn push_struck_example<'a>(
+    list: &'a mut html::text_content::builders::DivisionBuilder,
+    num: &str,
+    description: &str,
+) -> &'a mut html::text_content::builders::DivisionBuilder {
+    let num = num.to_owned();
+    let description = description.to_owned();
+    list.division(|row| {
+        row.class("flex gap-3 text-[13px] group")
+            .span(|n| n.class("mono tabular-nums text-ink-400").text(num))
+            .span(|t| {
+                t.class("text-ink-500 line-through decoration-1")
+                    .span(|e| e.class("text-ink-400").text("Example: ".to_owned()))
+                    .span(|d| d.text(description))
+            })
+            .span(|note| {
+                note.class("sr-only")
+                    .text(" (not available yet)".to_owned())
+            })
+    })
 }
 
 /// Minimal percent-encoding for an example query placed in a `q=` parameter.
@@ -373,9 +406,11 @@ mod tests {
             &[Example::link("#", "Find components that handle HTTP requests").struck()],
         )
         .to_string();
-        // Points at a dead link and crosses the description out. Assert the
-        // exact struck class attribute rather than a loose global substring.
-        assert!(html.contains(r##"href="#""##));
+        // A not-working-yet row is inert: rendered as a non-link (no dead `#`
+        // anchor to focus or click), crossed out, with a screen-reader-only note.
+        assert!(!html.contains(r##"href="#""##));
         assert!(html.contains(r#"class="text-ink-500 line-through decoration-1""#));
+        assert!(html.contains(r#"class="sr-only""#));
+        assert!(html.contains("(not available yet)"));
     }
 }
