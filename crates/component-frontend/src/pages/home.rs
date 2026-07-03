@@ -7,7 +7,10 @@ use component_meta_registry_client::{ApiError, KnownPackage, RegistryClient};
 use crate::components::ds::{
     cta_strip::{self, CtaStrip},
     hero::{self, Hero},
-    navbar, search_bar,
+    install_widget::{self, InstallOption},
+    navbar,
+    quick_start::{self, QuickStart, QuickStartStep},
+    search_bar,
 };
 use crate::layout;
 
@@ -29,7 +32,7 @@ fn render_packages(packages: &[KnownPackage]) -> String {
 /// surface a small notice so visitors know the live data is unavailable.
 fn render_error(err: &ApiError) -> String {
     let notice = format!(
-        r#"<div class="mx-auto mx-auto max-w-[1280px] w-full px-4 md:px-8 pt-4"><div role="status" class="flex items-start gap-2 rounded-md border border-line bg-surfaceMuted px-3 py-2 text-[12px] text-ink-700"><span class="mono uppercase tracking-wider text-ink-500">Registry offline</span><span>Live package data is temporarily unavailable, so search may return nothing right now. The <code class="px-1 py-0.5 rounded-sm bg-surface text-ink-900 mono text-[0.875em]">component</code> CLI still works locally without the registry — see the <a href="/docs" class="text-ink-900 hover:underline">docs</a> to get started. ({err})</span></div></div>"#,
+        r#"<div class="mx-auto mx-auto max-w-[1280px] w-full px-4 md:px-8 pt-4"><div role="status" class="flex items-start gap-2 rounded-md border border-line bg-surfaceMuted px-3 py-2 text-[12px] text-ink-700"><span class="mono uppercase tracking-wider text-ink-500">Registry offline</span><span>Live package data is temporarily unavailable, so search may return nothing right now. The <code class="px-1 py-0.5 rounded-sm bg-surface text-ink-900 mono text-[0.875em]">component</code> CLI still works locally without the registry. See the <a href="/docs" class="text-ink-900 hover:underline">docs</a> to get started. ({err})</span></div></div>"#,
         err = html_escape(&err.to_string()),
     );
     let body = compose_body(&Stats::default(), Some(&notice));
@@ -90,7 +93,7 @@ impl Stats {
 /// orange border so the two read as one family without shouting.
 fn alpha_notice() -> String {
     format!(
-        r#"<div role="note" class="mt-8 max-w-2xl flex items-start gap-3 rounded-lg border border-orange-200 bg-surface px-4 py-3">{badge}<span class="text-[13px] text-ink-700 leading-relaxed">This registry is in <strong class="font-semibold text-ink-900">alpha</strong>. Indexed data may be incomplete or reset without notice, and both the site and APIs can still change or break. Explore freely and <a href="https://github.com/yoshuawuyts/component-registry/issues" class="font-medium text-ink-900 underline underline-offset-2 hover:no-underline">share feedback</a> — but don't depend on it in production yet.</span></div>"#,
+        r#"<div role="note" class="mt-8 max-w-2xl flex items-start gap-3 rounded-lg border border-orange-200 bg-surface px-4 py-3">{badge}<span class="text-[13px] text-ink-700 leading-relaxed">This registry is in <strong class="font-semibold text-ink-900">alpha</strong>. Indexed data may be incomplete or reset without notice, and both the site and APIs can still change or break. Explore freely and <a href="https://github.com/yoshuawuyts/component-registry/issues" class="font-medium text-ink-900 underline underline-offset-2 hover:no-underline">share feedback</a>, but don't depend on it in production yet.</span></div>"#,
         badge = navbar::ALPHA_BADGE,
     )
 }
@@ -104,12 +107,14 @@ fn compose_body(stats: &Stats, notice_html: Option<&str>) -> String {
     let version_count = format_count(stats.versions);
 
     let examples = [
-        search_bar::Example::search(
-            "wasi:http",
-            "Find components that can handle incoming HTTP requests",
-        ),
         search_bar::Example::link("/wasi", "Browse the reusable standard WASI interfaces"),
         search_bar::Example::link("/autostamp", "Discover HTTP client programs"),
+        // Not working yet: crossed out and pointed at a dead link for now.
+        search_bar::Example::link(
+            "#",
+            "Find components that can handle incoming HTTP requests",
+        )
+        .struck(),
     ];
     let search_card = search_bar::landing_card(
         &search_bar::LandingStats {
@@ -144,11 +149,76 @@ fn compose_body(stats: &Stats, notice_html: Option<&str>) -> String {
         secondary_href: "/docs",
     });
 
+    let install_widget_html = install_widget::widget(&[
+        InstallOption {
+            id: "linux",
+            label: "Linux",
+            command: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/yoshuawuyts/component-cli/releases/latest/download/install.sh | sh",
+        },
+        InstallOption {
+            id: "macos",
+            label: "macOS",
+            command: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/yoshuawuyts/component-cli/releases/latest/download/install.sh | sh",
+        },
+        InstallOption {
+            id: "windows",
+            label: "Windows",
+            command: "irm https://github.com/yoshuawuyts/component-cli/releases/latest/download/install.ps1 | iex",
+        },
+    ]);
+
+    let quickstart_html = quick_start::render(&QuickStart {
+        kicker: "Get started",
+        title: "Run your first component",
+        intro_html: "Install the CLI, then go from an empty directory to a running \
+                     <code class=\"px-1 py-0.5 rounded-sm bg-surfaceMuted text-ink-900 mono text-[0.875em]\">wasi:http</code> server.",
+        steps: &[
+            QuickStartStep {
+                title: "Install the CLI",
+                body_html: "Grab the <code class=\"px-1 py-0.5 rounded-sm bg-surfaceMuted text-ink-900 mono text-[0.875em]\">component</code> CLI for your platform. \
+                            We\u{2019}ve picked the command that matches your system. Copy it and run.",
+                command: "",
+                command_html: &install_widget_html,
+            },
+            QuickStartStep {
+                title: "Initialize a project",
+                body_html: "Scaffold a project in the current directory. This writes a \
+                            <code class=\"px-1 py-0.5 rounded-sm bg-surfaceMuted text-ink-900 mono text-[0.875em]\">wasm.toml</code> manifest and a \
+                            <code class=\"px-1 py-0.5 rounded-sm bg-surfaceMuted text-ink-900 mono text-[0.875em]\">wasm.lock.toml</code> lockfile so dependencies resolve to exact, reproducible versions.",
+                command: "component init",
+                command_html: "",
+            },
+            QuickStartStep {
+                title: "Add a dependency",
+                body_html: "Add a dependency from any OCI registry. Here we pull in \
+                            <code class=\"px-1 py-0.5 rounded-sm bg-surfaceMuted text-ink-900 mono text-[0.875em]\">ba:sample-wasi-http-rust</code> (a ready-made \
+                            <code class=\"px-1 py-0.5 rounded-sm bg-surfaceMuted text-ink-900 mono text-[0.875em]\">wasi:http</code> server) and record it in your manifest and lockfile.",
+                command: "component install ba:sample-wasi-http-rust",
+                command_html: "",
+            },
+            QuickStartStep {
+                title: "Run the server",
+                body_html: "Run the server you just installed. \
+                            <code class=\"px-1 py-0.5 rounded-sm bg-surfaceMuted text-ink-900 mono text-[0.875em]\">component run</code> fetches the component if needed and serves it on \
+                            <code class=\"px-1 py-0.5 rounded-sm bg-surfaceMuted text-ink-900 mono text-[0.875em]\">localhost:8080</code>.",
+                command: "component run ba:sample-wasi-http-rust",
+                command_html: "",
+            },
+            QuickStartStep {
+                title: "Send a request",
+                body_html: "From another terminal, send it a request and watch it respond.",
+                command: "curl localhost:8080",
+                command_html: "",
+            },
+        ],
+    });
+
     let offline_notice = notice_html.unwrap_or("");
     format!(
         r#"{offline_notice}
 {hero_html}
 <div class="pb-16 md:pb-24">
+{quickstart_html}
 {cta_html}
 </div>"#
     )
@@ -212,6 +282,64 @@ mod tests {
         assert!(
             lede_at < notice_at && notice_at < search_at,
             "alpha notice should sit below the lede and before the search box"
+        );
+    }
+
+    #[test]
+    fn quick_start_sits_between_search_and_publish() {
+        let body = compose_body(&Stats::default(), None);
+        assert!(
+            body.contains("data-quickstart"),
+            "quick start should render"
+        );
+        // Reading order: search card -> quick start -> publish strip.
+        let search_at = body
+            .find("Search the meta-registry.")
+            .expect("search card present");
+        let quickstart_at = body.find("data-quickstart").expect("quick start present");
+        let publish_at = body
+            .find("Publish your first component.")
+            .expect("publish strip present");
+        assert!(
+            search_at < quickstart_at && quickstart_at < publish_at,
+            "quick start should sit between the search section and the publish section"
+        );
+    }
+
+    #[test]
+    fn quick_start_folds_in_install_and_all_commands() {
+        let body = compose_body(&Stats::default(), None);
+        // Step one is the install widget: a platform dropdown with the real
+        // install command for each supported OS.
+        assert!(
+            body.contains("data-install-cta"),
+            "install widget should render as the first step"
+        );
+        for id in ["linux", "macos", "windows"] {
+            assert!(
+                body.contains(&format!(r#"data-ig-option="{id}""#)),
+                "install step should offer a {id} option"
+            );
+        }
+        assert!(body.contains("install.sh | sh") && body.contains("install.ps1 | iex"));
+        // The remaining steps render their copyable commands.
+        for cmd in [
+            "component init",
+            "component install ba:sample-wasi-http-rust",
+            "component run ba:sample-wasi-http-rust",
+            "curl localhost:8080",
+        ] {
+            assert!(
+                body.contains(&format!(">{cmd}</code>")),
+                "quick start should show the {cmd} command"
+            );
+        }
+        // The install step precedes the shell steps within the walkthrough.
+        let install_at = body.find("data-install-cta").expect("install present");
+        let init_at = body.find(">component init</code>").expect("init present");
+        assert!(
+            install_at < init_at,
+            "install should be the first quick-start step"
         );
     }
 

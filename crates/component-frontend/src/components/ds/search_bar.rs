@@ -25,7 +25,8 @@ pub(crate) struct LandingStats<'a> {
 
 /// A single example row shown beneath the landing search card. Build one with
 /// [`Example::search`] to run a query, or [`Example::link`] to point straight
-/// at a page (for example, a namespace).
+/// at a page (for example, a namespace). Chain [`Example::struck`] to cross the
+/// row out when the destination is not working yet.
 pub(crate) struct Example<'a> {
     /// Search query used to build the default `/search?q=…` link.
     query: &'a str,
@@ -33,15 +34,19 @@ pub(crate) struct Example<'a> {
     description: &'a str,
     /// Explicit link target; overrides the derived search URL when set.
     href: Option<&'a str>,
+    /// Cross the row out to signal the example is not working yet.
+    struck: bool,
 }
 
 impl<'a> Example<'a> {
     /// An example row that runs a search for `query`.
+    #[allow(dead_code)]
     pub(crate) fn search(query: &'a str, description: &'a str) -> Self {
         Self {
             query,
             description,
             href: None,
+            struck: false,
         }
     }
 
@@ -51,7 +56,15 @@ impl<'a> Example<'a> {
             query: "",
             description,
             href: Some(href),
+            struck: false,
         }
+    }
+
+    /// Cross the row out and dim it, signalling the example is not working yet.
+    /// Typically paired with a dead (`#`) link.
+    pub(crate) fn struck(mut self) -> Self {
+        self.struck = true;
+        self
     }
 }
 
@@ -70,9 +83,9 @@ pub(crate) fn landing_card(stats: &LandingStats<'_>, examples: &[Example<'_>]) -
         "Browse {} packages \u{00b7} {} namespaces \u{00b7} {} versions",
         stats.packages, stats.namespaces, stats.versions
     );
-    let rows: Vec<(String, String)> = examples
+    let rows: Vec<(String, String, bool)> = examples
         .iter()
-        .map(|ex| (example_href(ex), ex.description.to_owned()))
+        .map(|ex| (example_href(ex), ex.description.to_owned(), ex.struck))
         .collect();
 
     let mut wrapper = Division::builder();
@@ -137,22 +150,30 @@ fn example_href(example: &Example<'_>) -> String {
 
 fn push_example_queries(
     wrapper: &mut html::text_content::builders::DivisionBuilder,
-    rows: &[(String, String)],
+    rows: &[(String, String, bool)],
 ) {
     wrapper.division(|list| {
         let mut list = list.class("mt-5 space-y-2.5");
-        for (i, (href, description)) in rows.iter().enumerate() {
+        for (i, (href, description, struck)) in rows.iter().enumerate() {
             let num = format!("{:02}", i + 1);
             let href = href.clone();
             let description = description.clone();
+            // A crossed-out row dims the text and drops the hover emphasis,
+            // marking the example as not working yet (see `Example::struck`).
+            let text_class = if *struck {
+                "text-ink-500 line-through decoration-1"
+            } else {
+                "text-ink-700 group-hover:text-ink-900"
+            };
+            let desc_class = if *struck { "" } else { "group-hover:underline" };
             list = list.anchor(|row| {
                 row.href(href)
                     .class("flex gap-3 text-[13px] no-underline group")
                     .span(|n| n.class("mono tabular-nums text-ink-400").text(num))
                     .span(|t| {
-                        t.class("text-ink-700 group-hover:text-ink-900")
+                        t.class(text_class)
                             .span(|e| e.class("text-ink-400").text("Example: ".to_owned()))
-                            .span(|d| d.class("group-hover:underline").text(description))
+                            .span(|d| d.class(desc_class).text(description))
                     })
             });
         }
@@ -339,5 +360,23 @@ mod tests {
         assert!(html.contains(r#"href="/wasi""#));
         assert!(html.contains("Find components that handle HTTP requests"));
         assert!(html.contains("Browse the standard WASI interfaces"));
+    }
+
+    #[test]
+    fn struck_example_is_crossed_out() {
+        let html = landing_card(
+            &LandingStats {
+                packages: "1 248",
+                namespaces: "73",
+                versions: "4 902",
+            },
+            &[Example::link("#", "Find components that handle HTTP requests").struck()],
+        )
+        .to_string();
+        // Points at a dead link and crosses the description out.
+        assert!(html.contains(r##"href="#""##));
+        assert!(html.contains("line-through"));
+        // A crossed-out row drops the hover underline.
+        assert!(!html.contains("group-hover:underline"));
     }
 }

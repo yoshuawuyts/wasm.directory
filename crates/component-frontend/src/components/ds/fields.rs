@@ -2,6 +2,8 @@
 
 use html::text_content::Division;
 
+use super::input_group::{self, ButtonWithDropdown, DropdownOption};
+
 const SVG_SEARCH_SM: &str = concat!(
     r#"<svg class="absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">"#,
     include_str!("../../../../../vendor/lucide/search.svg"),
@@ -14,11 +16,6 @@ const SVG_SEARCH_LG: &str = concat!(
 );
 const SVG_CHEV_SELECT: &str = concat!(
     r#"<svg class="absolute right-3 top-1/2 -translate-y-1/2 text-ink-500 pointer-events-none" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">"#,
-    include_str!("../../../../../vendor/lucide/chevron-down.svg"),
-    "</svg>"
-);
-const SVG_CHEV_DROPDOWN: &str = concat!(
-    r#"<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">"#,
     include_str!("../../../../../vendor/lucide/chevron-down.svg"),
     "</svg>"
 );
@@ -562,33 +559,83 @@ pub(crate) fn input_button() -> String {
 
 /// Build the button with dropdown group subsection.
 fn input_btn_dropdown() -> String {
-    let inner = Division::builder()
-        .class("mt-1 flex relative")
-        .button(|b| {
-            b.type_("button")
-                .class("inline-flex items-center gap-2 px-3 h-9 rounded-l-md border border-r-0 border-line bg-surfaceMuted text-ink-700 text-[13px] hover:bg-ink-300 hover:text-ink-900")
-                .text("Tellus")
-                .text(SVG_CHEV_DROPDOWN)
-        })
-        .text(html::forms::Input::builder()
-            .type_("text")
-            .placeholder("Lorem ipsum\u{2026}")
-            .class("block w-full h-9 px-3 rounded-r-md border border-line bg-surface text-[14px] placeholder:text-ink-400 focus:outline-none focus:border-ink-900")
-            .build()
-            .to_string())
-        .build()
-        .to_string();
+    let group = input_group::button_with_dropdown(&ButtonWithDropdown {
+        options: &[
+            DropdownOption {
+                id: "tellus",
+                label: "Tellus",
+                value: "lorem ipsum dolor",
+            },
+            DropdownOption {
+                id: "aenean",
+                label: "Aenean",
+                value: "consectetur adipiscing",
+            },
+            DropdownOption {
+                id: "mauris",
+                label: "Mauris",
+                value: "sed do eiusmod",
+            },
+        ],
+        selected: 0,
+        trigger_aria_label: "Choose an option",
+        field_aria_label: "Selected value",
+        field_class: "",
+        with_copy: false,
+        prefix: "",
+    });
+    let inner = format!(r#"<div class="mt-1">{group}</div>"#);
 
     let inner_with_help = format!(
         "{inner}{}",
         html::inline_text::Span::builder()
             .class("mt-1 block text-[11px] text-ink-500")
-            .text("Quiet dropdown addon paired with the field \u{2014} same border and addon vocabulary as the prefix/suffix variants.")
+            .text("Quiet dropdown addon paired with the field \u{2014} pick an option to swap the field value. Reusable via <code>ds::input_group::button_with_dropdown</code>.")
             .build()
     );
 
     labeled_field(
         "Input group \u{00b7} button with dropdown",
+        "text-[12px] text-ink-500",
+        &inner_with_help,
+    )
+}
+
+/// Build the button with dropdown + prefix addon subsection: the same fused
+/// dropdown, now with a leading `$` prompt box and a trailing copy button.
+fn input_btn_dropdown_prefix() -> String {
+    let group = input_group::button_with_dropdown(&ButtonWithDropdown {
+        options: &[
+            DropdownOption {
+                id: "bash",
+                label: "bash",
+                value: "curl -LsSf https://lorem.ipsum/install.sh | sh",
+            },
+            DropdownOption {
+                id: "pwsh",
+                label: "PowerShell",
+                value: "irm https://lorem.ipsum/install.ps1 | iex",
+            },
+        ],
+        selected: 0,
+        trigger_aria_label: "Choose a shell",
+        field_aria_label: "Install command",
+        field_class: "mono",
+        with_copy: true,
+        prefix: "$",
+    });
+    let inner = format!(r#"<div class="mt-1">{group}</div>"#);
+
+    let inner_with_help = format!(
+        "{inner}{}",
+        html::inline_text::Span::builder()
+            .class("mt-1 block text-[11px] text-ink-500")
+            .text("Add a leading <code>prefix</code> for a decorative affix such as a <code>$</code> shell prompt. The addon is not part of the copied value, so the copy button still yields just the command.")
+            .build()
+    );
+
+    labeled_field(
+        "Input group \u{00b7} button with dropdown + prefix",
         "text-[12px] text-ink-500",
         &inner_with_help,
     )
@@ -947,6 +994,7 @@ pub(crate) fn render(
     content.text(input_suffix());
     content.text(input_button());
     content.text(input_btn_dropdown());
+    content.text(input_btn_dropdown_prefix());
     content.text(input_split_dropdown());
     for entry in commands {
         content.text(command(entry));
