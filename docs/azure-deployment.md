@@ -381,14 +381,23 @@ identity is available for GitHub to authenticate as. Do this once:
    | `CUSTOM_DOMAIN_NAME`   | Optional. Apex domain for the frontend (see section 7). |
 
    The [`scripts/setup-azure-deploy.sh`](../scripts/setup-azure-deploy.sh)
-   helper sets all of these with `gh`, prompting for anything not already in
-   the environment (secret values are read without echo). It **skips any
-   secret or variable that is already set on the repo**, so it's safe to re-run
-   after adding a single new value; pass `-f` to overwrite existing ones:
+   helper sets all of these with `gh`. When `azd` and an environment are
+   available it **auto-detects the values you already provisioned** —
+   `AZURE_ENV_NAME`, `AZURE_LOCATION`, `AZURE_SUBSCRIPTION_ID`,
+   `AZURE_TENANT_ID`, `AZURE_RESOURCE_GROUP`, `CUSTOM_DOMAIN_NAME`, and
+   `POSTGRES_ADMIN_PASSWORD` — reading them from the azd environment store with
+   `azd env get-value` and prompting only for what's left (`AZURE_CLIENT_ID`
+   and, if needed, `GHCR_PULL_TOKEN`, which azd does not track). Explicit
+   environment variables always win over azd. It **skips any secret or variable
+   that is already set on the repo**, so it's safe to re-run after adding a
+   single new value; pass `-f` to overwrite existing ones:
 
    ```sh
-   ./scripts/setup-azure-deploy.sh -a   # -a fills tenant + subscription from `az`
-   ./scripts/setup-azure-deploy.sh -f   # overwrite values already set on the repo
+   ./scripts/setup-azure-deploy.sh                  # auto-detect from the default azd env
+   ./scripts/setup-azure-deploy.sh -e wasm-registry # read from a named azd environment
+   ./scripts/setup-azure-deploy.sh -n               # skip azd; prompt for everything
+   ./scripts/setup-azure-deploy.sh -a               # backfill tenant + subscription from `az`
+   ./scripts/setup-azure-deploy.sh -f               # overwrite values already set on the repo
    ```
 
    Or set them by hand:
