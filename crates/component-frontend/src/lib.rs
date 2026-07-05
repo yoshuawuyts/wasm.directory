@@ -44,6 +44,7 @@ fn app() -> Router {
         .route("/downloads", get(downloads))
         .route("/status", get(queue_status))
         .route("/health", get(health))
+        .route("/robots.txt", get(robots))
         .route("/{namespace}/{name}", get(package_redirect))
         .route("/{namespace}/{name}/", get(package_redirect))
         .route("/{namespace}", get(namespace_page))
@@ -100,6 +101,18 @@ async fn health() -> impl IntoResponse {
     (
         [(header::CACHE_CONTROL, "no-cache")],
         Json(serde_json::json!({ "status": "ok" })),
+    )
+}
+
+// r[impl frontend.routing.robots]
+/// Serve `/robots.txt`, allowing all crawlers to index the whole site.
+///
+/// Returns a permissive `text/plain` policy so search engines are not blocked;
+/// no sitemap is referenced because the frontend does not expose one.
+async fn robots() -> impl IntoResponse {
+    (
+        [(header::CACHE_CONTROL, "public, max-age=3600")],
+        "User-agent: *\nAllow: /\n",
     )
 }
 
@@ -875,6 +888,34 @@ mod tests {
             .await
             .expect("health response body should be readable");
         assert_eq!(bytes.as_ref(), br#"{"status":"ok"}"#);
+    }
+
+    // r[verify frontend.routing.robots]
+    #[tokio::test]
+    async fn robots_returns_plain_text_allowing_all_crawlers() {
+        let response = robots().await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .expect("content-type header should be set"),
+            "text/plain; charset=utf-8"
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CACHE_CONTROL)
+                .expect("cache-control header should be set"),
+            "public, max-age=3600"
+        );
+
+        let bytes = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("robots response body should be readable");
+        let body = std::str::from_utf8(bytes.as_ref()).expect("robots body should be UTF-8");
+        assert!(body.contains("User-agent: *"));
+        assert!(body.contains("Allow: /"));
     }
 
     // r[verify frontend.caching.static-pages]
