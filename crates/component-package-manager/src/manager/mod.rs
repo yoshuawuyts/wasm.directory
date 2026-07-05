@@ -72,11 +72,13 @@ impl Manager {
     /// Default meta-registry URL used for syncing the known-package index
     /// and for notifying the registry about newly-published versions.
     ///
-    /// Points at the public production meta-registry. Local development can
-    /// redirect the CLI at a different instance by setting the
-    /// `COMPONENT_REGISTRY_URL` environment variable; see
+    /// Points at the public production meta-registry API, served on its own
+    /// `api.` subdomain so the backend can be reached (and diagnosed)
+    /// independently of the frontend website at `https://wasm.directory`.
+    /// Local development can redirect the CLI at a different instance by
+    /// setting the `COMPONENT_REGISTRY_URL` environment variable; see
     /// [`default_registry_url`](Self::default_registry_url).
-    pub const DEFAULT_REGISTRY_URL: &str = "https://wasm.directory";
+    pub const DEFAULT_REGISTRY_URL: &str = "https://api.wasm.directory";
 
     /// Environment variable that overrides [`DEFAULT_REGISTRY_URL`].
     ///

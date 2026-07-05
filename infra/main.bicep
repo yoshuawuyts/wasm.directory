@@ -76,5 +76,7 @@ output POSTGRES_SERVER_FQDN string = resources.outputs.POSTGRES_SERVER_FQDN
 output SERVICE_FRONTEND_URL string = resources.outputs.SERVICE_FRONTEND_URL
 output SERVICE_BACKEND_URL string = resources.outputs.SERVICE_BACKEND_URL
 output SERVICE_FRONTEND_NAME string = resources.outputs.SERVICE_FRONTEND_NAME
+output SERVICE_BACKEND_NAME string = resources.outputs.SERVICE_BACKEND_NAME
 output CUSTOM_DOMAIN_NAME string = resources.outputs.CUSTOM_DOMAIN_NAME
+output CUSTOM_API_DOMAIN_NAME string = resources.outputs.CUSTOM_API_DOMAIN_NAME
 output DNS_NAME_SERVERS array = resources.outputs.DNS_NAME_SERVERS

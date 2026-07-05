@@ -79,7 +79,7 @@ via `readEnvironmentVariable(...)`.
 | `AZURE_RESOURCE_GROUP`    | no       | Override the default resource group name (`rg-${AZURE_ENV_NAME}`).                                   |
 | `POSTGRES_ADMIN_LOGIN`    | no       | Postgres admin user. Defaults to `pgadmin`.                                                          |
 | `POSTGRES_DB`             | no       | Postgres database name. Defaults to `componentregistry`.                                             |
-| `CUSTOM_DOMAIN_NAME`      | no       | Apex domain to serve the frontend on (e.g. `wasm.directory`). When set, provisioning also creates a DNS zone for it. See [Bind a custom domain](#7-optional-bind-a-custom-domain). |
+| `CUSTOM_DOMAIN_NAME`      | no       | Apex domain to serve the frontend on (e.g. `wasm.directory`). When set, provisioning also creates a DNS zone with records for both the apex (frontend) and the `api.` subdomain (meta-registry API). See [Bind a custom domain](#7-optional-bind-a-custom-domain). |
 
 Set them with `azd env set`:
 
@@ -204,9 +204,18 @@ With the variable set, `azd provision` also deploys
 DNS zone for the domain with:
 
 - an apex `A` record pointing at the Container Apps environment's static
-  ingress IP, and
-- an `asuid` `TXT` record carrying the frontend's domain-verification id, used
-  by Azure to validate ownership before issuing a managed certificate.
+  ingress IP (the frontend website), and an `asuid` `TXT` record carrying the
+  frontend's domain-verification id;
+- an `api` `A` record pointing at the same static ingress IP (the
+  meta-registry API — the backend is provisioned with external ingress so it
+  is reachable independently of the frontend), and an `asuid.api` `TXT` record
+  carrying the backend's domain-verification id.
+
+Both verification records let Azure validate ownership before issuing the
+managed certificates. The `component` CLI targets the API host
+(`https://api.wasm.directory`) by default, so binding the `api` subdomain is
+what makes `component registry notify` (and `sync`/`search`/`install`/`run`)
+work against production.
 
 The bind itself is a one-time manual step because it depends on your registrar
 delegating the zone to Azure — something only you can do:
@@ -219,12 +228,13 @@ delegating the zone to Azure — something only you can do:
    ```
 
    Then wait for propagation (`dig +short NS wasm.directory` should return the
-   Azure name servers; `dig +short TXT asuid.wasm.directory` should return the
-   verification id).
+   Azure name servers; `dig +short TXT asuid.wasm.directory` and
+   `dig +short TXT asuid.api.wasm.directory` should return the frontend and
+   backend verification ids respectively).
 
-2. **Add the hostname, then bind a managed certificate.** Once the records
-   resolve publicly, register the hostname and issue the certificate. Capture
-   the names first to keep the commands short:
+2. **Add the frontend (apex) hostname, then bind a managed certificate.** Once
+   the records resolve publicly, register the hostname and issue the
+   certificate. Capture the names first to keep the commands short:
 
    ```sh
    RG="$(azd env get-value AZURE_RESOURCE_GROUP)"
@@ -275,7 +285,37 @@ delegating the zone to Azure — something only you can do:
    curl -sS -o /dev/null -w '%{http_code}\n' "https://$DOMAIN/"   # expect 200
    ```
 
-After it completes, the site is reachable at `https://wasm.directory`.
+   After it completes, the frontend is reachable at `https://wasm.directory`.
+
+3. **Bind the `api` subdomain to the backend.** The `component` CLI targets
+   `https://api.wasm.directory` by default, so the backend needs its own
+   hostname + certificate. Subdomains validate over the `asuid.api` `TXT`
+   record from step 1 (not HTTP), and the backend already accepts plain HTTP
+   (`allowInsecure: true`) for the in-environment frontend, so no redirect
+   dance is required:
+
+   ```sh
+   API_APP="$(azd env get-value SERVICE_BACKEND_NAME)"
+   API_DOMAIN="$(azd env get-value CUSTOM_API_DOMAIN_NAME)"   # e.g. api.wasm.directory
+
+   # Add the custom hostname (validated against the asuid.api TXT record)
+   az containerapp hostname add \
+     --resource-group "$RG" --name "$API_APP" --hostname "$API_DOMAIN"
+
+   # Issue + bind the free managed TLS certificate (TXT validation for subdomains)
+   az containerapp hostname bind \
+     --resource-group "$RG" --name "$API_APP" --hostname "$API_DOMAIN" \
+     --environment "$ENVNAME" --validation-method TXT
+   ```
+
+   Verify the API answers over HTTPS:
+
+   ```sh
+   curl -sS -o /dev/null -w '%{http_code}\n' "https://$API_DOMAIN/v1/health"   # expect 200
+   ```
+
+After both binds complete, the site is at `https://wasm.directory` and the
+meta-registry API (what the CLI uses) is at `https://api.wasm.directory`.
 
 ## 8. Tear down
 

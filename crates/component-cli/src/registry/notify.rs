@@ -19,7 +19,7 @@ pub(crate) struct NotifyOpts {
 
     /// URL of the meta-registry to notify.
     ///
-    /// Defaults to <https://wasm.directory>, or the `COMPONENT_REGISTRY_URL`
+    /// Defaults to <https://api.wasm.directory>, or the `COMPONENT_REGISTRY_URL`
     /// environment variable when it is set.
     #[arg(long)]
     registry_url: Option<String>,
