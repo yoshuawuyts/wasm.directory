@@ -159,14 +159,14 @@ cacache = { version = "13.1.0", features = [
 ], default-features = false }
 pubgrub = "0.4"
 # SeaORM 2.0 RC.
-sea-orm = { version = "=2.0.0-rc.41", default-features = false, features = [
+sea-orm = { version = "=2.0.0-rc.42", default-features = false, features = [
     "runtime-tokio-rustls",
     "sqlx-sqlite",
     "sqlx-postgres",
     "macros",
     "with-chrono",
 ] }
-sea-orm-migration = { version = "=2.0.0-rc.41", default-features = false, features = [
+sea-orm-migration = { version = "=2.0.0-rc.42", default-features = false, features = [
     "runtime-tokio-rustls",
     "sqlx-sqlite",
     "sqlx-postgres",
