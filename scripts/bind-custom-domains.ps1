@@ -4,7 +4,8 @@
 # PowerShell twin of scripts/bind-custom-domains.sh. Invoked by azd as the
 # Windows `postprovision` hook (see azure.yaml) and safe to run by hand:
 #
-#   ./scripts/bind-custom-domains.ps1
+#   ./scripts/bind-custom-domains.ps1                 # domain from azd env / env
+#   ./scripts/bind-custom-domains.ps1 wasm.directory  # domain given explicitly
 #
 # See the shell script's header and docs/azure-deployment.md section 7 for the
 # full rationale. In short: this automates the mechanical hostname add + managed
@@ -12,6 +13,9 @@
 # Delegating the DNS zone to Azure at your registrar stays manual; when it has
 # not propagated yet the script prints guidance and exits 0 without failing the
 # provision. Re-running is idempotent.
+
+param([string]$Domain)
+
 $ErrorActionPreference = 'Stop'
 # Do not let native command stderr (az warnings) throw; we check $LASTEXITCODE.
 $PSNativeCommandUseErrorActionPreference = $false
@@ -27,9 +31,15 @@ function Resolve-Value([string]$Name) {
     return ($val | Out-String).Trim()
 }
 
-$Domain = Resolve-Value 'CUSTOM_DOMAIN_NAME'
+# Domain resolution order: explicit -Domain argument first, then
+# CUSTOM_DOMAIN_NAME from the environment (azd hook) or the azd env store.
+if (-not $Domain) { $Domain = Resolve-Value 'CUSTOM_DOMAIN_NAME' }
 if (-not $Domain) {
-    Write-Host '==> CUSTOM_DOMAIN_NAME is not set; no custom domain to bind. Skipping.'
+    Write-Host '==> No custom domain to bind (no argument and CUSTOM_DOMAIN_NAME is unset).'
+    Write-Host '    Pass one explicitly to bind by hand, e.g.:'
+    Write-Host '        ./scripts/bind-custom-domains.ps1 wasm.directory'
+    Write-Host '    or set it in the azd environment and re-provision:'
+    Write-Host '        azd env set CUSTOM_DOMAIN_NAME wasm.directory; azd provision'
     exit 0
 }
 

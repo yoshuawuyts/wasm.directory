@@ -248,11 +248,16 @@ is automated by `azd provision`:
    Because delegation (step 1) can only happen after the zone exists, the
    **first** `azd provision` reports the binds as *deferred* and prints exactly
    what to delegate. Once delegation has propagated, finish the bind by
-   re-running either the provision or the script directly:
+   re-running either the provision or the script directly. The script reads the
+   apex domain from `CUSTOM_DOMAIN_NAME` in the azd environment; pass it as the
+   first argument when running from a checkout whose azd environment does not
+   have it set (a fresh clone, or a CI-managed environment):
 
    ```sh
-   ./scripts/bind-custom-domains.sh      # or: pwsh ./scripts/bind-custom-domains.ps1
-   # equivalently: azd provision
+   ./scripts/bind-custom-domains.sh                  # domain from the azd env
+   ./scripts/bind-custom-domains.sh wasm.directory   # or pass it explicitly
+   # Windows: pwsh ./scripts/bind-custom-domains.ps1 [wasm.directory]
+   # equivalently: azd env set CUSTOM_DOMAIN_NAME wasm.directory && azd provision
    ```
 
    On success it verifies and reports both endpoints:
