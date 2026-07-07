@@ -3,9 +3,6 @@
 use anyhow::Result;
 use component_package_manager::manager::{Manager, SyncPolicy, SyncResult};
 
-/// Default meta-registry URL.
-const REGISTRY_URL: &str = Manager::DEFAULT_REGISTRY_URL;
-
 /// Default sync interval in seconds (1 hour).
 const SYNC_INTERVAL: u64 = Manager::DEFAULT_SYNC_INTERVAL;
 
@@ -16,13 +13,14 @@ pub(crate) struct SyncOpts {}
 impl SyncOpts {
     pub(crate) async fn run(self) -> Result<()> {
         let manager = Manager::open().await?;
+        let registry_url = Manager::default_registry_url();
 
         match manager
-            .sync_from_meta_registry(REGISTRY_URL, SYNC_INTERVAL, SyncPolicy::Force)
+            .sync_from_meta_registry(&registry_url, SYNC_INTERVAL, SyncPolicy::Force)
             .await?
         {
             SyncResult::Updated { count } => {
-                println!("Synced {count} packages from {REGISTRY_URL}");
+                println!("Synced {count} packages from {registry_url}");
             }
             SyncResult::NotModified => {
                 println!("Already up to date (verified with registry)");

@@ -7,9 +7,6 @@ use component_meta_registry_types::NotifyOutcome;
 use component_package_manager::Reference;
 use component_package_manager::manager::{Manager, SyncPolicy, install};
 
-/// Default meta-registry URL.
-const DEFAULT_REGISTRY_URL: &str = Manager::DEFAULT_REGISTRY_URL;
-
 /// Notify a meta-registry that a new version of a package is available.
 ///
 /// Sends a hint to the meta-registry asking it to fetch the given tag as
@@ -21,8 +18,11 @@ pub(crate) struct NotifyOpts {
     package: String,
 
     /// URL of the meta-registry to notify.
-    #[arg(long, default_value = DEFAULT_REGISTRY_URL)]
-    registry_url: String,
+    ///
+    /// Defaults to <https://api.wasm.directory>, or the `COMPONENT_REGISTRY_URL`
+    /// environment variable when it is set.
+    #[arg(long)]
+    registry_url: Option<String>,
 }
 
 impl NotifyOpts {
@@ -33,8 +33,13 @@ impl NotifyOpts {
             bail!("cannot notify meta-registry in offline mode");
         }
 
+        let registry_url = self
+            .registry_url
+            .clone()
+            .unwrap_or_else(Manager::default_registry_url);
+
         let manager = Manager::open().await?;
-        let reference = resolve_reference(&self.package, &manager).await?;
+        let reference = resolve_reference(&self.package, &registry_url, &manager).await?;
 
         let registry = reference.registry();
         let repository = reference.repository();
@@ -46,21 +51,21 @@ impl NotifyOpts {
         };
 
         let outcome = manager
-            .notify_meta_registry(&self.registry_url, registry, repository, tag)
+            .notify_meta_registry(&registry_url, registry, repository, tag)
             .await?;
 
         match outcome {
             NotifyOutcome::Enqueued => {
                 println!(
                     "Notified {}: '{}' enqueued for fetch",
-                    self.registry_url,
+                    registry_url,
                     reference.whole()
                 );
             }
             NotifyOutcome::Skipped { reason } => {
                 println!(
                     "Notified {}: '{}' skipped ({reason})",
-                    self.registry_url,
+                    registry_url,
                     reference.whole()
                 );
             }
@@ -73,8 +78,12 @@ impl NotifyOpts {
 ///
 /// Only WIT-style names (`namespace:package@version`) are accepted; full OCI
 /// references are rejected. The known-package index is opportunistically
-/// refreshed before lookup.
-async fn resolve_reference(input: &str, manager: &Manager) -> Result<Reference> {
+/// refreshed from `registry_url` before lookup.
+async fn resolve_reference(
+    input: &str,
+    registry_url: &str,
+    manager: &Manager,
+) -> Result<Reference> {
     if !install::looks_like_wit_name(input) {
         bail!(
             "'{input}' is not a WIT-style package name; expected `namespace:package@version` (e.g., `wasi:http@0.2.11`)"
@@ -86,7 +95,7 @@ async fn resolve_reference(input: &str, manager: &Manager) -> Result<Reference> 
     // non-fatal — fall through to the local lookup.
     let _ = manager
         .sync_from_meta_registry(
-            Manager::DEFAULT_REGISTRY_URL,
+            registry_url,
             Manager::DEFAULT_SYNC_INTERVAL,
             SyncPolicy::IfStale,
         )

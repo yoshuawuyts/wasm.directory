@@ -69,14 +69,45 @@ pub struct Manager {
 }
 
 impl Manager {
-    /// Default meta-registry URL used for syncing the known-package index.
-    pub const DEFAULT_REGISTRY_URL: &str = "http://localhost:8081";
+    /// Default meta-registry URL used for syncing the known-package index
+    /// and for notifying the registry about newly-published versions.
+    ///
+    /// Points at the public production meta-registry API, served on its own
+    /// `api.` subdomain so the backend can be reached (and diagnosed)
+    /// independently of the frontend website at `https://wasm.directory`.
+    /// Local development can redirect the CLI at a different instance by
+    /// setting the `COMPONENT_REGISTRY_URL` environment variable; see
+    /// [`default_registry_url`](Self::default_registry_url).
+    pub const DEFAULT_REGISTRY_URL: &str = "https://api.wasm.directory";
+
+    /// Environment variable that overrides [`DEFAULT_REGISTRY_URL`].
+    ///
+    /// Set it to point commands that talk to the meta-registry at a locally
+    /// running instance, e.g. `COMPONENT_REGISTRY_URL=http://localhost:8081`.
+    ///
+    /// [`DEFAULT_REGISTRY_URL`]: Self::DEFAULT_REGISTRY_URL
+    pub const ENV_REGISTRY_URL: &str = "COMPONENT_REGISTRY_URL";
 
     /// Default sync interval in seconds (1 hour).
     ///
     /// Controls how often the local package index is refreshed from the
     /// meta-registry.
     pub const DEFAULT_SYNC_INTERVAL: u64 = 3600;
+
+    /// Resolve the meta-registry URL commands should target by default.
+    ///
+    /// Honors the [`ENV_REGISTRY_URL`](Self::ENV_REGISTRY_URL) environment
+    /// variable when it is set to a non-empty value, and otherwise falls back
+    /// to [`DEFAULT_REGISTRY_URL`](Self::DEFAULT_REGISTRY_URL). Routing every
+    /// command through this keeps a single environment variable able to point
+    /// the whole CLI at a local meta-registry during development.
+    #[must_use]
+    pub fn default_registry_url() -> String {
+        std::env::var(Self::ENV_REGISTRY_URL)
+            .ok()
+            .filter(|url| !url.is_empty())
+            .unwrap_or_else(|| Self::DEFAULT_REGISTRY_URL.to_string())
+    }
 }
 
 impl Manager {

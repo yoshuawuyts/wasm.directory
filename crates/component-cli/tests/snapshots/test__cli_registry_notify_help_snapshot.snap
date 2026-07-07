@@ -7,18 +7,33 @@ Notify a meta-registry that a new version of a package is available
 Usage: component registry notify [OPTIONS] <PACKAGE>
 
 Arguments:
-  <PACKAGE>  The newly-published package, given as a WIT-style name (e.g., `wasi:http@0.2.11`)
+  <PACKAGE>
+          The newly-published package, given as a WIT-style name (e.g., `wasi:http@0.2.11`)
 
 Options:
       --registry-url <REGISTRY_URL>
-          URL of the meta-registry to notify [default: http://localhost:8081]
+          URL of the meta-registry to notify.
+          
+          Defaults to <https://api.wasm.directory>, or the `COMPONENT_REGISTRY_URL` environment variable when it is set.
+
   -h, --help
-          Print help
+          Print help (see a summary with '-h')
+
   -V, --version
           Print version
 
 Global Options:
-      --color <WHEN>  When to use colored output [default: auto] [possible values: auto, always, never]
-      --offline       Run in offline mode
-  -v, --verbose...    Increase logging verbosity
-  -q, --quiet...      Decrease logging verbosity
+      --color <WHEN>
+          When to use colored output
+          
+          [default: auto]
+          [possible values: auto, always, never]
+
+      --offline
+          Run in offline mode
+
+  -v, --verbose...
+          Increase logging verbosity
+
+  -q, --quiet...
+          Decrease logging verbosity

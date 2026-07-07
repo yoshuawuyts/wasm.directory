@@ -164,6 +164,13 @@ support both SQLite and PostgreSQL.
 
 ## Environment Variables
 
+- `COMPONENT_REGISTRY_URL` — meta-registry the CLI syncs from and notifies
+  (`sync`, `search`, `install`, `run`, `registry notify`). Defaults to the
+  public meta-registry API at `https://api.wasm.directory` (served on its own
+  subdomain, separate from the `https://wasm.directory` website). Set it to
+  point the CLI at a locally running instance, e.g.
+  `COMPONENT_REGISTRY_URL=http://localhost:8081`. The `registry notify
+  --registry-url` flag overrides it for that single command.
 - `COMPONENT_DATABASE_URL` — connection URL. Defaults to a SQLite file
   under the platform data directory.
 - `COMPONENT_DATABASE_MAX_CONNECTIONS` — PostgreSQL pool size

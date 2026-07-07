@@ -79,7 +79,7 @@ via `readEnvironmentVariable(...)`.
 | `AZURE_RESOURCE_GROUP`    | no       | Override the default resource group name (`rg-${AZURE_ENV_NAME}`).                                   |
 | `POSTGRES_ADMIN_LOGIN`    | no       | Postgres admin user. Defaults to `pgadmin`.                                                          |
 | `POSTGRES_DB`             | no       | Postgres database name. Defaults to `componentregistry`.                                             |
-| `CUSTOM_DOMAIN_NAME`      | no       | Apex domain to serve the frontend on (e.g. `wasm.directory`). When set, provisioning also creates a DNS zone for it. See [Bind a custom domain](#7-optional-bind-a-custom-domain). |
+| `CUSTOM_DOMAIN_NAME`      | no       | Apex domain to serve the frontend on (e.g. `wasm.directory`). When set, provisioning also creates a DNS zone with records for both the apex (frontend) and the `api.` subdomain (meta-registry API). See [Bind a custom domain](#7-optional-bind-a-custom-domain). |
 
 Set them with `azd env set`:
 
@@ -204,12 +204,21 @@ With the variable set, `azd provision` also deploys
 DNS zone for the domain with:
 
 - an apex `A` record pointing at the Container Apps environment's static
-  ingress IP, and
-- an `asuid` `TXT` record carrying the frontend's domain-verification id, used
-  by Azure to validate ownership before issuing a managed certificate.
+  ingress IP (the frontend website), and an `asuid` `TXT` record carrying the
+  frontend's domain-verification id;
+- an `api` `A` record pointing at the same static ingress IP (the
+  meta-registry API — the backend is provisioned with external ingress so it
+  is reachable independently of the frontend), and an `asuid.api` `TXT` record
+  carrying the backend's domain-verification id.
 
-The bind itself is a one-time manual step because it depends on your registrar
-delegating the zone to Azure — something only you can do:
+Both verification records let Azure validate ownership before issuing the
+managed certificates. The `component` CLI targets the API host
+(`https://api.wasm.directory`) by default, so binding the `api` subdomain is
+what makes `component registry notify` (and `sync`/`search`/`install`/`run`)
+work against production.
+
+Binding has two parts — the first is manual (only you can do it), the second
+is automated by `azd provision`:
 
 1. **Delegate the zone.** Read the name servers Azure assigned and point your
    registrar's `NS` records at exactly that set:
@@ -219,63 +228,86 @@ delegating the zone to Azure — something only you can do:
    ```
 
    Then wait for propagation (`dig +short NS wasm.directory` should return the
-   Azure name servers; `dig +short TXT asuid.wasm.directory` should return the
-   verification id).
+   Azure name servers; `dig +short TXT asuid.wasm.directory` and
+   `dig +short TXT asuid.api.wasm.directory` should return the frontend and
+   backend verification ids respectively).
 
-2. **Add the hostname, then bind a managed certificate.** Once the records
-   resolve publicly, register the hostname and issue the certificate. Capture
-   the names first to keep the commands short:
+2. **Add the hostnames + bind their certificates (automated).** After every
+   `azd provision`, the `postprovision` hook runs
+   [`scripts/bind-custom-domains.sh`](../scripts/bind-custom-domains.sh)
+   (`scripts/bind-custom-domains.ps1` on Windows). It is idempotent and:
+
+   - adds the apex hostname to the frontend and the `api` hostname to the
+     backend (validated against the `asuid` / `asuid.api` `TXT` records);
+   - issues and binds the free managed TLS certificates — **HTTP** validation
+     for the apex (temporarily toggling the frontend's HTTP→HTTPS redirect so
+     DigiCert's probe can reach the app) and **TXT** validation for the `api`
+     subdomain;
+   - verifies each endpoint over HTTPS.
+
+   Because delegation (step 1) can only happen after the zone exists, the
+   **first** `azd provision` reports the binds as *deferred* and prints exactly
+   what to delegate. Once delegation has propagated, finish the bind by
+   re-running either the provision or the script directly:
+
+   ```sh
+   ./scripts/bind-custom-domains.sh      # or: pwsh ./scripts/bind-custom-domains.ps1
+   # equivalently: azd provision
+   ```
+
+   On success it verifies and reports both endpoints:
+
+   ```
+   ==> Custom domains bound: https://wasm.directory and https://api.wasm.directory
+   ```
+
+   The certificates auto-renew afterwards. If you prefer to bind by hand — or
+   want to see exactly what the hook does — the underlying `az` commands are:
+
+   <details>
+   <summary>Manual bind commands</summary>
 
    ```sh
    RG="$(azd env get-value AZURE_RESOURCE_GROUP)"
-   APP="$(azd env get-value SERVICE_FRONTEND_NAME)"
    ENVNAME="$(azd env get-value AZURE_CONTAINER_APPS_ENVIRONMENT_NAME)"
+   APP="$(azd env get-value SERVICE_FRONTEND_NAME)"
    DOMAIN="$(azd env get-value CUSTOM_DOMAIN_NAME)"
-   ```
+   API_APP="$(azd env get-value SERVICE_BACKEND_NAME)"
+   API_DOMAIN="$(azd env get-value CUSTOM_API_DOMAIN_NAME)"   # e.g. api.wasm.directory
 
-   First add the custom hostname. Azure validates ownership against the
-   `asuid` `TXT` record from step 1. (A one-shot `bind` without adding the
-   hostname first fails with `RequireCustomHostnameInEnvironment`.)
-
-   ```sh
+   # Frontend (apex): add the hostname (validated against the asuid TXT record;
+   # a bind without adding first fails with RequireCustomHostnameInEnvironment),
+   # then bind over HTTP validation. Apex certs validate over HTTP, not TXT (TXT
+   # is only for subdomains and leaves an apex cert stuck in Pending; see
+   # https://learn.microsoft.com/azure/container-apps/custom-domains-managed-certificates#free-certificate-requirements).
+   # The frontend redirects HTTP->HTTPS, which blocks DigiCert's probe, so allow
+   # insecure traffic for the bind and restore the redirect afterwards.
    az containerapp hostname add \
      --resource-group "$RG" --name "$APP" --hostname "$DOMAIN"
-   ```
-
-   > **Apex domains validate over `HTTP`, not `TXT`.** Azure issues managed
-   > certificates for an apex domain (like `wasm.directory`) by reaching the
-   > app over HTTP from DigiCert's IP addresses — `--validation-method TXT` is
-   > only for subdomains and leaves an apex certificate stuck in `Pending`.
-   > See the
-   > [managed-certificate requirements](https://learn.microsoft.com/azure/container-apps/custom-domains-managed-certificates#free-certificate-requirements).
-
-   The frontend redirects HTTP→HTTPS (`allowInsecure: false`), which blocks
-   DigiCert's HTTP validation probe and would leave the certificate `Pending`
-   indefinitely. Temporarily allow insecure traffic, bind the certificate
-   (which issues the managed cert and enables SNI), then restore the redirect:
-
-   ```sh
-   # 1. Let DigiCert reach the app over plain HTTP for validation
    az containerapp ingress update -n "$APP" -g "$RG" --allow-insecure true
-
-   # 2. Issue + bind the free managed TLS certificate (HTTP validation for apex)
    az containerapp hostname bind \
      --resource-group "$RG" --name "$APP" --hostname "$DOMAIN" \
      --environment "$ENVNAME" --validation-method HTTP
-
-   # 3. Restore the HTTP→HTTPS redirect
    az containerapp ingress update -n "$APP" -g "$RG" --allow-insecure false
+
+   # Backend (api subdomain): validates over the asuid.api TXT record; the
+   # backend already allows plain HTTP for the in-environment frontend, so no
+   # redirect dance is needed.
+   az containerapp hostname add \
+     --resource-group "$RG" --name "$API_APP" --hostname "$API_DOMAIN"
+   az containerapp hostname bind \
+     --resource-group "$RG" --name "$API_APP" --hostname "$API_DOMAIN" \
+     --environment "$ENVNAME" --validation-method TXT
+
+   # Verify
+   curl -sS -o /dev/null -w '%{http_code}\n' "https://$DOMAIN/"               # expect 200
+   curl -sS -o /dev/null -w '%{http_code}\n' "https://$API_DOMAIN/v1/health"  # expect 200
    ```
 
-   With the redirect out of the way, issuance usually completes within a
-   minute or two (Azure allows up to 20). The certificate auto-renews
-   afterwards. Verify the site serves a valid certificate:
+   </details>
 
-   ```sh
-   curl -sS -o /dev/null -w '%{http_code}\n' "https://$DOMAIN/"   # expect 200
-   ```
-
-After it completes, the site is reachable at `https://wasm.directory`.
+After the binds complete, the site is at `https://wasm.directory` and the
+meta-registry API (what the CLI uses) is at `https://api.wasm.directory`.
 
 ## 8. Tear down
 
