@@ -83,7 +83,7 @@ pub struct PackageSource {
 }
 
 /// Re-export from the shared types crate.
-pub use component_meta_registry_types::PackageKind;
+pub use wasm_meta_registry_types::PackageKind;
 
 impl Config {
     /// Load configuration from a registry directory.

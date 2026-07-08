@@ -5,12 +5,12 @@ members = [
     "crates/component-cli",
     "crates/component-cli-internal-run",
     "crates/component-frontend",
-    "crates/component-manifest",
+    "crates/wasm-manifest",
     "crates/component-meta-registry",
-    "crates/component-meta-registry-client",
-    "crates/component-meta-registry-types",
-    "crates/component-package-manager",
-    "crates/component-package-manager-migration",
+    "crates/wasm-meta-registry-client",
+    "crates/wasm-meta-registry-types",
+    "crates/wasm-package-manager",
+    "crates/wasm-package-manager-migration",
     "crates/component-detector",
     "crates/wit2cli",
     "crates/xtask",
@@ -87,12 +87,12 @@ str_to_string = "allow"
 [workspace.dependencies]
 
 # local dependencies
-component-manifest = { path = "crates/component-manifest", version = "0.3.0" }
+wasm-manifest = { path = "crates/wasm-manifest", version = "0.3.0" }
 component-meta-registry = { path = "crates/component-meta-registry", version = "0.3.0" }
-component-meta-registry-client = { path = "crates/component-meta-registry-client", version = "0.3.0", default-features = false }
-component-meta-registry-types = { path = "crates/component-meta-registry-types", version = "0.3.0" }
-component-package-manager = { path = "crates/component-package-manager", version = "0.3.0" }
-component-package-manager-migration = { path = "crates/component-package-manager-migration", version = "0.3.0" }
+wasm-meta-registry-client = { path = "crates/wasm-meta-registry-client", version = "0.3.0", default-features = false }
+wasm-meta-registry-types = { path = "crates/wasm-meta-registry-types", version = "0.3.0" }
+wasm-package-manager = { path = "crates/wasm-package-manager", version = "0.3.0" }
+wasm-package-manager-migration = { path = "crates/wasm-package-manager-migration", version = "0.3.0" }
 component-cli-internal-run = { path = "crates/component-cli-internal-run", version = "0.3.0" }
 component-detector = { path = "crates/component-detector", version = "0.3.0" }
 wit2cli = { path = "crates/wit2cli", version = "0.3.0" }

@@ -4,9 +4,9 @@
 //! key-value table at the bottom of the page. Consolidates producers,
 //! dependencies, languages, size, and other fields into a single section.
 
-use component_meta_registry_client::{BomEntry, ComponentSummary, PackageVersion};
 use html::tables::{Table, TableBody, TableRow};
 use html::text_content::Division;
+use wasm_meta_registry_client::{BomEntry, ComponentSummary, PackageVersion};
 
 /// Chevron SVG for collapsible sections — points left when collapsed, down when open.
 const CHEVRON_SVG: &str = r#"<svg class="h-4 w-4 text-ink-400 transition-transform duration-200 rotate-90 group-open:rotate-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>"#;

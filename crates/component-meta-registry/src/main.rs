@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use clap::Parser;
-use component_package_manager::manager::Manager;
 use tracing::{error, info, warn};
+use wasm_package_manager::manager::Manager;
 
 use component_meta_registry::{Config, Indexer, router};
 

@@ -1,6 +1,6 @@
 //! HTTP server with JSON API endpoints for package discovery.
 //!
-//! Provides search and listing endpoints backed by the `component-package-manager`
+//! Provides search and listing endpoints backed by the `wasm-package-manager`
 //! known packages database.
 
 use std::sync::Arc;
@@ -9,10 +9,10 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::{Json, Router, routing::get, routing::post};
-use component_package_manager::manager::Manager;
 use serde::Deserialize;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
+use wasm_package_manager::manager::Manager;
 
 /// Shared application state wrapping a `Manager` in a `tokio::sync::RwLock`.
 ///
@@ -29,7 +29,7 @@ use tower_http::trace::TraceLayer;
 ///
 /// ```no_run
 /// use component_meta_registry::server::AppState;
-/// use component_package_manager::manager::Manager;
+/// use wasm_package_manager::manager::Manager;
 /// use std::sync::Arc;
 ///
 /// # async fn example() -> anyhow::Result<()> {
@@ -126,7 +126,7 @@ pub const MAX_REPOSITORY_LEN: usize = 512;
 ///
 /// ```no_run
 /// use component_meta_registry::router;
-/// use component_package_manager::manager::Manager;
+/// use wasm_package_manager::manager::Manager;
 /// use std::sync::Arc;
 ///
 /// # async fn example() -> anyhow::Result<()> {
@@ -494,7 +494,7 @@ mod tests {
     /// should also return `enqueued` (the queue dedupes internally).
     #[tokio::test]
     async fn notify_endpoint_enqueues_pull_task() {
-        use component_meta_registry_types::NotifyOutcome;
+        use wasm_meta_registry_types::NotifyOutcome;
 
         let (_data_dir, manager) = isolated_manager().await;
 

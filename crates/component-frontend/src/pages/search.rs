@@ -2,13 +2,13 @@
 
 // r[impl frontend.pages.search]
 
-use component_meta_registry_client::KnownPackage;
 use html::text_content::Division;
+use wasm_meta_registry_client::KnownPackage;
 
 use crate::components::ds::{package_row, search_bar};
 use crate::escape::escape_html_text;
 use crate::layout;
-use component_meta_registry_client::{ApiError, RegistryClient};
+use wasm_meta_registry_client::{ApiError, RegistryClient};
 
 /// Fetch matching packages and render the search results page.
 pub(crate) async fn render(client: &RegistryClient, query: &str) -> String {

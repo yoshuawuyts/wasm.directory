@@ -1,7 +1,7 @@
 //! `cargo xtask sql` — database migration tooling.
 //!
 //! With Rust-defined SeaORM migrations under
-//! `crates/component-package-manager-migration/`, the legacy schema-diff
+//! `crates/wasm-package-manager-migration/`, the legacy schema-diff
 //! tooling (sqlite3def, schema.sql) is gone. The only remaining task is a
 //! sanity-check that exercises the migrator against real backends — this is
 //! what `cargo xtask sql check` does, and what `cargo xtask test` runs in CI.
@@ -14,7 +14,7 @@ use anyhow::{Context, Result};
 /// scripts; today there's nothing to install.
 pub(crate) fn install() {
     println!("`cargo xtask sql install` is a no-op since the SeaORM port.");
-    println!("Migrations live under crates/component-package-manager-migration/.");
+    println!("Migrations live under crates/wasm-package-manager-migration/.");
 }
 
 /// `cargo xtask sql migrate` — placeholder. Hand-author migration files
@@ -23,7 +23,7 @@ pub(crate) fn migrate(_name: &str) -> Result<()> {
     anyhow::bail!(
         "`cargo xtask sql migrate` is no longer supported. \
          Hand-author a new migration under \
-         crates/component-package-manager-migration/src/migrations/ \
+         crates/wasm-package-manager-migration/src/migrations/ \
          and register it in `Migrator::migrations()`."
     );
 }
@@ -42,8 +42,8 @@ pub(crate) fn check() -> Result<()> {
 }
 
 async fn check_async() -> Result<()> {
-    use component_package_manager_migration::{Migrator, MigratorTrait};
     use sea_orm::Database;
+    use wasm_package_manager_migration::{Migrator, MigratorTrait};
 
     println!("Applying migrations to in-memory SQLite...");
     let sqlite_db = Database::connect("sqlite::memory:")
@@ -82,7 +82,7 @@ async fn check_async() -> Result<()> {
 
 /// Strip any password from a URL of the form `scheme://user:pass@host/...`.
 ///
-/// Mirrors `component_package_manager::storage::redact_url` so that this
+/// Mirrors `wasm_package_manager::storage::redact_url` so that this
 /// crate doesn't need to pull in the full package-manager dependency.
 fn redact_url(url: &str) -> String {
     let Some(scheme_end) = url.find("://") else {

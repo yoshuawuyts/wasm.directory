@@ -17,7 +17,7 @@ use sea_orm::{
     sea_query::{Expr, ExprTrait},
 };
 
-use component_package_manager_migration::entities::{oci_repository, oci_tag};
+use wasm_package_manager_migration::entities::{oci_repository, oci_tag};
 
 pub(crate) fn run(dry_run: bool) -> Result<()> {
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -116,7 +116,7 @@ fn database_url() -> Result<String> {
         return Ok(url);
     }
     // Default: SQLite file in the platform data dir, matching what
-    // `component-package-manager` uses (`dirs::data_local_dir()`).
+    // `wasm-package-manager` uses (`dirs::data_local_dir()`).
     let dir = dirs::data_local_dir().context("locating platform data directory")?;
     // The meta-registry server uses `wasm-registry`; the CLI uses `wasm`.
     // Default to the registry's database since that's what feeds search.

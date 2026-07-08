@@ -14,8 +14,8 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
-use component_manifest::Manifest;
-use component_package_manager::manager::Manager;
+use wasm_manifest::Manifest;
+use wasm_package_manager::manager::Manager;
 
 /// Default GitHub repository hosting the component registry.
 ///
@@ -118,7 +118,7 @@ impl RegistryEntry {
     /// "already registered" lookup accurate and avoids prefilling issues that
     /// downstream automation would normalize to a different value. The
     /// `registry` base is left as-is, matching the automation.
-    fn from_package(package: &component_manifest::Package) -> Result<Self> {
+    fn from_package(package: &wasm_manifest::Package) -> Result<Self> {
         let (namespace, name) = parse_wit_name(&package.name)?;
         let (registry, repository) = split_registry_ref(&package.registry)?;
 
@@ -383,7 +383,7 @@ fn open_in_browser(url: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use component_manifest::{Package, PackageKind};
+    use wasm_manifest::{Package, PackageKind};
 
     fn sample_package() -> Package {
         Package {

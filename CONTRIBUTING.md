@@ -32,7 +32,7 @@ changes meet the project's quality standards.
 ### Database Schema & Migrations
 
 The database schema is defined in a single source-of-truth file:
-`crates/component-package-manager/src/storage/schema.sql`.
+`crates/wasm-package-manager/src/storage/schema.sql`.
 
 When changing the database schema, edit `schema.sql` then run:
 
@@ -165,7 +165,7 @@ After the PR is reviewed and merged, the **Publish** workflow automatically:
 
 - Authenticates with crates.io using OIDC (via the `crates-io-publish` environment)
 - Publishes all 6 public crates in dependency order (`component-detector`,
-  `component-manifest`, `component-meta-registry-client`, `component-package-manager`,
+  `wasm-manifest`, `wasm-meta-registry-client`, `wasm-package-manager`,
   `component-meta-registry`, `component`)
 - Creates and pushes the git tag (`v<version>`)
 - Creates a GitHub Release with auto-generated notes

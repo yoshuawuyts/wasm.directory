@@ -3,9 +3,9 @@
 use crate::components::ds::page_header;
 use crate::components::page_sidebar::SidebarActive;
 use crate::wit_doc::{FunctionDoc, TypeDoc, TypeKind, TypeRef, WitDocument};
-use component_meta_registry_client::{KnownPackage, PackageVersion};
 use html::tables::{Table, TableRow};
 use html::text_content::Division;
+use wasm_meta_registry_client::{KnownPackage, PackageVersion};
 
 use super::detail::{self, DetailSpec};
 

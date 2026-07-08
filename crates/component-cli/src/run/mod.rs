@@ -19,8 +19,8 @@ use std::path::PathBuf;
 use errors::RunError;
 use miette::{Context, IntoDiagnostic};
 
-use component_manifest::RunPermissions;
-use component_package_manager::manager::Manager;
+use wasm_manifest::RunPermissions;
+use wasm_package_manager::manager::Manager;
 use wasmparser::{Parser, Payload};
 
 use wit2cli::{
@@ -173,12 +173,12 @@ impl Opts {
     /// resolution. Local files and local-package runs are handled by the
     /// caller before this method is reached.
     ///
-    /// [`Reference`]: component_package_manager::Reference
+    /// [`Reference`]: wasm_package_manager::Reference
     async fn resolve_remote_bytes(
         &self,
         input: &str,
         offline: bool,
-    ) -> miette::Result<(Vec<u8>, Option<component_package_manager::Reference>)> {
+    ) -> miette::Result<(Vec<u8>, Option<wasm_package_manager::Reference>)> {
         // Manifest keys use `scope:component` syntax; an optional `@version`
         // suffix (e.g. `yoshuawuyts:wordmark@2.0.6`) is part of the input
         // grammar but is not part of the key stored in `wasm.toml`. Strip the
@@ -268,10 +268,10 @@ impl Opts {
     /// 4. CLI flags
     fn resolve_permissions(
         &self,
-        reference: Option<&component_package_manager::Reference>,
-    ) -> component_manifest::ResolvedPermissions {
+        reference: Option<&wasm_package_manager::Reference>,
+    ) -> wasm_manifest::ResolvedPermissions {
         let cli = self.cli_permissions();
-        component_package_manager::permissions::resolve_permissions(reference, cli)
+        wasm_package_manager::permissions::resolve_permissions(reference, cli)
     }
 }
 
@@ -315,7 +315,7 @@ fn resolve_local_package(input: Option<&str>) -> miette::Result<Option<PathBuf>>
         }
     };
 
-    let manifest = match toml::from_str::<component_manifest::Manifest>(&manifest_str) {
+    let manifest = match toml::from_str::<wasm_manifest::Manifest>(&manifest_str) {
         Ok(manifest) => manifest,
         Err(e) => {
             return match input {
@@ -345,7 +345,7 @@ fn resolve_local_package(input: Option<&str>) -> miette::Result<Option<PathBuf>>
         }
     }
 
-    if package.kind != component_manifest::PackageKind::Component {
+    if package.kind != wasm_manifest::PackageKind::Component {
         return Err(RunError::LocalPackageNotComponent { name: package.name }.into());
     }
 
@@ -383,7 +383,7 @@ fn resolve_manifest_key(input: &str) -> miette::Result<Option<PathBuf>> {
     let Ok(manifest_str) = std::fs::read_to_string(&manifest_path) else {
         return Ok(None);
     };
-    let Ok(manifest) = toml::from_str::<component_manifest::Manifest>(&manifest_str) else {
+    let Ok(manifest) = toml::from_str::<wasm_manifest::Manifest>(&manifest_str) else {
         return Ok(None);
     };
 
@@ -395,7 +395,7 @@ fn resolve_manifest_key(input: &str) -> miette::Result<Option<PathBuf>> {
     let Ok(lockfile_str) = std::fs::read_to_string(&lockfile_path) else {
         return Ok(None);
     };
-    let Ok(lockfile) = toml::from_str::<component_manifest::Lockfile>(&lockfile_str) else {
+    let Ok(lockfile) = toml::from_str::<wasm_manifest::Lockfile>(&lockfile_str) else {
         return Ok(None);
     };
 
@@ -411,7 +411,7 @@ fn resolve_manifest_key(input: &str) -> miette::Result<Option<PathBuf>> {
     // Reconstruct the vendor filename from lockfile data.  The on-disk
     // file is named after the `namespace:package@version` declared in
     // the WIT metadata (e.g. `yoshuawuyts-acp-3.0.0.wasm`).
-    let filename = component_package_manager::manager::vendor_filename(
+    let filename = wasm_package_manager::manager::vendor_filename(
         &package.name,
         Some(package.version.as_str()),
     );
@@ -451,7 +451,7 @@ async fn load_from_global_cache(input: &str, offline: bool) -> miette::Result<Ve
             .sync_from_meta_registry(
                 &registry_url,
                 Manager::DEFAULT_SYNC_INTERVAL,
-                component_package_manager::manager::SyncPolicy::IfStale,
+                wasm_package_manager::manager::SyncPolicy::IfStale,
             )
             .await;
     }
@@ -459,9 +459,9 @@ async fn load_from_global_cache(input: &str, offline: bool) -> miette::Result<Ve
     // Try resolving through the known-package index and pulling the latest
     // version from the remote registry. Falls back to fuzzy search when no
     // exact WIT-name match exists, then to the local cache as a last resort.
-    if !offline && component_package_manager::manager::install::looks_like_wit_name(input) {
+    if !offline && wasm_package_manager::manager::install::looks_like_wit_name(input) {
         if let Ok(reference) =
-            component_package_manager::manager::install::resolve_wit_name(input, &manager).await
+            wasm_package_manager::manager::install::resolve_wit_name(input, &manager).await
         {
             return fetch_oci_bytes(&reference, offline).await;
         }
@@ -481,7 +481,7 @@ async fn load_from_global_cache(input: &str, offline: bool) -> miette::Result<Ve
             name: input.to_string(),
         })?;
 
-    let wasm_layers = component_package_manager::oci::filter_wasm_layers(&entry.manifest.layers);
+    let wasm_layers = wasm_package_manager::oci::filter_wasm_layers(&entry.manifest.layers);
     let layer = wasm_layers.first().ok_or(RunError::NoWasmLayer)?;
     manager
         .get(&layer.digest)
@@ -497,7 +497,7 @@ async fn load_from_global_cache(input: &str, offline: bool) -> miette::Result<Ve
 async fn fuzzy_resolve_from_registry(
     manager: &Manager,
     input: &str,
-) -> miette::Result<Option<component_package_manager::Reference>> {
+) -> miette::Result<Option<wasm_package_manager::Reference>> {
     // Split `scope:name-prefix` so we can search by the name fragment and
     // filter by the namespace separately. The known-package index stores
     // `wit_namespace` (e.g. `ba`) and `wit_name` (e.g. `sample-wasi-http-rust`)
@@ -512,7 +512,7 @@ async fn fuzzy_resolve_from_registry(
         .await
         .map_err(crate::util::into_miette)?;
 
-    let candidates: Vec<&component_package_manager::storage::KnownPackage> = matches
+    let candidates: Vec<&wasm_package_manager::storage::KnownPackage> = matches
         .iter()
         .filter(|p| {
             let Some(ns) = p.wit_namespace.as_deref() else {
@@ -529,10 +529,9 @@ async fn fuzzy_resolve_from_registry(
         [] => Ok(None),
         [pkg] => {
             let reference_str = format!("{}/{}", pkg.registry, pkg.repository);
-            let reference =
-                component_package_manager::parse_reference(&reference_str).map_err(|e| {
-                    miette::miette!("failed to build OCI reference for '{reference_str}': {e}")
-                })?;
+            let reference = wasm_package_manager::parse_reference(&reference_str).map_err(|e| {
+                miette::miette!("failed to build OCI reference for '{reference_str}': {e}")
+            })?;
             Ok(Some(reference))
         }
         many => {
@@ -557,7 +556,7 @@ async fn fuzzy_resolve_from_registry(
 
 /// Fetch component bytes from an OCI registry.
 async fn fetch_oci_bytes(
-    oci_ref: &component_package_manager::Reference,
+    oci_ref: &wasm_package_manager::Reference,
     offline: bool,
 ) -> miette::Result<Vec<u8>> {
     let manager = if offline {
@@ -571,7 +570,7 @@ async fn fetch_oci_bytes(
         .await
         .map_err(crate::util::into_miette)?;
     let manifest = pull_result.manifest.as_ref().ok_or(RunError::NoManifest)?;
-    let wasm_layers = component_package_manager::oci::filter_wasm_layers(&manifest.layers);
+    let wasm_layers = wasm_package_manager::oci::filter_wasm_layers(&manifest.layers);
     let layer = wasm_layers.first().ok_or(RunError::NoWasmLayer)?;
     let key = &layer.digest;
     manager
@@ -629,7 +628,7 @@ async fn auto_install(input: &str, offline: bool) -> miette::Result<()> {
 
     let manifest_path = std::path::Path::new("wasm.toml");
     if !manifest_path.exists() {
-        let manifest = component_manifest::Manifest::default();
+        let manifest = wasm_manifest::Manifest::default();
         let manifest_str = toml::to_string_pretty(&manifest).into_diagnostic()?;
         tokio::fs::write(manifest_path, manifest_str.as_bytes())
             .await
@@ -639,7 +638,7 @@ async fn auto_install(input: &str, offline: bool) -> miette::Result<()> {
 
     let lockfile_path = std::path::Path::new("wasm.lock.toml");
     if !lockfile_path.exists() {
-        let lockfile = component_manifest::Lockfile::default();
+        let lockfile = wasm_manifest::Lockfile::default();
         crate::util::write_lock_file(lockfile_path, &lockfile)
             .await
             .into_diagnostic()
@@ -691,7 +690,7 @@ fn exports_cli_run(bytes: &[u8]) -> bool {
 // r[impl run.library-help]
 async fn run_library_component(
     bytes: &[u8],
-    permissions: &component_manifest::ResolvedPermissions,
+    permissions: &wasm_manifest::ResolvedPermissions,
     extra: &[String],
 ) -> miette::Result<()> {
     // 1. Extract the dispatch surface.

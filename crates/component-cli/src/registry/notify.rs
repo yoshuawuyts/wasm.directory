@@ -3,9 +3,9 @@
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
 use anyhow::{Result, bail};
-use component_meta_registry_types::NotifyOutcome;
-use component_package_manager::Reference;
-use component_package_manager::manager::{Manager, SyncPolicy, install};
+use wasm_meta_registry_types::NotifyOutcome;
+use wasm_package_manager::Reference;
+use wasm_package_manager::manager::{Manager, SyncPolicy, install};
 
 /// Notify a meta-registry that a new version of a package is available.
 ///

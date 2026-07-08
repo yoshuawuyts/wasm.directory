@@ -1,7 +1,7 @@
 //! Namespace (publisher) page — lists all packages under a given namespace.
 
-use component_meta_registry_client::RegistryClient;
 use html::text_content::Division;
+use wasm_meta_registry_client::RegistryClient;
 
 use crate::components::ds::package_row;
 use crate::layout;
@@ -26,7 +26,7 @@ pub(crate) async fn render(client: &RegistryClient, namespace: &str) -> String {
 /// Render the package listing for a namespace.
 fn render_packages(
     namespace: &str,
-    packages: &[&component_meta_registry_client::KnownPackage],
+    packages: &[&wasm_meta_registry_client::KnownPackage],
 ) -> String {
     let mut body = Division::builder();
 

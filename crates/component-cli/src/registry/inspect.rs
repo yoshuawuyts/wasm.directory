@@ -7,10 +7,10 @@ use anyhow::Result;
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{CellAlignment, ContentArrangement, Table};
-use component_package_manager::Reference;
-use component_package_manager::manager::Manager;
-use component_package_manager::oci::filter_wasm_layers;
 use wasm_metadata::{Metadata, Payload};
+use wasm_package_manager::Reference;
+use wasm_package_manager::manager::Manager;
+use wasm_package_manager::oci::filter_wasm_layers;
 
 /// Inspect the metadata of a package on the registry.
 #[derive(clap::Args)]

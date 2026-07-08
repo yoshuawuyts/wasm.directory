@@ -6,8 +6,8 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
-use component_manifest::{Manifest, PackageKind};
-use component_package_manager::manager::Manager;
+use wasm_manifest::{Manifest, PackageKind};
+use wasm_package_manager::manager::Manager;
 
 /// Options for the top-level `component publish` command.
 #[derive(clap::Args)]

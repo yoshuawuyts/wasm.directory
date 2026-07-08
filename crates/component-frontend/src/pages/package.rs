@@ -6,9 +6,9 @@ use crate::components::ds::wit_item::{self, WitItem, WitItemKind};
 use crate::components::ds::{metadata_table, page_header};
 use crate::components::page_sidebar::SidebarActive;
 use crate::wit_doc::WitDocument;
-use component_meta_registry_client::{KnownPackage, PackageVersion};
 use html::content::Section;
 use html::text_content::Division;
+use wasm_meta_registry_client::{KnownPackage, PackageVersion};
 
 use super::detail::{self, DetailSpec};
 use crate::components::page_shell;
@@ -28,8 +28,8 @@ pub(crate) fn render(
 
     // Package heading
     let kind_label = match pkg.kind {
-        Some(component_meta_registry_client::PackageKind::Interface) => "Interface Types",
-        Some(component_meta_registry_client::PackageKind::Component) => "Component",
+        Some(wasm_meta_registry_client::PackageKind::Interface) => "Interface Types",
+        Some(wasm_meta_registry_client::PackageKind::Component) => "Component",
         _ => "Package",
     };
     let _pkg_name = pkg.wit_name.as_deref().unwrap_or(&display_name);
@@ -70,10 +70,10 @@ pub(crate) fn render(
     );
 
     let install_intro = match pkg.kind {
-        Some(component_meta_registry_client::PackageKind::Interface) => {
+        Some(wasm_meta_registry_client::PackageKind::Interface) => {
             "Add these interface types to your project:"
         }
-        Some(component_meta_registry_client::PackageKind::Component) => {
+        Some(wasm_meta_registry_client::PackageKind::Component) => {
             "Add this component to your project:"
         }
         _ => "Add this package to your project:",
@@ -126,7 +126,7 @@ pub(crate) fn render(
     tab_panels.push(("Install", &install_panel));
     if matches!(
         pkg.kind,
-        Some(component_meta_registry_client::PackageKind::Component)
+        Some(wasm_meta_registry_client::PackageKind::Component)
     ) {
         tab_panels.push(("CLI", &run_panel));
         tab_panels.push(("ACP", &acp_panel));
@@ -318,7 +318,7 @@ fn render_wit_content_with_doc(
         let url_base = page_shell::url_base_for(pkg, version);
 
         // Modules section
-        let modules: Vec<&component_meta_registry_client::ComponentSummary> = comp
+        let modules: Vec<&wasm_meta_registry_client::ComponentSummary> = comp
             .children
             .iter()
             .filter(|ch| ch.kind.as_deref() == Some("module"))
@@ -333,7 +333,7 @@ fn render_wit_content_with_doc(
         }
 
         // Nested components section
-        let components: Vec<&component_meta_registry_client::ComponentSummary> = comp
+        let components: Vec<&wasm_meta_registry_client::ComponentSummary> = comp
             .children
             .iter()
             .filter(|ch| ch.kind.as_deref() == Some("component"))
@@ -371,7 +371,7 @@ fn render_wit_content_with_doc(
 /// Render a section listing child modules or components as navigable links.
 fn render_children_overview(
     heading: &str,
-    children: &[&component_meta_registry_client::ComponentSummary],
+    children: &[&wasm_meta_registry_client::ComponentSummary],
     url_base: &str,
     kind: &str,
 ) -> Division {
@@ -434,7 +434,7 @@ fn try_parse_wit(
 /// Maps `"namespace:name"` → `"/namespace/name/version"` for each
 /// dependency that has a version.
 fn build_dep_urls(
-    deps: &[component_meta_registry_client::PackageDependencyRef],
+    deps: &[wasm_meta_registry_client::PackageDependencyRef],
 ) -> std::collections::HashMap<String, String> {
     deps.iter()
         .filter_map(|dep| {
@@ -540,7 +540,7 @@ fn render_world_summaries(detail: &PackageVersion) -> Division {
 /// imports/exports with clickable links.
 fn render_iface_ref_list(
     label: &str,
-    interfaces: &[component_meta_registry_client::WitInterfaceRef],
+    interfaces: &[wasm_meta_registry_client::WitInterfaceRef],
 ) -> Division {
     let items: Vec<WitItem> = interfaces.iter().map(wit_item::iface_ref_to_item).collect();
     wit_item::render_item_section(label, &items)
@@ -580,7 +580,7 @@ fn is_lossy_wit(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use component_meta_registry_client::PackageDependencyRef;
+    use wasm_meta_registry_client::PackageDependencyRef;
 
     fn sample_pkg() -> KnownPackage {
         KnownPackage {

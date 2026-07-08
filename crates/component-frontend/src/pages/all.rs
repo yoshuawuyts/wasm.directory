@@ -2,12 +2,12 @@
 
 // r[impl frontend.pages.all]
 
-use component_meta_registry_client::KnownPackage;
 use html::text_content::Division;
+use wasm_meta_registry_client::KnownPackage;
 
 use crate::components::ds::package_row;
 use crate::layout;
-use component_meta_registry_client::{ApiError, RegistryClient};
+use wasm_meta_registry_client::{ApiError, RegistryClient};
 
 /// Fetch all packages and render a paginated list.
 pub(crate) async fn render(client: &RegistryClient, offset: u32, limit: u32) -> String {

@@ -2,7 +2,7 @@
 
 // r[impl frontend.pages.home]
 
-use component_meta_registry_client::{ApiError, KnownPackage, RegistryClient};
+use wasm_meta_registry_client::{ApiError, KnownPackage, RegistryClient};
 
 use crate::components::ds::{
     cta_strip::{self, CtaStrip},

@@ -5,19 +5,19 @@ mod progress_bar;
 
 use std::collections::{HashMap, HashSet};
 
-use component_package_manager::manager::{
+use futures_concurrency::prelude::*;
+use indicatif::MultiProgress;
+use miette::{IntoDiagnostic, WrapErr};
+use wasm_package_manager::manager::{
     InstallResult, Manager, SyncPolicy, SyncResult, derive_component_name,
     install::{
         looks_like_wit_name, re_vendor_wit_files, resolve_dep_reference, resolve_install_inputs,
         resolve_manifest_dependency, upsert_lockfile_package, upsert_lockfile_type,
     },
 };
-use component_package_manager::resolver::ResolveError;
-use component_package_manager::types::DependencyItem;
-use component_package_manager::{ProgressEvent, Reference};
-use futures_concurrency::prelude::*;
-use indicatif::MultiProgress;
-use miette::{IntoDiagnostic, WrapErr};
+use wasm_package_manager::resolver::ResolveError;
+use wasm_package_manager::types::DependencyItem;
+use wasm_package_manager::{ProgressEvent, Reference};
 
 use crate::util::write_lock_file;
 use errors::InstallError;
@@ -64,14 +64,14 @@ impl Opts {
             .await
             .into_diagnostic()
             .wrap_err_with(|| format!("could not read '{}'", manifest_path.display()))?;
-        let mut manifest: component_manifest::Manifest =
+        let mut manifest: wasm_manifest::Manifest =
             toml::from_str(&manifest_str).into_diagnostic()?;
 
         // Read existing lockfile — create a fresh one when none exists yet.
         let mut lockfile = match tokio::fs::read_to_string(&lockfile_path).await {
-            Ok(s) => toml::from_str::<component_manifest::Lockfile>(&s).into_diagnostic()?,
+            Ok(s) => toml::from_str::<wasm_manifest::Lockfile>(&s).into_diagnostic()?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                component_manifest::Lockfile::default()
+                wasm_manifest::Lockfile::default()
             }
             Err(e) => {
                 return Err(miette::miette!(
@@ -165,10 +165,8 @@ impl Opts {
         // A `Db` error means dep-graph data is not yet available (e.g. the
         // meta-registry hasn't indexed deps, or sync was skipped in offline
         // mode).  We skip silently and let the fallback installer handle it.
-        let mut resolved_transitive: HashMap<
-            String,
-            component_package_manager::resolver::WitVersion,
-        > = HashMap::new();
+        let mut resolved_transitive: HashMap<String, wasm_package_manager::resolver::WitVersion> =
+            HashMap::new();
         let mut resolver_root_names: HashSet<String> = HashSet::new();
         if !offline {
             let mut roots = Vec::new();
@@ -189,10 +187,8 @@ impl Opts {
                 let tag = reference.tag().unwrap_or_default();
                 let version = tag
                     .trim_start_matches('v')
-                    .parse::<component_package_manager::resolver::WitVersion>()
-                    .unwrap_or(component_package_manager::resolver::WitVersion::new(
-                        0, 0, 0,
-                    ));
+                    .parse::<wasm_package_manager::resolver::WitVersion>()
+                    .unwrap_or(wasm_package_manager::resolver::WitVersion::new(0, 0, 0));
                 roots.push((name.to_string(), version));
                 resolver_root_names.insert(name.to_string());
             }
@@ -508,8 +504,8 @@ fn process_top_level_result(
     result: InstallResult,
     update_manifest: bool,
     explicit_name: Option<String>,
-    manifest: &mut component_manifest::Manifest,
-    lockfile: &mut component_manifest::Lockfile,
+    manifest: &mut wasm_manifest::Manifest,
+    lockfile: &mut wasm_manifest::Lockfile,
 ) -> Vec<DependencyItem> {
     // Derive the dependency name.
     // When the user provided an explicit WIT-style name (e.g.
@@ -551,7 +547,7 @@ fn process_top_level_result(
     // full OCI reference), so bare "1.2.3" means ^1.2.3 per Cargo
     // semantics.
     if update_manifest {
-        let dep = component_manifest::Dependency::Compact(version.clone());
+        let dep = wasm_manifest::Dependency::Compact(version.clone());
         if result.is_component {
             manifest
                 .dependencies
@@ -570,13 +566,13 @@ fn process_top_level_result(
     // Registry and digest are left empty here and resolved later
     // by `Lockfile::resolve_dependency_details()` once all transitive
     // dependencies have been installed.
-    let lockfile_deps: Vec<component_manifest::PackageDependency> = result
+    let lockfile_deps: Vec<wasm_manifest::PackageDependency> = result
         .dependencies
         .iter()
         .filter_map(|d| {
             d.version
                 .clone()
-                .map(|version| component_manifest::PackageDependency {
+                .map(|version| wasm_manifest::PackageDependency {
                     name: d.package.clone(),
                     version,
                     registry: String::new(),
@@ -589,7 +585,7 @@ fn process_top_level_result(
     let registry_path = format!("{}/{}", result.registry, result.repository);
     let digest = result.digest.unwrap_or_default();
 
-    let package = component_manifest::LockedPackage {
+    let package = wasm_manifest::LockedPackage {
         name: dep_name.clone(),
         version,
         registry: registry_path.clone(),
@@ -610,8 +606,8 @@ fn process_top_level_result(
 
 #[cfg(test)]
 mod tests {
-    use component_package_manager::manager::InstallResult;
-    use component_package_manager::manager::install::{looks_like_wit_name, re_vendor_wit_files};
+    use wasm_package_manager::manager::InstallResult;
+    use wasm_package_manager::manager::install::{looks_like_wit_name, re_vendor_wit_files};
 
     #[test]
     fn looks_like_wit_name_bare() {

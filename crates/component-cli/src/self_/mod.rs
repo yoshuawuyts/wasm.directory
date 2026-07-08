@@ -5,8 +5,8 @@ use std::io::{self, BufRead, Seek, Write};
 use anyhow::Result;
 use clap::CommandFactory;
 use clap_complete::Shell;
-use component_package_manager::manager::Manager;
-use component_package_manager::{Config, format_size};
+use wasm_package_manager::manager::Manager;
+use wasm_package_manager::{Config, format_size};
 
 /// The path of the dotenv file relative to the current working directory.
 const DOTENV_PATH: &str = ".env";

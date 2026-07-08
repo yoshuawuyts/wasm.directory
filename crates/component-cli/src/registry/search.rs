@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use comfy_table::{ContentArrangement, Table};
-use component_package_manager::manager::{Manager, SyncPolicy, SyncResult};
+use wasm_package_manager::manager::{Manager, SyncPolicy, SyncResult};
 
 /// Default sync interval in seconds (1 hour).
 const SYNC_INTERVAL: u64 = Manager::DEFAULT_SYNC_INTERVAL;
@@ -107,7 +107,7 @@ impl SearchOpts {
 /// but unit tests can call it directly without a database.
 #[must_use]
 pub(crate) fn render_search_table(
-    packages: &[component_package_manager::storage::KnownPackage],
+    packages: &[wasm_package_manager::storage::KnownPackage],
 ) -> String {
     let mut table = Table::new();
     table.set_content_arrangement(ContentArrangement::Dynamic);
@@ -130,10 +130,10 @@ pub(crate) fn render_search_table(
 /// Narrow a list of packages to those whose reference or description
 /// contains `query` (case-insensitive), keeping at most `limit` results.
 fn filter_by_text(
-    packages: Vec<component_package_manager::storage::KnownPackage>,
+    packages: Vec<wasm_package_manager::storage::KnownPackage>,
     query: &str,
     limit: u32,
-) -> Vec<component_package_manager::storage::KnownPackage> {
+) -> Vec<wasm_package_manager::storage::KnownPackage> {
     let query_lc = query.to_lowercase();
     packages
         .into_iter()
@@ -153,7 +153,7 @@ fn filter_by_text(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use component_package_manager::storage::KnownPackage;
+    use wasm_package_manager::storage::KnownPackage;
 
     #[test]
     fn test_render_search_table_with_results() {

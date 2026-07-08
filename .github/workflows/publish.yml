@@ -128,30 +128,30 @@ jobs:
       - name: Publish component-detector
         run: cargo publish --package component-detector
 
-      - name: Publish component-manifest
-        run: cargo publish --package component-manifest
+      - name: Publish wasm-manifest
+        run: cargo publish --package wasm-manifest
 
-      - name: Publish component-meta-registry-types
-        run: cargo publish --package component-meta-registry-types
+      - name: Publish wasm-meta-registry-types
+        run: cargo publish --package wasm-meta-registry-types
 
-      - name: Publish component-package-manager-migration
-        run: cargo publish --package component-package-manager-migration
-
-      - name: Wait for crates.io indexing
-        run: sleep 30
-
-      # Tier 2: depends on component-meta-registry-types.
-      - name: Publish component-meta-registry-client
-        run: cargo publish --package component-meta-registry-client
+      - name: Publish wasm-package-manager-migration
+        run: cargo publish --package wasm-package-manager-migration
 
       - name: Wait for crates.io indexing
         run: sleep 30
 
-      # Tier 3: depends on component-detector, component-manifest,
-      # component-meta-registry-types, component-meta-registry-client, and
-      # component-package-manager-migration.
-      - name: Publish component-package-manager
-        run: cargo publish --package component-package-manager
+      # Tier 2: depends on wasm-meta-registry-types.
+      - name: Publish wasm-meta-registry-client
+        run: cargo publish --package wasm-meta-registry-client
+
+      - name: Wait for crates.io indexing
+        run: sleep 30
+
+      # Tier 3: depends on component-detector, wasm-manifest,
+      # wasm-meta-registry-types, wasm-meta-registry-client, and
+      # wasm-package-manager-migration.
+      - name: Publish wasm-package-manager
+        run: cargo publish --package wasm-package-manager
 
   release:
     name: Create release

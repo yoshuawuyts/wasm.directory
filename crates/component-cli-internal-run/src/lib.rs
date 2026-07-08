@@ -101,7 +101,7 @@ pub fn validate_component(bytes: &[u8]) -> miette::Result<()> {
 /// Build a [`WasiState`] from the resolved CLI permissions, plus
 /// optional `argv` to forward to the guest's `wasi:cli/environment#get-arguments`.
 fn build_wasi_state(
-    permissions: &component_manifest::ResolvedPermissions,
+    permissions: &wasm_manifest::ResolvedPermissions,
     argv: &[String],
 ) -> miette::Result<WasiState> {
     let mut builder = WasiCtxBuilder::new();
@@ -165,7 +165,7 @@ fn build_wasi_state(
 /// context setup fails.
 pub fn execute_cli_component(
     bytes: &[u8],
-    permissions: &component_manifest::ResolvedPermissions,
+    permissions: &wasm_manifest::ResolvedPermissions,
     argv: &[String],
 ) -> miette::Result<Result<(), ()>> {
     let engine = build_engine()?;
@@ -211,7 +211,7 @@ pub fn execute_cli_component(
 // r[impl run.library-dispatch]
 pub async fn execute_library_function(
     bytes: &[u8],
-    permissions: &component_manifest::ResolvedPermissions,
+    permissions: &wasm_manifest::ResolvedPermissions,
     interface: Option<&str>,
     func: &str,
     args: &[Val],

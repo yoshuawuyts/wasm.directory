@@ -17,7 +17,7 @@ source code to `.wasm` binaries. And then use `component-cli` to handle everythi
 else, including: executing, publishing, linking, and debugging.
 
 `component-cli` can either be used directly from the command line, or embedded into
-other applications via the `component-package-manager` Rust crate. This makes it
+other applications via the `wasm-package-manager` Rust crate. This makes it
 possible for other Wasm tools to search and install Wasm Components without ever
 leaving the application. Coupled with the "search-by-interface" functionality, this makes it possible to filter the search down only compatible components.
 
@@ -117,9 +117,9 @@ This project is composed of several crates:
 | Crate                                                 | Description                                                                                          |
 | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | [`component`](crates/component-cli)                             | The `component(1)` command-line interface providing unified WebAssembly developer tools                   |
-| [`component-package-manager`](crates/component-package-manager) | A stateful library to interact with OCI registries storing WebAssembly Components                    |
+| [`wasm-package-manager`](crates/wasm-package-manager) | A stateful library to interact with OCI registries storing WebAssembly Components                    |
 | [`component-detector`](crates/component-detector)               | A library to detect local `.wasm` files in a repository                                              |
-| [`component-manifest`](crates/component-manifest)               | Manifest and lockfile format types for WebAssembly packages                                          |
+| [`wasm-manifest`](crates/wasm-manifest)               | Manifest and lockfile format types for WebAssembly packages                                          |
 | [`component-meta-registry`](crates/component-meta-registry)     | An HTTP server that indexes OCI registries for WebAssembly package metadata and exposes a search API |
 | [`xtask`](crates/xtask)                               | Internal development automation tasks (formatting, linting, testing, migrations)                     |
 

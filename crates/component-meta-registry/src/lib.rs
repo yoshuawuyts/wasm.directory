@@ -2,7 +2,7 @@
 //!
 //! This crate indexes OCI registries for package metadata and exposes a
 //! search API. It reads a directory of per-namespace TOML registry files,
-//! periodically syncs manifest and config metadata via `component-package-manager`,
+//! periodically syncs manifest and config metadata via `wasm-package-manager`,
 //! and serves search results over HTTP.
 //!
 //! # Registry format
@@ -32,7 +32,7 @@
 //!
 //! ```no_run
 //! use component_meta_registry::{Config, Indexer, router};
-//! use component_package_manager::manager::Manager;
+//! use wasm_package_manager::manager::Manager;
 //! use std::sync::Arc;
 //! use std::path::Path;
 //!
