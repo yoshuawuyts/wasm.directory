@@ -5,7 +5,7 @@
 # Windows `postprovision` hook (see azure.yaml) and safe to run by hand:
 #
 #   ./scripts/bind-custom-domains.ps1                 # domain from azd env / env
-#   ./scripts/bind-custom-domains.ps1 wasm.directory  # domain given explicitly
+#   ./scripts/bind-custom-domains.ps1 -Domain wasm.directory  # domain explicit
 #
 # See the shell script's header and docs/azure-deployment.md section 7 for the
 # full rationale. In short: this automates the mechanical hostname add + managed
@@ -37,7 +37,7 @@ if (-not $Domain) { $Domain = Resolve-Value 'CUSTOM_DOMAIN_NAME' }
 if (-not $Domain) {
     Write-Host '==> No custom domain to bind (no argument and CUSTOM_DOMAIN_NAME is unset).'
     Write-Host '    Pass one explicitly to bind by hand, e.g.:'
-    Write-Host '        ./scripts/bind-custom-domains.ps1 wasm.directory'
+    Write-Host '        pwsh ./scripts/bind-custom-domains.ps1 -Domain wasm.directory'
     Write-Host '    or set it in the azd environment and re-provision:'
     Write-Host '        azd env set CUSTOM_DOMAIN_NAME wasm.directory; azd provision'
     exit 0
@@ -121,15 +121,20 @@ function Invoke-BindDomain([string]$App, [string]$D, [string]$Method) {
 
     Write-Host "  $D - binding managed certificate (validation: $Method)"
     if ($Method -eq 'HTTP') {
-        # HTTP (DigiCert) validation must reach the app over plain HTTP; open it
-        # for the probe, then restore the HTTP->HTTPS redirect. Used for both the
-        # apex and the api subdomain: managed-certificate TXT validation proved
-        # unreliable here (certs stuck in 'Pending'), whereas HTTP completes.
+        # HTTP (DigiCert) validation must reach the app over plain HTTP. Capture
+        # the current allowInsecure setting, open HTTP for the probe, then
+        # restore it: the backend intentionally keeps allowInsecure=true so the
+        # in-environment frontend can reach http://backend (see
+        # infra/modules/backend.bicep), while the frontend keeps it false. Both
+        # hostnames use HTTP validation because managed-certificate TXT
+        # validation proved unreliable here (certs stuck in 'Pending').
+        $prev = az containerapp ingress show -n $App -g $Rg --query allowInsecure -o tsv 2>$null
+        if ($prev -ne 'true') { $prev = 'false' }
         az containerapp ingress update -n $App -g $Rg --allow-insecure true 2>$null | Out-Null
         az containerapp hostname bind --resource-group $Rg --name $App --hostname $D `
             --environment $EnvName --validation-method $Method 2>$null | Out-Null
         $rc = $LASTEXITCODE
-        az containerapp ingress update -n $App -g $Rg --allow-insecure false 2>$null | Out-Null
+        az containerapp ingress update -n $App -g $Rg --allow-insecure $prev 2>$null | Out-Null
     }
     else {
         az containerapp hostname bind --resource-group $Rg --name $App --hostname $D `
@@ -178,7 +183,7 @@ if ($deferred -gt 0) {
          dig +short TXT asuid.$Domain
          dig +short TXT asuid.$ApiDomain
     3. Re-run this bind (or 'azd provision' again):
-         ./scripts/bind-custom-domains.ps1
+         pwsh ./scripts/bind-custom-domains.ps1 -Domain $Domain
 
     See docs/azure-deployment.md section 7 for details.
 "@

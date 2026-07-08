@@ -42,8 +42,9 @@ certificates to the frontend/backend Container Apps.
   DOMAIN   Apex custom domain, e.g. "wasm.directory". When omitted, it is read
            from CUSTOM_DOMAIN_NAME (environment variable or azd env store).
 
-Resource group, Container App names and the api domain are likewise read from
-the environment or the azd env store.
+Resource group and Container App names are likewise read from the environment
+or the azd env store. The api subdomain comes from CUSTOM_API_DOMAIN_NAME,
+defaulting to "api.<DOMAIN>" when that is unset.
 EOF
 }
 
@@ -151,16 +152,23 @@ bind_domain() { # APP DOMAIN VALIDATION_METHOD
   log "  $domain — binding managed certificate (validation: $method)"
   local rc=0
   if [ "$method" = "HTTP" ]; then
-    # HTTP (DigiCert) validation must reach the app over plain HTTP; open it for
-    # the probe, then restore the HTTP->HTTPS redirect afterwards. Used for both
-    # the apex and the api subdomain: Container Apps managed-certificate TXT
-    # validation proved unreliable here (certs stuck in "Pending"), whereas HTTP
-    # validation completes.
+    # HTTP (DigiCert) validation must reach the app over plain HTTP. Capture the
+    # app's current allowInsecure setting, open HTTP for the probe, then restore
+    # exactly what was there — the backend intentionally keeps allowInsecure=true
+    # so the in-environment frontend can reach http://backend (see
+    # infra/modules/backend.bicep), while the frontend keeps it false to force
+    # HTTP->HTTPS. Both hostnames use HTTP validation because Container Apps
+    # managed-certificate TXT validation proved unreliable here (certs stuck in
+    # "Pending").
+    local prev_insecure
+    prev_insecure="$(az containerapp ingress show -n "$app" -g "$RG" \
+      --query allowInsecure -o tsv 2>/dev/null || true)"
+    [ "$prev_insecure" = "true" ] || prev_insecure=false
     az containerapp ingress update -n "$app" -g "$RG" --allow-insecure true >/dev/null 2>&1 || true
     az containerapp hostname bind \
       --resource-group "$RG" --name "$app" --hostname "$domain" \
       --environment "$ENVNAME" --validation-method "$method" >/dev/null 2>&1 || rc=$?
-    az containerapp ingress update -n "$app" -g "$RG" --allow-insecure false >/dev/null 2>&1 || true
+    az containerapp ingress update -n "$app" -g "$RG" --allow-insecure "$prev_insecure" >/dev/null 2>&1 || true
   else
     az containerapp hostname bind \
       --resource-group "$RG" --name "$app" --hostname "$domain" \
@@ -217,7 +225,7 @@ EOF
          dig +short TXT asuid.$DOMAIN
          dig +short TXT asuid.$API_DOMAIN
     3. Re-run this bind (or 'azd provision' again):
-         ./scripts/bind-custom-domains.sh
+         ./scripts/bind-custom-domains.sh $DOMAIN
 
     See docs/azure-deployment.md section 7 for details.
 EOF

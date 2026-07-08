@@ -241,10 +241,11 @@ is automated by `azd provision`:
      backend (ownership validated against the `asuid` / `asuid.api` `TXT`
      records);
    - issues and binds the free managed TLS certificates using **HTTP**
-     validation for both hostnames — temporarily toggling each app's HTTP→HTTPS
-     redirect so DigiCert's probe can reach it. (Container Apps managed-cert
-     `TXT` validation for the `api` subdomain proved unreliable here —
-     certificates got stuck in `Pending` — so both use HTTP validation.)
+     validation for both hostnames — temporarily allowing plain HTTP on each
+     app so DigiCert's probe can reach it, then restoring each app's original
+     ingress setting. (Container Apps managed-cert `TXT` validation for the
+     `api` subdomain proved unreliable here — certificates got stuck in
+     `Pending` — so both use HTTP validation.)
    - verifies each endpoint over HTTPS.
 
    Because delegation (step 1) can only happen after the zone exists, the
@@ -258,7 +259,7 @@ is automated by `azd provision`:
    ```sh
    ./scripts/bind-custom-domains.sh                  # domain from the azd env
    ./scripts/bind-custom-domains.sh wasm.directory   # or pass it explicitly
-   # Windows: pwsh ./scripts/bind-custom-domains.ps1 [wasm.directory]
+   # Windows: pwsh ./scripts/bind-custom-domains.ps1 -Domain wasm.directory
    # equivalently: azd env set CUSTOM_DOMAIN_NAME wasm.directory && azd provision
    ```
 
@@ -300,15 +301,16 @@ is automated by `azd provision`:
    # Backend (api subdomain): the docs say subdomains can validate over the
    # asuid.api TXT record, but managed-cert TXT validation proved unreliable
    # here (the cert stayed stuck in Pending), so bind over HTTP instead. Open
-   # plain HTTP for DigiCert's probe and restore the redirect afterwards, just
-   # like the apex.
+   # plain HTTP for DigiCert's probe. Unlike the apex, the backend keeps
+   # allowInsecure=true afterwards so the in-environment frontend can keep
+   # reaching http://backend (see infra/modules/backend.bicep) — nothing to
+   # restore here.
    az containerapp hostname add \
      --resource-group "$RG" --name "$API_APP" --hostname "$API_DOMAIN"
    az containerapp ingress update -n "$API_APP" -g "$RG" --allow-insecure true
    az containerapp hostname bind \
      --resource-group "$RG" --name "$API_APP" --hostname "$API_DOMAIN" \
      --environment "$ENVNAME" --validation-method HTTP
-   az containerapp ingress update -n "$API_APP" -g "$RG" --allow-insecure false
 
    # Verify
    curl -sS -o /dev/null -w '%{http_code}\n' "https://$DOMAIN/"               # expect 200
