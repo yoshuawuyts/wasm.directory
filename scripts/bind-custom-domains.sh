@@ -4,9 +4,11 @@
 #
 # This automates the mechanical half of docs/azure-deployment.md section 7. It
 # is invoked by azd as a `postprovision` hook (see azure.yaml) and is also safe
-# to run by hand at any time:
+# to run by hand at any time. The apex domain is taken from the first argument
+# when given, otherwise from CUSTOM_DOMAIN_NAME (environment or azd env store):
 #
-#   ./scripts/bind-custom-domains.sh
+#   ./scripts/bind-custom-domains.sh                 # domain from azd env / env
+#   ./scripts/bind-custom-domains.sh wasm.directory  # domain given explicitly
 #
 # What stays manual: delegating the DNS zone to Azure at your registrar. That
 # depends on your domain registrar and only you can do it. This script detects
@@ -16,8 +18,8 @@
 # live to finish the bind.
 #
 # Design notes:
-#   - No-op when CUSTOM_DOMAIN_NAME is empty (matches the conditional
-#     infra/modules/dns.bicep).
+#   - No-op when no domain is given (no argument and CUSTOM_DOMAIN_NAME empty),
+#     matching the conditional infra/modules/dns.bicep.
 #   - Idempotent: skips `hostname add` when the hostname is already present and
 #     skips `hostname bind` when a managed certificate is already bound
 #     (bindingType == SniEnabled), so re-running is a clean no-op.
@@ -30,6 +32,26 @@ set -euo pipefail
 log()  { printf '%s\n' "$*"; }
 warn() { printf '%s\n' "$*" >&2; }
 
+usage() {
+  cat <<'EOF'
+Usage: bind-custom-domains.sh [DOMAIN]
+
+Bind the apex + `api` subdomain custom hostnames and their managed TLS
+certificates to the frontend/backend Container Apps.
+
+  DOMAIN   Apex custom domain, e.g. "wasm.directory". When omitted, it is read
+           from CUSTOM_DOMAIN_NAME (environment variable or azd env store).
+
+Resource group and Container App names are likewise read from the environment
+or the azd env store. The api subdomain comes from CUSTOM_API_DOMAIN_NAME,
+defaulting to "api.<DOMAIN>" when that is unset.
+EOF
+}
+
+case "${1:-}" in
+  -h|--help) usage; exit 0 ;;
+esac
+
 # Resolve a provisioning value: environment variable first (present when azd
 # runs this as a hook), then the azd environment store (for manual runs).
 resolve() { # NAME
@@ -41,9 +63,16 @@ resolve() { # NAME
   printf '%s' "$val"
 }
 
-DOMAIN="$(resolve CUSTOM_DOMAIN_NAME)"
+# Domain resolution order: explicit CLI argument first, then CUSTOM_DOMAIN_NAME
+# from the environment (azd sets it during the hook) or the azd env store.
+DOMAIN="${1:-}"
+[ -n "$DOMAIN" ] || DOMAIN="$(resolve CUSTOM_DOMAIN_NAME)"
 if [ -z "$DOMAIN" ]; then
-  log "==> CUSTOM_DOMAIN_NAME is not set; no custom domain to bind. Skipping."
+  log "==> No custom domain to bind (no argument and CUSTOM_DOMAIN_NAME is unset)."
+  log "    Pass one explicitly to bind by hand, e.g.:"
+  log "        ./scripts/bind-custom-domains.sh wasm.directory"
+  log "    or set it in the azd environment and re-provision:"
+  log "        azd env set CUSTOM_DOMAIN_NAME wasm.directory && azd provision"
   exit 0
 fi
 
@@ -93,8 +122,8 @@ txt_resolves() { # FQDN
 
 # Add the hostname (if needed) and bind its managed certificate.
 # Returns 0 when bound (or already bound), 1 when deferred/failed.
-bind_domain() { # APP DOMAIN VALIDATION_METHOD IS_APEX
-  local app="$1" domain="$2" method="$3" is_apex="$4"
+bind_domain() { # APP DOMAIN VALIDATION_METHOD
+  local app="$1" domain="$2" method="$3"
   local state
   state="$(binding_state "$app" "$domain")"
   if [ "$state" = "SniEnabled" ]; then
@@ -122,14 +151,24 @@ bind_domain() { # APP DOMAIN VALIDATION_METHOD IS_APEX
 
   log "  $domain — binding managed certificate (validation: $method)"
   local rc=0
-  if [ "$is_apex" = "true" ]; then
-    # Apex certificates validate over HTTP; let DigiCert reach the app on plain
-    # HTTP for the probe, then restore the HTTP->HTTPS redirect afterwards.
+  if [ "$method" = "HTTP" ]; then
+    # HTTP (DigiCert) validation must reach the app over plain HTTP. Capture the
+    # app's current allowInsecure setting, open HTTP for the probe, then restore
+    # exactly what was there — the backend intentionally keeps allowInsecure=true
+    # so the in-environment frontend can reach http://backend (see
+    # infra/modules/backend.bicep), while the frontend keeps it false to force
+    # HTTP->HTTPS. Both hostnames use HTTP validation because Container Apps
+    # managed-certificate TXT validation proved unreliable here (certs stuck in
+    # "Pending").
+    local prev_insecure
+    prev_insecure="$(az containerapp ingress show -n "$app" -g "$RG" \
+      --query allowInsecure -o tsv 2>/dev/null || true)"
+    [ "$prev_insecure" = "true" ] || prev_insecure=false
     az containerapp ingress update -n "$app" -g "$RG" --allow-insecure true >/dev/null 2>&1 || true
     az containerapp hostname bind \
       --resource-group "$RG" --name "$app" --hostname "$domain" \
       --environment "$ENVNAME" --validation-method "$method" >/dev/null 2>&1 || rc=$?
-    az containerapp ingress update -n "$app" -g "$RG" --allow-insecure false >/dev/null 2>&1 || true
+    az containerapp ingress update -n "$app" -g "$RG" --allow-insecure "$prev_insecure" >/dev/null 2>&1 || true
   else
     az containerapp hostname bind \
       --resource-group "$RG" --name "$app" --hostname "$domain" \
@@ -153,13 +192,13 @@ verify() { # URL
 
 deferred=0
 
-if bind_domain "$FRONTEND_APP" "$DOMAIN" HTTP true; then
+if bind_domain "$FRONTEND_APP" "$DOMAIN" HTTP; then
   verify "https://$DOMAIN/"
 else
   deferred=$((deferred + 1))
 fi
 
-if bind_domain "$BACKEND_APP" "$API_DOMAIN" TXT false; then
+if bind_domain "$BACKEND_APP" "$API_DOMAIN" HTTP; then
   verify "https://$API_DOMAIN/v1/health"
 else
   deferred=$((deferred + 1))
@@ -186,7 +225,7 @@ EOF
          dig +short TXT asuid.$DOMAIN
          dig +short TXT asuid.$API_DOMAIN
     3. Re-run this bind (or 'azd provision' again):
-         ./scripts/bind-custom-domains.sh
+         ./scripts/bind-custom-domains.sh $DOMAIN
 
     See docs/azure-deployment.md section 7 for details.
 EOF

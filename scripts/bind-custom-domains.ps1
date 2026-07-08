@@ -4,7 +4,8 @@
 # PowerShell twin of scripts/bind-custom-domains.sh. Invoked by azd as the
 # Windows `postprovision` hook (see azure.yaml) and safe to run by hand:
 #
-#   ./scripts/bind-custom-domains.ps1
+#   ./scripts/bind-custom-domains.ps1                 # domain from azd env / env
+#   ./scripts/bind-custom-domains.ps1 -Domain wasm.directory  # domain explicit
 #
 # See the shell script's header and docs/azure-deployment.md section 7 for the
 # full rationale. In short: this automates the mechanical hostname add + managed
@@ -12,6 +13,9 @@
 # Delegating the DNS zone to Azure at your registrar stays manual; when it has
 # not propagated yet the script prints guidance and exits 0 without failing the
 # provision. Re-running is idempotent.
+
+param([string]$Domain)
+
 $ErrorActionPreference = 'Stop'
 # Do not let native command stderr (az warnings) throw; we check $LASTEXITCODE.
 $PSNativeCommandUseErrorActionPreference = $false
@@ -27,9 +31,15 @@ function Resolve-Value([string]$Name) {
     return ($val | Out-String).Trim()
 }
 
-$Domain = Resolve-Value 'CUSTOM_DOMAIN_NAME'
+# Domain resolution order: explicit -Domain argument first, then
+# CUSTOM_DOMAIN_NAME from the environment (azd hook) or the azd env store.
+if (-not $Domain) { $Domain = Resolve-Value 'CUSTOM_DOMAIN_NAME' }
 if (-not $Domain) {
-    Write-Host '==> CUSTOM_DOMAIN_NAME is not set; no custom domain to bind. Skipping.'
+    Write-Host '==> No custom domain to bind (no argument and CUSTOM_DOMAIN_NAME is unset).'
+    Write-Host '    Pass one explicitly to bind by hand, e.g.:'
+    Write-Host '        pwsh ./scripts/bind-custom-domains.ps1 -Domain wasm.directory'
+    Write-Host '    or set it in the azd environment and re-provision:'
+    Write-Host '        azd env set CUSTOM_DOMAIN_NAME wasm.directory; azd provision'
     exit 0
 }
 
@@ -84,7 +94,7 @@ function Test-TxtResolves([string]$Fqdn) {
 
 # Add the hostname (if needed) and bind its managed certificate.
 # Returns $true when bound (or already bound), $false when deferred/failed.
-function Invoke-BindDomain([string]$App, [string]$D, [string]$Method, [bool]$IsApex) {
+function Invoke-BindDomain([string]$App, [string]$D, [string]$Method) {
     $state = Get-BindingState $App $D
     if ($state -eq 'SniEnabled') {
         Write-Host "  $D - already bound (SNI enabled); skipping"
@@ -110,14 +120,21 @@ function Invoke-BindDomain([string]$App, [string]$D, [string]$Method, [bool]$IsA
     }
 
     Write-Host "  $D - binding managed certificate (validation: $Method)"
-    if ($IsApex) {
-        # Apex certificates validate over HTTP; let DigiCert reach the app on
-        # plain HTTP for the probe, then restore the HTTP->HTTPS redirect.
+    if ($Method -eq 'HTTP') {
+        # HTTP (DigiCert) validation must reach the app over plain HTTP. Capture
+        # the current allowInsecure setting, open HTTP for the probe, then
+        # restore it: the backend intentionally keeps allowInsecure=true so the
+        # in-environment frontend can reach http://backend (see
+        # infra/modules/backend.bicep), while the frontend keeps it false. Both
+        # hostnames use HTTP validation because managed-certificate TXT
+        # validation proved unreliable here (certs stuck in 'Pending').
+        $prev = az containerapp ingress show -n $App -g $Rg --query allowInsecure -o tsv 2>$null
+        if ($prev -ne 'true') { $prev = 'false' }
         az containerapp ingress update -n $App -g $Rg --allow-insecure true 2>$null | Out-Null
         az containerapp hostname bind --resource-group $Rg --name $App --hostname $D `
             --environment $EnvName --validation-method $Method 2>$null | Out-Null
         $rc = $LASTEXITCODE
-        az containerapp ingress update -n $App -g $Rg --allow-insecure false 2>$null | Out-Null
+        az containerapp ingress update -n $App -g $Rg --allow-insecure $prev 2>$null | Out-Null
     }
     else {
         az containerapp hostname bind --resource-group $Rg --name $App --hostname $D `
@@ -144,10 +161,10 @@ function Test-Url([string]$Url) {
 
 $deferred = 0
 
-if (Invoke-BindDomain $FrontendApp $Domain 'HTTP' $true) { Test-Url "https://$Domain/" }
+if (Invoke-BindDomain $FrontendApp $Domain 'HTTP') { Test-Url "https://$Domain/" }
 else { $deferred++ }
 
-if (Invoke-BindDomain $BackendApp $ApiDomain 'TXT' $false) { Test-Url "https://$ApiDomain/v1/health" }
+if (Invoke-BindDomain $BackendApp $ApiDomain 'HTTP') { Test-Url "https://$ApiDomain/v1/health" }
 else { $deferred++ }
 
 if ($deferred -gt 0) {
@@ -166,7 +183,7 @@ if ($deferred -gt 0) {
          dig +short TXT asuid.$Domain
          dig +short TXT asuid.$ApiDomain
     3. Re-run this bind (or 'azd provision' again):
-         ./scripts/bind-custom-domains.ps1
+         pwsh ./scripts/bind-custom-domains.ps1 -Domain $Domain
 
     See docs/azure-deployment.md section 7 for details.
 "@
