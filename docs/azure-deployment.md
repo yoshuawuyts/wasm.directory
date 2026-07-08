@@ -238,11 +238,13 @@ is automated by `azd provision`:
    (`scripts/bind-custom-domains.ps1` on Windows). It is idempotent and:
 
    - adds the apex hostname to the frontend and the `api` hostname to the
-     backend (validated against the `asuid` / `asuid.api` `TXT` records);
-   - issues and binds the free managed TLS certificates — **HTTP** validation
-     for the apex (temporarily toggling the frontend's HTTP→HTTPS redirect so
-     DigiCert's probe can reach the app) and **TXT** validation for the `api`
-     subdomain;
+     backend (ownership validated against the `asuid` / `asuid.api` `TXT`
+     records);
+   - issues and binds the free managed TLS certificates using **HTTP**
+     validation for both hostnames — temporarily toggling each app's HTTP→HTTPS
+     redirect so DigiCert's probe can reach it. (Container Apps managed-cert
+     `TXT` validation for the `api` subdomain proved unreliable here —
+     certificates got stuck in `Pending` — so both use HTTP validation.)
    - verifies each endpoint over HTTPS.
 
    Because delegation (step 1) can only happen after the zone exists, the
@@ -295,14 +297,18 @@ is automated by `azd provision`:
      --environment "$ENVNAME" --validation-method HTTP
    az containerapp ingress update -n "$APP" -g "$RG" --allow-insecure false
 
-   # Backend (api subdomain): validates over the asuid.api TXT record; the
-   # backend already allows plain HTTP for the in-environment frontend, so no
-   # redirect dance is needed.
+   # Backend (api subdomain): the docs say subdomains can validate over the
+   # asuid.api TXT record, but managed-cert TXT validation proved unreliable
+   # here (the cert stayed stuck in Pending), so bind over HTTP instead. Open
+   # plain HTTP for DigiCert's probe and restore the redirect afterwards, just
+   # like the apex.
    az containerapp hostname add \
      --resource-group "$RG" --name "$API_APP" --hostname "$API_DOMAIN"
+   az containerapp ingress update -n "$API_APP" -g "$RG" --allow-insecure true
    az containerapp hostname bind \
      --resource-group "$RG" --name "$API_APP" --hostname "$API_DOMAIN" \
-     --environment "$ENVNAME" --validation-method TXT
+     --environment "$ENVNAME" --validation-method HTTP
+   az containerapp ingress update -n "$API_APP" -g "$RG" --allow-insecure false
 
    # Verify
    curl -sS -o /dev/null -w '%{http_code}\n' "https://$DOMAIN/"               # expect 200
@@ -495,10 +501,12 @@ its progress under **Actions**, and the deployment lifecycle (`in_progress` →
 - **Wrong API version.** The `NoRegisteredProviderFound` error includes
   the list of supported API versions for the resource type and region. Pin
   Bicep resources to one of the listed GA versions.
-- **Managed certificate stuck in `Pending` (custom domain).** For an apex
-  domain there are two usual causes. First, the certificate was requested with
-  `--validation-method TXT`; apex domains must use `HTTP`. Delete the pending
-  cert and re-bind with `HTTP`:
+- **Managed certificate stuck in `Pending` (custom domain).** There are two
+  usual causes. First, the certificate was requested with
+  `--validation-method TXT`. Apex domains must use `HTTP`, and TXT validation
+  proved unreliable for the `api` subdomain too (the cert stayed stuck in
+  `Pending`), so bind **both** hostnames with `HTTP`. Delete the pending cert
+  and re-bind with `HTTP`:
 
   ```sh
   RG="$(azd env get-value AZURE_RESOURCE_GROUP)"
@@ -509,9 +517,9 @@ its progress under **Actions**, and the deployment lifecycle (`in_progress` →
     --certificate <pending-cert-name> --yes
   ```
 
-  Second, the frontend redirects HTTP→HTTPS (`allowInsecure: false`), so
-  DigiCert's HTTP validation probe never reaches the app. Bind with
-  `--allow-insecure true` set on the ingress, then restore it — see step 2 of
+  Second, the app redirects HTTP→HTTPS (`allowInsecure: false`), so DigiCert's
+  HTTP validation probe never reaches it. Bind with `--allow-insecure true` set
+  on the ingress, then restore it — see step 2 of
   [§7](#7-optional-bind-a-custom-domain). Note that the per-certificate
-  `validationToken` shown for a `TXT`-validated cert is a dead end for apex
-  domains; don't chase it.
+  `validationToken` shown for a `TXT`-validated cert is a dead end for these
+  hostnames; don't chase it.

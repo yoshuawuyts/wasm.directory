@@ -94,7 +94,7 @@ function Test-TxtResolves([string]$Fqdn) {
 
 # Add the hostname (if needed) and bind its managed certificate.
 # Returns $true when bound (or already bound), $false when deferred/failed.
-function Invoke-BindDomain([string]$App, [string]$D, [string]$Method, [bool]$IsApex) {
+function Invoke-BindDomain([string]$App, [string]$D, [string]$Method) {
     $state = Get-BindingState $App $D
     if ($state -eq 'SniEnabled') {
         Write-Host "  $D - already bound (SNI enabled); skipping"
@@ -120,9 +120,11 @@ function Invoke-BindDomain([string]$App, [string]$D, [string]$Method, [bool]$IsA
     }
 
     Write-Host "  $D - binding managed certificate (validation: $Method)"
-    if ($IsApex) {
-        # Apex certificates validate over HTTP; let DigiCert reach the app on
-        # plain HTTP for the probe, then restore the HTTP->HTTPS redirect.
+    if ($Method -eq 'HTTP') {
+        # HTTP (DigiCert) validation must reach the app over plain HTTP; open it
+        # for the probe, then restore the HTTP->HTTPS redirect. Used for both the
+        # apex and the api subdomain: managed-certificate TXT validation proved
+        # unreliable here (certs stuck in 'Pending'), whereas HTTP completes.
         az containerapp ingress update -n $App -g $Rg --allow-insecure true 2>$null | Out-Null
         az containerapp hostname bind --resource-group $Rg --name $App --hostname $D `
             --environment $EnvName --validation-method $Method 2>$null | Out-Null
@@ -154,10 +156,10 @@ function Test-Url([string]$Url) {
 
 $deferred = 0
 
-if (Invoke-BindDomain $FrontendApp $Domain 'HTTP' $true) { Test-Url "https://$Domain/" }
+if (Invoke-BindDomain $FrontendApp $Domain 'HTTP') { Test-Url "https://$Domain/" }
 else { $deferred++ }
 
-if (Invoke-BindDomain $BackendApp $ApiDomain 'TXT' $false) { Test-Url "https://$ApiDomain/v1/health" }
+if (Invoke-BindDomain $BackendApp $ApiDomain 'HTTP') { Test-Url "https://$ApiDomain/v1/health" }
 else { $deferred++ }
 
 if ($deferred -gt 0) {

@@ -121,8 +121,8 @@ txt_resolves() { # FQDN
 
 # Add the hostname (if needed) and bind its managed certificate.
 # Returns 0 when bound (or already bound), 1 when deferred/failed.
-bind_domain() { # APP DOMAIN VALIDATION_METHOD IS_APEX
-  local app="$1" domain="$2" method="$3" is_apex="$4"
+bind_domain() { # APP DOMAIN VALIDATION_METHOD
+  local app="$1" domain="$2" method="$3"
   local state
   state="$(binding_state "$app" "$domain")"
   if [ "$state" = "SniEnabled" ]; then
@@ -150,9 +150,12 @@ bind_domain() { # APP DOMAIN VALIDATION_METHOD IS_APEX
 
   log "  $domain — binding managed certificate (validation: $method)"
   local rc=0
-  if [ "$is_apex" = "true" ]; then
-    # Apex certificates validate over HTTP; let DigiCert reach the app on plain
-    # HTTP for the probe, then restore the HTTP->HTTPS redirect afterwards.
+  if [ "$method" = "HTTP" ]; then
+    # HTTP (DigiCert) validation must reach the app over plain HTTP; open it for
+    # the probe, then restore the HTTP->HTTPS redirect afterwards. Used for both
+    # the apex and the api subdomain: Container Apps managed-certificate TXT
+    # validation proved unreliable here (certs stuck in "Pending"), whereas HTTP
+    # validation completes.
     az containerapp ingress update -n "$app" -g "$RG" --allow-insecure true >/dev/null 2>&1 || true
     az containerapp hostname bind \
       --resource-group "$RG" --name "$app" --hostname "$domain" \
@@ -181,13 +184,13 @@ verify() { # URL
 
 deferred=0
 
-if bind_domain "$FRONTEND_APP" "$DOMAIN" HTTP true; then
+if bind_domain "$FRONTEND_APP" "$DOMAIN" HTTP; then
   verify "https://$DOMAIN/"
 else
   deferred=$((deferred + 1))
 fi
 
-if bind_domain "$BACKEND_APP" "$API_DOMAIN" TXT false; then
+if bind_domain "$BACKEND_APP" "$API_DOMAIN" HTTP; then
   verify "https://$API_DOMAIN/v1/health"
 else
   deferred=$((deferred + 1))
