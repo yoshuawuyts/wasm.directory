@@ -402,7 +402,7 @@ jobs:
           ls -la release-assets/
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v3.0.1
         with:
           tag_name: "${{ needs.resolve-version.outputs.version }}"
           generate_release_notes: true
