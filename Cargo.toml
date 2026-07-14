@@ -132,7 +132,7 @@ dirs = "6.0.0"
 insta = "1.44.3"
 serde_json = { version = "1.0.145", features = ["alloc"] }
 termcolor = "1.4.1"
-wasm-metadata = "0.252.0"
+wasm-metadata = "0.253.0"
 bytes = "1"
 http = "1"
 http-body = "1"
@@ -177,9 +177,9 @@ semver = { version = "1.0.27", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
 toml = "1.0"
 thiserror = "2.0"
-wasmparser = "0.252"
-wit-component = "0.252"
-wit-parser = "0.252"
+wasmparser = "0.253"
+wit-component = "0.253"
+wit-parser = "0.253"
 
 # frontend dependencies
 html = "0.6"
