@@ -42,14 +42,14 @@ impl Opts {
             .into_diagnostic()
             .wrap_err("failed to create build directory")?;
 
-        let manifest = component_manifest::Manifest::default();
+        let manifest = wasm_manifest::Manifest::default();
         let manifest = toml::to_string_pretty(&manifest).into_diagnostic()?;
         tokio::fs::write(base.join("wasm.toml"), manifest.as_bytes())
             .await
             .into_diagnostic()
             .wrap_err("failed to write wasm.toml")?;
 
-        let lockfile = component_manifest::Lockfile::default();
+        let lockfile = wasm_manifest::Lockfile::default();
         write_lock_file(base.join("wasm.lock.toml"), &lockfile)
             .await
             .into_diagnostic()

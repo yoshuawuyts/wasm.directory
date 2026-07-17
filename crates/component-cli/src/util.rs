@@ -1,13 +1,13 @@
 use std::path::Path;
 
-use component_manifest::Lockfile;
-use component_package_manager::Reference;
+use wasm_manifest::Lockfile;
+use wasm_package_manager::Reference;
 
 /// Parse an OCI reference string, stripping the optional `oci://` scheme prefix.
 ///
-/// Delegates to [`component_package_manager::parse_reference`].
+/// Delegates to [`wasm_package_manager::parse_reference`].
 pub(crate) fn parse_reference(s: &str) -> Result<Reference, String> {
-    component_package_manager::parse_reference(s)
+    wasm_package_manager::parse_reference(s)
 }
 
 /// Convert an error into a [`miette::Report`], preserving the cause chain.
@@ -24,11 +24,11 @@ pub(crate) fn into_miette(err: impl std::fmt::Display) -> miette::Report {
 
 /// Write a lockfile to disk with a header comment.
 ///
-/// Delegates to [`component_package_manager::write_lock_file`].
+/// Delegates to [`wasm_package_manager::write_lock_file`].
 #[allow(dead_code)]
 pub(crate) async fn write_lock_file<P: AsRef<Path>>(
     path: P,
     lock: &Lockfile,
 ) -> std::io::Result<()> {
-    component_package_manager::write_lock_file(path, lock).await
+    wasm_package_manager::write_lock_file(path, lock).await
 }

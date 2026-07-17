@@ -6,7 +6,7 @@
 //! dependencies, and dependents.
 
 use html::text_content::Division;
-use component_meta_registry_client::{KnownPackage, PackageVersion};
+use wasm_meta_registry_client::{KnownPackage, PackageVersion};
 
 use crate::layout;
 
@@ -320,8 +320,8 @@ pub(crate) fn display_name_for(pkg: &KnownPackage) -> String {
 /// Get a human-readable kind label for a package.
 pub(crate) fn kind_label_for(pkg: &KnownPackage) -> &'static str {
     match pkg.kind {
-        Some(component_meta_registry_client::PackageKind::Interface) => "Interface Types",
-        Some(component_meta_registry_client::PackageKind::Component) => "Component",
+        Some(wasm_meta_registry_client::PackageKind::Interface) => "Interface Types",
+        Some(wasm_meta_registry_client::PackageKind::Component) => "Component",
         _ => "Package",
     }
 }

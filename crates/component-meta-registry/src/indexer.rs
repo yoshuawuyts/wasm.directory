@@ -9,9 +9,9 @@
 
 use std::time::Duration;
 
-use component_package_manager::Reference;
-use component_package_manager::manager::{Manager, TaskOutcome};
 use tracing::{error, info, warn};
+use wasm_package_manager::Reference;
+use wasm_package_manager::manager::{Manager, TaskOutcome};
 
 use crate::config::Config;
 
@@ -21,7 +21,7 @@ use crate::config::Config;
 ///
 /// ```no_run
 /// use component_meta_registry::{Config, Indexer};
-/// use component_package_manager::manager::Manager;
+/// use wasm_package_manager::manager::Manager;
 /// use std::path::Path;
 ///
 /// # async fn example() -> anyhow::Result<()> {
@@ -54,7 +54,7 @@ impl Indexer {
     ///
     /// ```no_run
     /// use component_meta_registry::{Config, Indexer};
-    /// use component_package_manager::manager::Manager;
+    /// use wasm_package_manager::manager::Manager;
     /// use std::path::Path;
     ///
     /// # async fn example() -> anyhow::Result<()> {
@@ -147,11 +147,13 @@ impl Indexer {
                 Err(e) => {
                     // Packages whose tags are all non-semver (e.g. `vX.Y.Z`)
                     // are expected and noisy — demote to debug.
-                    if e.downcast_ref::<component_package_manager::manager::ManagerError>()
-                        .is_some_and(|m| matches!(
-                            m,
-                            component_package_manager::manager::ManagerError::NoSemverTags { .. }
-                        ))
+                    if e.downcast_ref::<wasm_package_manager::manager::ManagerError>()
+                        .is_some_and(|m| {
+                            matches!(
+                                m,
+                                wasm_package_manager::manager::ManagerError::NoSemverTags { .. }
+                            )
+                        })
                     {
                         tracing::debug!(
                             registry = %source.registry,

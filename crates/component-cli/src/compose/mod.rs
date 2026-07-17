@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use component_package_manager::compose;
+use wasm_package_manager::compose;
 
 /// How to link dependencies in the composed component.
 #[derive(Clone, Debug, Default, clap::ValueEnum)]

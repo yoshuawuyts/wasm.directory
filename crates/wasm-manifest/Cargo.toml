@@ -1,0 +1,23 @@
+[package]
+name = "wasm-manifest"
+description = "Manifest and lockfile format types for WebAssembly packages"
+readme = "README.md"
+repository = { workspace = true }
+documentation = { workspace = true }
+version = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+authors = { workspace = true }
+categories = { workspace = true }
+keywords = { workspace = true }
+
+[dependencies]
+miette = { workspace = true }
+semver = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+toml = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

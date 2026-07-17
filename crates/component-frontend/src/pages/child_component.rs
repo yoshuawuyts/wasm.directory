@@ -4,7 +4,7 @@ use crate::components::ds::metadata_table;
 use crate::components::ds::page_header;
 use crate::components::ds::wit_item::{self, WitItem};
 use crate::components::page_sidebar::SidebarActive;
-use component_meta_registry_client::{ComponentSummary, KnownPackage, PackageVersion};
+use wasm_meta_registry_client::{ComponentSummary, KnownPackage, PackageVersion};
 
 use super::detail::{self, DetailSpec};
 
@@ -92,7 +92,7 @@ pub(crate) fn render(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use component_meta_registry_client::{BomEntry, ProducerEntry, WitInterfaceRef};
+    use wasm_meta_registry_client::{BomEntry, ProducerEntry, WitInterfaceRef};
 
     fn sample_pkg() -> KnownPackage {
         KnownPackage {

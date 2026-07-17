@@ -1,7 +1,7 @@
 //! `component registry sync` subcommand.
 
 use anyhow::Result;
-use component_package_manager::manager::{Manager, SyncPolicy, SyncResult};
+use wasm_package_manager::manager::{Manager, SyncPolicy, SyncResult};
 
 /// Default sync interval in seconds (1 hour).
 const SYNC_INTERVAL: u64 = Manager::DEFAULT_SYNC_INTERVAL;

@@ -4,8 +4,8 @@ use crate::components::ds::page_header;
 use crate::components::ds::wit_item::{self, TypeTag, WitItem, WitItemKind};
 use crate::components::page_sidebar::SidebarActive;
 use crate::wit_doc::{WitDocument, WorldDoc, WorldItemDoc};
-use component_meta_registry_client::{KnownPackage, PackageVersion};
 use html::text_content::Division;
+use wasm_meta_registry_client::{KnownPackage, PackageVersion};
 
 use super::detail::{self, DetailSpec};
 

@@ -27,7 +27,7 @@ use axum::response::{IntoResponse, Redirect, Response};
 use axum::{Json, Router, routing::get};
 use serde::Deserialize;
 
-use component_meta_registry_client::{KnownPackage, RegistryClient};
+use wasm_meta_registry_client::{KnownPackage, RegistryClient};
 
 use crate::reserved::is_reserved;
 
@@ -500,7 +500,7 @@ async fn fetch_wit_doc(
     version: &str,
 ) -> Option<(
     wit_doc::WitDocument,
-    component_meta_registry_client::PackageVersion,
+    wasm_meta_registry_client::PackageVersion,
 )> {
     let detail = client
         .fetch_package_version(&pkg.registry, &pkg.repository, version)
@@ -555,7 +555,7 @@ async fn module_detail(
         .ok()
         .flatten();
     let child = version_detail.as_ref().and_then(|d| {
-        let modules: Vec<&component_meta_registry_client::ComponentSummary> = d
+        let modules: Vec<&wasm_meta_registry_client::ComponentSummary> = d
             .components
             .iter()
             .flat_map(|c| &c.children)
@@ -800,7 +800,7 @@ fn pick_latest_semver(
 /// contain `_`, so decoding the first `_` back to `+` round-trips the tag and
 /// lets it parse as semver instead of being discarded (which would leave the
 /// package with no redirectable version). Mirrors
-/// `component_package_manager::manager::parse_tag_as_semver`.
+/// `wasm_package_manager::manager::parse_tag_as_semver`.
 fn parse_tag_as_semver(tag: &str) -> Option<semver::Version> {
     if let Ok(version) = semver::Version::parse(tag) {
         return Some(version);

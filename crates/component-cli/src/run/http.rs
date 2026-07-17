@@ -56,7 +56,7 @@ impl WasiHttpView for HttpState {
 /// resolved permissions for building per-request WASI contexts.
 struct Server {
     pre: ProxyPre<HttpState>,
-    permissions: component_manifest::ResolvedPermissions,
+    permissions: wasm_manifest::ResolvedPermissions,
 }
 
 /// Check whether a component exports `wasi:http/incoming-handler`, indicating
@@ -98,7 +98,7 @@ pub(super) fn exports_http_incoming_handler(bytes: &[u8]) -> bool {
 /// the process is interrupted.
 pub(super) async fn serve(
     bytes: &[u8],
-    permissions: &component_manifest::ResolvedPermissions,
+    permissions: &wasm_manifest::ResolvedPermissions,
     addr: SocketAddr,
 ) -> miette::Result<()> {
     // Enable component-model-async so WASI 0.3 stream/future types are accepted.
@@ -234,7 +234,7 @@ async fn collect_guest_error(task: tokio::task::JoinHandle<wasmtime::Result<()>>
 /// pre-open fails.
 fn apply_permissions(
     builder: &mut WasiCtxBuilder,
-    permissions: &component_manifest::ResolvedPermissions,
+    permissions: &wasm_manifest::ResolvedPermissions,
 ) -> miette::Result<()> {
     if permissions.inherit_stdio {
         builder.inherit_stdio();

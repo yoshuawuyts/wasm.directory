@@ -5,7 +5,7 @@ use miette::Diagnostic;
 /// CLI-specific error type for `component install` command failures.
 ///
 /// Core install errors (e.g. invalid references, unknown packages) live in
-/// [`component_package_manager::manager::install::InstallError`].
+/// [`wasm_package_manager::manager::install::InstallError`].
 ///
 /// Each variant carries a stable [diagnostic error code][miette::Diagnostic::code]
 /// that uniquely identifies the failure.

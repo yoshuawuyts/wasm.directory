@@ -2,9 +2,9 @@
 
 use anyhow::Result;
 use comfy_table::{ContentArrangement, Table};
-use component_package_manager::manager::Manager;
-use component_package_manager::oci::{ImageEntry, InsertResult};
-use component_package_manager::{Reference, format_size};
+use wasm_package_manager::manager::Manager;
+use wasm_package_manager::oci::{ImageEntry, InsertResult};
+use wasm_package_manager::{Reference, format_size};
 
 mod errors;
 mod inspect;

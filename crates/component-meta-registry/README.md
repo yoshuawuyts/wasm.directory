@@ -6,7 +6,7 @@ exposes a search API.
 ## Overview
 
 `component-meta-registry` reads a directory of per-namespace TOML registry files,
-periodically syncs manifest and config metadata via `component-package-manager`, and
+periodically syncs manifest and config metadata via `wasm-package-manager`, and
 serves search results over HTTP. The `wasm` CLI can query this API for remote
 package discovery — users then install packages from the actual OCI registries.
 

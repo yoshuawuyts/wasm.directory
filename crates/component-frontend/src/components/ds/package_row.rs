@@ -3,9 +3,9 @@
 //! List-style row for search results and all-packages pages. Shows name,
 //! version, and description in a responsive flex layout.
 
-use component_meta_registry_client::{KnownPackage, PackageKind};
 use html::inline_text::Span;
 use html::text_content::Division;
+use wasm_meta_registry_client::{KnownPackage, PackageKind};
 
 use super::badges;
 

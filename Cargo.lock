@@ -1150,9 +1150,6 @@ dependencies = [
  "comfy-table",
  "component-cli-internal-run",
  "component-detector",
- "component-manifest",
- "component-meta-registry-types",
- "component-package-manager",
  "console 0.16.4",
  "dotenvy",
  "futures-concurrency",
@@ -1176,7 +1173,10 @@ dependencies = [
  "wac-parser",
  "wac-resolver",
  "wasm-encoder 0.252.0",
+ "wasm-manifest",
+ "wasm-meta-registry-types",
  "wasm-metadata 0.252.0",
+ "wasm-package-manager",
  "wasmparser 0.252.0",
  "wasmtime",
  "wasmtime-wasi",
@@ -1191,7 +1191,6 @@ name = "component-cli-internal-run"
 version = "0.3.0"
 dependencies = [
  "bytes",
- "component-manifest",
  "http",
  "http-body",
  "http-body-util",
@@ -1202,6 +1201,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tracing",
+ "wasm-manifest",
  "wasmparser 0.252.0",
  "wasmtime",
  "wasmtime-wasi",
@@ -1223,7 +1223,6 @@ version = "0.3.0"
 dependencies = [
  "anyhow",
  "axum",
- "component-meta-registry-client",
  "html",
  "insta",
  "pulldown-cmark",
@@ -1231,19 +1230,10 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "wasm-meta-registry-client",
  "wit-parser 0.252.0",
  "wstd",
  "wstd-axum",
-]
-
-[[package]]
-name = "component-manifest"
-version = "0.3.0"
-dependencies = [
- "miette 7.6.0",
- "semver",
- "serde",
- "toml 1.1.2+spec-1.1.0",
 ]
 
 [[package]]
@@ -1253,8 +1243,6 @@ dependencies = [
  "anyhow",
  "axum",
  "clap",
- "component-meta-registry-types",
- "component-package-manager",
  "dirs 6.0.0",
  "reqwest 0.13.4",
  "serde",
@@ -1265,76 +1253,8 @@ dependencies = [
  "tower-http 0.7.0",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "component-meta-registry-client"
-version = "0.3.0"
-dependencies = [
- "anyhow",
- "component-meta-registry-types",
- "exponential-backoff",
- "reqwest 0.13.4",
- "serde",
- "serde_json",
- "tokio",
- "wstd",
-]
-
-[[package]]
-name = "component-meta-registry-types"
-version = "0.3.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "component-package-manager"
-version = "0.3.0"
-dependencies = [
- "anyhow",
- "cacache",
- "chrono",
- "component-detector",
- "component-manifest",
- "component-meta-registry-client",
- "component-meta-registry-types",
- "component-package-manager-migration",
- "dirs 6.0.0",
- "docker_credential",
- "futures-concurrency",
- "miette 7.6.0",
- "oci-client",
- "oci-wasm",
- "pubgrub",
- "sea-orm",
- "semver",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-stream",
- "toml 1.1.2+spec-1.1.0",
- "tracing",
- "wac-graph",
- "wac-parser",
- "wac-resolver",
- "wasm-metadata 0.252.0",
- "wasmparser 0.252.0",
- "wit-component 0.252.0",
- "wit-parser 0.252.0",
-]
-
-[[package]]
-name = "component-package-manager-migration"
-version = "0.3.0"
-dependencies = [
- "async-trait",
- "chrono",
- "sea-orm",
- "sea-orm-migration",
- "tokio",
+ "wasm-meta-registry-types",
+ "wasm-package-manager",
 ]
 
 [[package]]
@@ -7528,6 +7448,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm-manifest"
+version = "0.3.0"
+dependencies = [
+ "miette 7.6.0",
+ "semver",
+ "serde",
+ "toml 1.1.2+spec-1.1.0",
+]
+
+[[package]]
+name = "wasm-meta-registry-client"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "exponential-backoff",
+ "reqwest 0.13.4",
+ "serde",
+ "serde_json",
+ "tokio",
+ "wasm-meta-registry-types",
+ "wstd",
+]
+
+[[package]]
+name = "wasm-meta-registry-types"
+version = "0.3.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "wasm-metadata"
 version = "0.244.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7575,6 +7527,54 @@ dependencies = [
  "url",
  "wasm-encoder 0.252.0",
  "wasmparser 0.252.0",
+]
+
+[[package]]
+name = "wasm-package-manager"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "cacache",
+ "chrono",
+ "component-detector",
+ "dirs 6.0.0",
+ "docker_credential",
+ "futures-concurrency",
+ "miette 7.6.0",
+ "oci-client",
+ "oci-wasm",
+ "pubgrub",
+ "sea-orm",
+ "semver",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "toml 1.1.2+spec-1.1.0",
+ "tracing",
+ "wac-graph",
+ "wac-parser",
+ "wac-resolver",
+ "wasm-manifest",
+ "wasm-meta-registry-client",
+ "wasm-meta-registry-types",
+ "wasm-metadata 0.252.0",
+ "wasm-package-manager-migration",
+ "wasmparser 0.252.0",
+ "wit-component 0.252.0",
+ "wit-parser 0.252.0",
+]
+
+[[package]]
+name = "wasm-package-manager-migration"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "sea-orm",
+ "sea-orm-migration",
+ "tokio",
 ]
 
 [[package]]
@@ -8832,7 +8832,6 @@ version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
- "component-package-manager-migration",
  "ctrlc",
  "dirs 6.0.0",
  "notify",
@@ -8840,6 +8839,7 @@ dependencies = [
  "semver",
  "tempfile",
  "tokio",
+ "wasm-package-manager-migration",
  "wit-component 0.252.0",
  "wit-parser 0.252.0",
 ]

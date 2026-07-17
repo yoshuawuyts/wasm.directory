@@ -12,7 +12,7 @@ keywords = { workspace = true }
 
 [dependencies]
 miette = { workspace = true }
-component-manifest = { workspace = true }
+wasm-manifest = { workspace = true }
 wasmparser = { workspace = true }
 wasmtime = { workspace = true }
 wasmtime-wasi = { workspace = true }

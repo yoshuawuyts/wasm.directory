@@ -153,7 +153,7 @@ component package list
 
 The storage system uses [SeaORM](https://www.sea-ql.org/SeaORM/) migrations
 to evolve the schema over time. Migrations are defined as Rust modules
-under `crates/component-package-manager-migration/src/migrations/` and
+under `crates/wasm-package-manager-migration/src/migrations/` and
 support both SQLite and PostgreSQL.
 
 - **SQLite** (default): migrations are applied automatically when

@@ -39,17 +39,17 @@ For detailed guidelines, examples, and a review workflow see the `code-quality` 
 ## Database Schema Changes
 
 The schema is defined as Rust SeaORM migrations under
-`crates/component-package-manager-migration/src/migrations/`. To change it:
+`crates/wasm-package-manager-migration/src/migrations/`. To change it:
 
 1. Add a new migration module (`mYYYYMMDD_NNNNNN_<description>.rs`) under
    that directory. Implement the `MigrationTrait::up` (and `down`) methods
    using `SchemaManager` and the entities from
-   `component_package_manager_migration::entities`.
+   `wasm_package_manager_migration::entities`.
 2. If new tables are introduced, add the matching entity module under
-   `crates/component-package-manager-migration/src/entities/` and re-export
+   `crates/wasm-package-manager-migration/src/entities/` and re-export
    it from `entities/mod.rs`.
 3. Register the migration in `Migrator::migrations()` in
-   `crates/component-package-manager-migration/src/lib.rs`.
+   `crates/wasm-package-manager-migration/src/lib.rs`.
 4. Per-backend SQL fragments (e.g. trigger bodies) belong in
    `migrations/triggers.rs`, dispatched on
    `manager.get_database_backend()`.

@@ -14,7 +14,7 @@ tempfile = { workspace = true }
 tokio = { workspace = true }
 sea-orm = { workspace = true }
 semver = { workspace = true }
-component-package-manager-migration = { workspace = true }
+wasm-package-manager-migration = { workspace = true }
 wit-component = { workspace = true }
 wit-parser = { workspace = true }
 

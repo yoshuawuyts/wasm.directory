@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use comfy_table::{Table, modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL};
-use component_package_manager::manager::Manager;
+use wasm_package_manager::manager::Manager;
 
 /// Detect and manage local WASM files
 #[derive(clap::Parser)]

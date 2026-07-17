@@ -16,7 +16,7 @@
 use crate::components::page_shell;
 use crate::components::page_sidebar::{self, SidebarActive, SidebarContext};
 use crate::wit_doc::WitDocument;
-use component_meta_registry_client::{KnownPackage, PackageVersion};
+use wasm_meta_registry_client::{KnownPackage, PackageVersion};
 
 /// Everything needed to render a package-family detail page.
 pub(crate) struct DetailSpec<'a> {

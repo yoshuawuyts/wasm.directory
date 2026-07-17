@@ -146,15 +146,13 @@ pub(crate) fn render_item_section(title: &str, items: &[WitItem]) -> Division {
     item_list::render_dyn_item_list(title, &rows)
 }
 
-/// Convert a [`component_meta_registry_client::WitInterfaceRef`] into a
+/// Convert a [`wasm_meta_registry_client::WitInterfaceRef`] into a
 /// [`WitItem::Interface`].
 ///
 /// The display name uses the world-page format `"package/interface"` (no
 /// version suffix) so component imports/exports look identical to the
 /// rich-WIT world page.
-pub(crate) fn iface_ref_to_item(
-    iface: &component_meta_registry_client::WitInterfaceRef,
-) -> WitItem {
+pub(crate) fn iface_ref_to_item(iface: &wasm_meta_registry_client::WitInterfaceRef) -> WitItem {
     // When the interface lives in the parent component's own package, render
     // it as native: drop the package prefix so it reads as a first-class
     // member of this component.
@@ -187,7 +185,7 @@ pub(crate) fn iface_ref_to_item(
 
 /// Build the URL for a WIT interface reference, mirroring the legacy
 /// `package_shell::build_iface_href` logic.
-fn build_iface_href(iface: &component_meta_registry_client::WitInterfaceRef) -> Option<String> {
+fn build_iface_href(iface: &wasm_meta_registry_client::WitInterfaceRef) -> Option<String> {
     let (ns, name) = iface.package.split_once(':')?;
     Some(match (&iface.interface, &iface.version) {
         (Some(iface_name), Some(v)) => format!("/{ns}/{name}/{v}/interface/{iface_name}"),

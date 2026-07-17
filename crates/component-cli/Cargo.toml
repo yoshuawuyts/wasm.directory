@@ -40,10 +40,10 @@ tracing = { workspace = true }
 tracing-appender = { workspace = true }
 tracing-subscriber = { workspace = true }
 component-detector = { workspace = true }
-component-manifest = { workspace = true }
-component-meta-registry-types = { workspace = true }
+wasm-manifest = { workspace = true }
+wasm-meta-registry-types = { workspace = true }
 wasm-metadata = { workspace = true }
-component-package-manager = { workspace = true, features = ["http-sync", "compose"] }
+wasm-package-manager = { workspace = true, features = ["http-sync", "compose"] }
 component-cli-internal-run = { workspace = true }
 wasmparser = { workspace = true }
 wac-parser = { workspace = true }
@@ -64,7 +64,7 @@ semver = { workspace = true }
 tempfile = { workspace = true }
 component-detector = { workspace = true }
 wasm-encoder = "0.252"
-component-package-manager = { workspace = true }
+wasm-package-manager = { workspace = true }
 wit-component = { workspace = true }
 wit-parser = { workspace = true }
 

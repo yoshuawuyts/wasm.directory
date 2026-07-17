@@ -5,8 +5,8 @@
 
 #![allow(dead_code)]
 
-use component_meta_registry_client::KnownPackage;
 use html::text_content::Division;
+use wasm_meta_registry_client::KnownPackage;
 
 /// Render a package card for grid listings.
 pub(crate) fn render(pkg: &KnownPackage) -> Division {
@@ -19,10 +19,10 @@ pub(crate) fn render(pkg: &KnownPackage) -> Division {
     });
 
     let kind_badge = match pkg.kind {
-        Some(component_meta_registry_client::PackageKind::Interface) => {
+        Some(wasm_meta_registry_client::PackageKind::Interface) => {
             Some(("bg-cat-blue text-cat-blueInk", "Types"))
         }
-        Some(component_meta_registry_client::PackageKind::Component) => {
+        Some(wasm_meta_registry_client::PackageKind::Component) => {
             Some(("bg-cat-peach text-cat-peachInk", "Component"))
         }
         _ => None,

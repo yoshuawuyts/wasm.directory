@@ -2,8 +2,8 @@
 
 use std::fmt::Write;
 
-use component_meta_registry_client::{QueueStatus, QueueTask, RegistryClient};
 use html::text_content::Division;
+use wasm_meta_registry_client::{QueueStatus, QueueTask, RegistryClient};
 
 use crate::components::ds::typography;
 use crate::layout;

@@ -97,7 +97,7 @@ enum Command {
 /// Uses the XDG state directory (`$XDG_STATE_HOME/wasm/logs`) on Linux,
 /// and falls back to the local data directory on other systems.
 pub(crate) fn log_dir() -> std::path::PathBuf {
-    component_package_manager::storage::StateInfo::default_log_dir()
+    wasm_package_manager::storage::StateInfo::default_log_dir()
 }
 
 /// Initialize the tracing subscriber with a file appender and a stderr layer.

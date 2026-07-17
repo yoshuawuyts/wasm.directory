@@ -10,8 +10,8 @@
 
 use std::time::Duration;
 
-use component_package_manager::ProgressEvent;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use wasm_package_manager::ProgressEvent;
 
 /// Manages the phased install display.
 ///
