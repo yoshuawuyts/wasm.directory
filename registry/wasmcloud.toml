@@ -15,3 +15,23 @@ repository = "components/blobby-ui"
 [[interface]]
 name = "secrets"
 repository = "interfaces/wasmcloud/secrets"
+
+[[interface]]
+name = "messaging"
+repository = "interfaces/wasmcloud/messaging"
+
+[[interface]]
+name = "keyvalue"
+repository = "interfaces/wasmcloud/keyvalue"
+
+[[interface]]
+name = "blobstore"
+repository = "interfaces/wasmcloud/blobstore"
+
+[[interface]]
+name = "postgres"
+repository = "interfaces/wasmcloud/postgres"
+
+[[interface]]
+name = "host"
+repository = "interfaces/wasmcloud/host"
