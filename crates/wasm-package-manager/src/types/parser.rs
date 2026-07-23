@@ -599,6 +599,7 @@ mod tests {
                 docs: Default::default(),
                 stability: Default::default(),
                 span: Default::default(),
+                external_id: Default::default(),
             }),
         );
         world.exports.insert(
@@ -611,6 +612,7 @@ mod tests {
                 docs: Default::default(),
                 stability: Default::default(),
                 span: Default::default(),
+                external_id: Default::default(),
             }),
         );
 
@@ -791,6 +793,7 @@ mod tests {
                 docs: Default::default(),
                 stability: Default::default(),
                 span: Default::default(),
+                external_id: Default::default(),
             }),
         );
 
@@ -802,6 +805,7 @@ mod tests {
                 stability: Default::default(),
                 docs: Default::default(),
                 span: Default::default(),
+                external_id: Default::default(),
             },
         );
 
