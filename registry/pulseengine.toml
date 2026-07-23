@@ -1,0 +1,7 @@
+[namespace]
+name = "pulseengine"
+registry = "ghcr.io/pulseengine"
+
+[[component]]
+name = "falcon-flight"
+repository = "falcon-flight"
