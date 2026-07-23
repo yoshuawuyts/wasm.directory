@@ -24,7 +24,7 @@ jobs:
         rust: [stable]
 
     steps:
-    - uses: actions/checkout@v7.0.0
+    - uses: actions/checkout@v7.0.1
 
     - name: Run sccache-cache only on non-release runs
       if: github.event_name != 'release' && github.event_name != 'workflow_dispatch'
@@ -65,7 +65,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-    - uses: actions/checkout@v7.0.0
+    - uses: actions/checkout@v7.0.1
 
     - name: Run sccache-cache only on non-release runs
       if: github.event_name != 'release' && github.event_name != 'workflow_dispatch'
@@ -91,7 +91,7 @@ jobs:
     name: Checking docs
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v7.0.0
+    - uses: actions/checkout@v7.0.1
 
     - name: Run sccache-cache only on non-release runs
       if: github.event_name != 'release' && github.event_name != 'workflow_dispatch'
