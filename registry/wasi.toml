@@ -33,3 +33,23 @@ repository = "wasi/cli"
 [[interface]]
 name = "otel"
 repository = "wasi/otel"
+
+[[interface]]
+name = "config"
+repository = "wasi/config"
+
+[[interface]]
+name = "logging"
+repository = "wasi/logging"
+
+[[interface]]
+name = "keyvalue"
+repository = "wasi/keyvalue"
+
+[[interface]]
+name = "blobstore"
+repository = "wasi/blobstore"
+
+[[interface]]
+name = "webgpu"
+repository = "wasi/webgpu"
