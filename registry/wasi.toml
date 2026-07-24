@@ -33,3 +33,7 @@ repository = "wasi/cli"
 [[interface]]
 name = "otel"
 repository = "wasi/otel"
+
+[[interface]]
+name = "config"
+repository = "wasi/config"
