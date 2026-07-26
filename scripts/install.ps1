@@ -1,7 +1,7 @@
 # install.ps1 — Download and install the wasm(1) CLI tool on Windows.
 #
 # Usage:
-#   irm https://github.com/yoshuawuyts/wasm-cli/releases/latest/download/install.ps1 | iex
+#   irm https://github.com/yoshuawuyts/wasm.directory/releases/latest/download/install.ps1 | iex
 #
 # Environment variables:
 #   WASM_VERSION   Install a specific version (e.g. 0.3.0)
@@ -14,8 +14,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$Repo = 'yoshuawuyts/wasm-cli'
-$BinaryName = 'wasm'
+$Repo = 'yoshuawuyts/wasm.directory'
+$BinaryName = 'component'
 $Target = 'x86_64-pc-windows-msvc'
 
 # --- resolve version --------------------------------------------------------
@@ -48,7 +48,7 @@ if (-not $Version -or $Version -eq 'latest') {
 }
 
 $InstallDir = if ($env:CARGO_HOME) { Join-Path $env:CARGO_HOME 'bin' } else { Join-Path $HOME '.cargo\bin' }
-$ArchiveUrl = "https://github.com/$Repo/releases/download/v$Version/$BinaryName-$Target.zip"
+$ArchiveUrl = "https://github.com/$Repo/releases/download/$Version/$BinaryName-$Target.zip"
 $BinaryPath = Join-Path $InstallDir "$BinaryName.exe"
 
 Write-Host "Installing $BinaryName v$Version ($Target)"
