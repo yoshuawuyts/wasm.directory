@@ -2,7 +2,7 @@
 # install.sh — Download and install the wasm(1) CLI tool.
 #
 # Usage:
-#   curl --proto '=https' --tlsv1.2 -LsSf https://github.com/yoshuawuyts/wasm-cli/releases/latest/download/install.sh | sh
+#   curl --proto '=https' --tlsv1.2 -LsSf https://github.com/yoshuawuyts/wasm.directory/releases/latest/download/install.sh | sh
 #
 # Options:
 #   --version <VERSION>   Install a specific version (e.g. 0.3.0)
@@ -13,8 +13,8 @@
 
 set -eu
 
-REPO="yoshuawuyts/wasm-cli"
-BINARY_NAME="wasm"
+REPO="yoshuawuyts/wasm.directory"
+BINARY_NAME="component"
 
 # --- helpers ----------------------------------------------------------------
 
@@ -83,7 +83,7 @@ resolve_version() {
         fi
 
         # Extract version from URL like .../releases/tag/v0.3.0
-        _version="$(echo "$_redirect" | sed 's|.*/v||')"
+        _version="$(echo "$_redirect" | sed 's|.*/tag/||')"
 
         if [ -z "$_version" ]; then
             err "could not resolve latest version from GitHub"
@@ -136,7 +136,7 @@ main() {
     _version="$(resolve_version "$_version")"
 
     _install_dir="${CARGO_HOME:-$HOME/.cargo}/bin"
-    _archive_url="https://github.com/${REPO}/releases/download/v${_version}/${BINARY_NAME}-${_target}.tar.gz"
+    _archive_url="https://github.com/${REPO}/releases/download/${_version}/${BINARY_NAME}-${_target}.tar.gz"
 
     say "Installing ${BINARY_NAME} v${_version} (${_target})"
     say "  from: ${_archive_url}"
