@@ -13,7 +13,7 @@ jobs:
         with:
           components: llvm-tools-preview
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@7bfb4f157a6c1a326d8eb1658a802a37c5754539 # cargo-llvm-cov
+        uses: taiki-e/install-action@08b98bad02d095af524e877796d31cfeaa927dfb # cargo-llvm-cov
         with:
           tool: cargo-llvm-cov
       - name: Install sqlite3def
