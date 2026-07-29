@@ -266,9 +266,11 @@ fn fallback_defined_to_wit(
             }
             Some(WitTy::Variant(cases))
         }
-        ComponentDefinedType::List(t) => Some(WitTy::List(Box::new(fallback_cval_to_wit(r, t)?))),
-        ComponentDefinedType::Option(t) => {
-            Some(WitTy::Option(Box::new(fallback_cval_to_wit(r, t)?)))
+        ComponentDefinedType::List { element, .. } => {
+            Some(WitTy::List(Box::new(fallback_cval_to_wit(r, element)?)))
+        }
+        ComponentDefinedType::Option { ty, .. } => {
+            Some(WitTy::Option(Box::new(fallback_cval_to_wit(r, ty)?)))
         }
         ComponentDefinedType::Tuple(t) => {
             let mut tys = Vec::with_capacity(t.types.len());
@@ -283,7 +285,7 @@ fn fallback_defined_to_wit(
         ComponentDefinedType::Flags(s) => {
             Some(WitTy::Flags(s.iter().map(ToString::to_string).collect()))
         }
-        ComponentDefinedType::Result { ok, err } => {
+        ComponentDefinedType::Result { ok, err, .. } => {
             let ok = match ok {
                 Some(t) => Some(Box::new(fallback_cval_to_wit(r, t)?)),
                 None => None,
@@ -298,10 +300,10 @@ fn fallback_defined_to_wit(
         // streams, maps, fixed-length lists. Skip the affected function.
         ComponentDefinedType::Own(_)
         | ComponentDefinedType::Borrow(_)
-        | ComponentDefinedType::Future(_)
-        | ComponentDefinedType::Stream(_)
-        | ComponentDefinedType::Map(_, _)
-        | ComponentDefinedType::FixedLengthList(_, _) => None,
+        | ComponentDefinedType::Future { .. }
+        | ComponentDefinedType::Stream { .. }
+        | ComponentDefinedType::Map { .. }
+        | ComponentDefinedType::FixedLengthList { .. } => None,
     }
 }
 
