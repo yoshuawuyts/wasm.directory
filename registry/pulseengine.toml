@@ -9,3 +9,7 @@ repository = "falcon-flight"
 [[component]]
 name = "falcon-position"
 repository = "falcon-position"
+
+[[component]]
+name = "falcon-mixer"
+repository = "falcon-mixer"
