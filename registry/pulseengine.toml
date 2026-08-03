@@ -11,6 +11,10 @@ name = "falcon-rate"
 repository = "falcon-rate"
 
 [[component]]
+name = "falcon-attitude"
+repository = "falcon-attitude"
+
+[[component]]
 name = "falcon-iekf"
 repository = "falcon-iekf"
 
