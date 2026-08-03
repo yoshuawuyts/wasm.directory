@@ -5,3 +5,7 @@ registry = "ghcr.io/pulseengine"
 [[component]]
 name = "falcon-flight"
 repository = "falcon-flight"
+
+[[component]]
+name = "falcon-mixer"
+repository = "falcon-mixer"
