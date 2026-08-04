@@ -1,0 +1,7 @@
+[namespace]
+name = "fastly"
+registry = "ghcr.io/fastly"
+
+[[interface]]
+name = "compute"
+repository = "viceroy/fastly-compute"
