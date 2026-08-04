@@ -7,6 +7,10 @@ name = "falcon-flight"
 repository = "falcon-flight"
 
 [[component]]
+name = "gale-nano"
+repository = "gale-nano"
+
+[[component]]
 name = "falcon-rate"
 repository = "falcon-rate"
 
