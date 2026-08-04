@@ -11,5 +11,21 @@ name = "falcon-position"
 repository = "falcon-position"
 
 [[component]]
+name = "gale-nano"
+repository = "gale-nano"
+
+[[component]]
+name = "falcon-rate"
+repository = "falcon-rate"
+
+[[component]]
+name = "falcon-attitude"
+repository = "falcon-attitude"
+
+[[component]]
+name = "falcon-iekf"
+repository = "falcon-iekf"
+
+[[component]]
 name = "falcon-mixer"
 repository = "falcon-mixer"
