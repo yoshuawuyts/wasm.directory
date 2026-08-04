@@ -77,7 +77,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.10
+        uses: mozilla-actions/sccache-action@v0.0.11
 
       - name: Set sccache env vars
         run: |
