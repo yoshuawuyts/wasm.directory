@@ -53,10 +53,10 @@ param retentionInDays int = 30
 @maxValue(10)
 param backendMaxReplicas int = 2
 
-@description('Concurrent in-flight HTTP requests each backend replica absorbs before the platform adds another one.')
+@description('Concurrent in-flight HTTP requests each backend replica absorbs before the platform adds another one. Matches the platform default this app previously inherited implicitly.')
 @minValue(1)
 @maxValue(1000)
-param backendConcurrentRequests int = 25
+param backendConcurrentRequests int = 10
 
 @description('Upper bound on frontend replicas. This is the worst-case compute bill, so keep it just high enough to absorb a burst.')
 @minValue(1)
