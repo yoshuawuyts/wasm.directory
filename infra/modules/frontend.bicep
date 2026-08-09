@@ -76,17 +76,20 @@ resource frontendApp 'Microsoft.App/containerApps@2024-03-01' = {
       ]
       // Scaling is declared explicitly rather than left to the platform. With
       // no `rules` entry, Container Apps applies an implicit HTTP rule at ~10
-      // concurrent requests per replica, which nothing in this repo documents
-      // and which left both apps sitting at their replica ceiling.
+      // concurrent requests per replica — a default nothing in this repo wrote
+      // down. Declaring it makes the behaviour legible and tunable per
+      // environment; it is not a fix for anything. This app was observed
+      // sitting at three replicas for ~60 hours at a concurrency far under that
+      // threshold, and that plateau remains unexplained. See the Cost section
+      // of docs/azure-deployment.md.
       //
       // Scale to zero while idle to avoid compute costs; the first request
       // after an idle period incurs a cold start.
       //
-      // `concurrentRequests` is deliberately well above the implicit default.
-      // This app only serves pre-built static assets (HTML plus the compiled
-      // Wasm bundle) with no database or backend fan-out of its own, so a
-      // single 0.25 vCPU replica absorbs far more simultaneous requests than a
-      // threshold of 10 assumes.
+      // `concurrentRequests` is set well above the backend's threshold because
+      // this app only serves pre-built static assets (HTML plus the compiled
+      // Wasm bundle), with no database work per request, so a replica absorbs
+      // considerably more concurrency before it saturates.
       scale: {
         minReplicas: 0
         maxReplicas: maxReplicas

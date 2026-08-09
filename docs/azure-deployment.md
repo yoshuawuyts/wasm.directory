@@ -83,7 +83,7 @@ via `readEnvironmentVariable(...)`.
 | `LOG_ANALYTICS_DAILY_QUOTA_GB` | no | Maximum Log Analytics ingestion per day, in GB. Defaults to `1`; ingestion stops for the remainder of the day when exceeded. |
 | `LOG_ANALYTICS_RETENTION_IN_DAYS` | no | Number of days to retain Log Analytics data. Defaults to `30`, which is both the platform minimum and the amount included free on the `PerGB2018` SKU. Values below `30` are rejected during deployment validation, before any resources are created; values above it are billed as extended retention. |
 | `BACKEND_MAX_REPLICAS`    | no       | Upper bound on backend replicas, and therefore on worst-case backend compute spend. Defaults to `2` (one warm replica plus one for burst headroom). Accepts `1`–`10`. |
-| `BACKEND_CONCURRENT_REQUESTS` | no   | Concurrent in-flight HTTP requests each backend replica absorbs before another is added. Defaults to `25`. Accepts `1`–`1000`. Lower values scale out sooner and cost more. |
+| `BACKEND_CONCURRENT_REQUESTS` | no   | Concurrent in-flight HTTP requests each backend replica absorbs before another is added. Defaults to `10`, matching the default Container Apps applies implicitly when no scale rule is declared. Accepts `1`–`1000`. Raising it on a 0.25 vCPU container risks a rule that never fires; see [Cost](#cost). |
 | `FRONTEND_MAX_REPLICAS`   | no       | Upper bound on frontend replicas, and therefore on worst-case frontend compute spend. Defaults to `2`. Accepts `1`–`10`. |
 | `FRONTEND_CONCURRENT_REQUESTS` | no  | Concurrent in-flight HTTP requests each frontend replica absorbs before another is added. Defaults to `100` — higher than the backend because this app only serves static assets. Accepts `1`–`1000`. |
 

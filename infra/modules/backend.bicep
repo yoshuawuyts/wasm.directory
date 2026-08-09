@@ -27,10 +27,10 @@ param registryPassword string = ''
 @maxValue(10)
 param maxReplicas int = 2
 
-@description('Concurrent in-flight HTTP requests each backend replica absorbs before the platform adds another one.')
+@description('Concurrent in-flight HTTP requests each backend replica absorbs before the platform adds another one. Matches the platform default this app previously inherited implicitly.')
 @minValue(1)
 @maxValue(1000)
-param concurrentRequests int = 25
+param concurrentRequests int = 10
 
 var useRegistry = !empty(registryServer)
 
@@ -113,19 +113,23 @@ resource backendApp 'Microsoft.App/containerApps@2024-03-01' = {
       ]
       // Scaling is declared explicitly rather than left to the platform. With
       // no `rules` entry, Container Apps applies an implicit HTTP rule at ~10
-      // concurrent requests per replica, which nothing in this repo documents
-      // and which left both apps sitting at their replica ceiling.
+      // concurrent requests per replica — a default nothing in this repo wrote
+      // down. Declaring it makes the behaviour legible and tunable per
+      // environment; it is not a fix for anything. This app was observed
+      // sitting at three replicas for ~60 hours at a measured concurrency of
+      // ~0.08 (0.83 req/s x 95ms), two orders of magnitude under that
+      // threshold, and that plateau remains unexplained. See the Cost section
+      // of docs/azure-deployment.md.
       //
       // `minReplicas: 1` keeps one warm replica: the backend holds a Postgres
       // connection pool, so scaling to zero would pay a cold start plus pool
       // re-establishment on the first request after every idle period.
       //
-      // `concurrentRequests` is deliberately well above the implicit default.
-      // This is a low-traffic package registry serving short, mostly-read API
-      // calls, and each replica already fronts a pool of
-      // COMPONENT_DATABASE_MAX_CONNECTIONS (8) connections — 25 in-flight
-      // requests gives that pool roughly 3x headroom while making scale-out a
-      // response to a genuine burst rather than to routine traffic.
+      // `concurrentRequests` deliberately matches the previously implicit
+      // default rather than raising it. A higher threshold looks tempting for a
+      // low-traffic registry, but this container runs on 0.25 vCPU, where CPU
+      // saturates well before 10 simultaneous requests — a higher value risks a
+      // rule that never fires when a burst genuinely needs it.
       scale: {
         minReplicas: 1
         maxReplicas: maxReplicas
