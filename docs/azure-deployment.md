@@ -80,7 +80,7 @@ via `readEnvironmentVariable(...)`.
 | `POSTGRES_ADMIN_LOGIN`    | no       | Postgres admin user. Defaults to `pgadmin`.                                                          |
 | `POSTGRES_DB`             | no       | Postgres database name. Defaults to `componentregistry`.                                             |
 | `CUSTOM_DOMAIN_NAME`      | no       | Apex domain to serve the frontend on (e.g. `wasm.directory`). When set, provisioning also creates a DNS zone with records for both the apex (frontend) and the `api.` subdomain (meta-registry API). See [Bind a custom domain](#7-optional-bind-a-custom-domain). |
-| `LOG_ANALYTICS_DAILY_QUOTA_GB` | no | Maximum Log Analytics ingestion per day. Defaults to `1`; ingestion stops for the remainder of the day when exceeded. |
+| `LOG_ANALYTICS_DAILY_QUOTA_GB` | no | Maximum Log Analytics ingestion per day, in GB. Defaults to `1`; ingestion stops for the remainder of the day when exceeded. |
 | `LOG_ANALYTICS_RETENTION_IN_DAYS` | no | Number of days to retain Log Analytics data. Defaults to `30`, which is both the platform minimum and the amount included free on the `PerGB2018` SKU. Values below `30` are rejected during deployment validation, before any resources are created; values above it are billed as extended retention. |
 
 Set them with `azd env set`:

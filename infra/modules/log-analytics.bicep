@@ -2,7 +2,7 @@ param name string
 param location string
 param tags object = {}
 
-@description('Maximum Log Analytics ingestion in GiB per day. Ingestion stops for the remainder of the day when this limit is exceeded.')
+@description('Maximum Log Analytics ingestion in GB per day. Ingestion stops for the remainder of the day when this limit is exceeded.')
 param dailyQuotaGb int = 1
 
 @description('Number of days to retain Log Analytics data. The PerGB2018 SKU enforces a 30-day platform minimum, and those first 30 days are included at no extra cost; anything above 30 is billed as extended retention.')

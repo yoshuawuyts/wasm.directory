@@ -38,7 +38,7 @@ param registryPassword string
 @description('Custom apex domain to serve the frontend on, e.g. "wasm.directory". When empty (default) no DNS zone or custom-domain wiring is created and the app is reachable only on its *.azurecontainerapps.io URL.')
 param customDomainName string = ''
 
-@description('Maximum Log Analytics ingestion in GiB per day.')
+@description('Maximum Log Analytics ingestion in GB per day.')
 param dailyQuotaGb int = 1
 
 @description('Number of days to retain Log Analytics data. The PerGB2018 SKU enforces a 30-day platform minimum, and those first 30 days are included at no extra cost.')
