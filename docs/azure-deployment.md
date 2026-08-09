@@ -81,7 +81,7 @@ via `readEnvironmentVariable(...)`.
 | `POSTGRES_DB`             | no       | Postgres database name. Defaults to `componentregistry`.                                             |
 | `CUSTOM_DOMAIN_NAME`      | no       | Apex domain to serve the frontend on (e.g. `wasm.directory`). When set, provisioning also creates a DNS zone with records for both the apex (frontend) and the `api.` subdomain (meta-registry API). See [Bind a custom domain](#7-optional-bind-a-custom-domain). |
 | `LOG_ANALYTICS_DAILY_QUOTA_GB` | no | Maximum Log Analytics ingestion per day. Defaults to `1`; ingestion stops for the remainder of the day when exceeded. |
-| `LOG_ANALYTICS_RETENTION_IN_DAYS` | no | Number of days to retain Log Analytics data. Defaults to `7`. |
+| `LOG_ANALYTICS_RETENTION_IN_DAYS` | no | Number of days to retain Log Analytics data. Defaults to `30`, which is both the platform minimum and the amount included free on the `PerGB2018` SKU. Values below `30` are rejected at compile time; values above it are billed as extended retention. |
 
 Set them with `azd env set`:
 
@@ -203,7 +203,10 @@ The backend resource reduction has not been load-verified. If the service shows
 memory pressure or latency regressions, revert the backend `resources` block
 first. The Log Analytics `dailyQuotaGb` setting is deliberately a cost guard:
 if it is exceeded, log ingestion stops for the remainder of that day rather
-than indicating a workspace fault.
+than indicating a workspace fault. Retention is not a cost lever here: the
+`PerGB2018` SKU includes 30 days at no extra charge and rejects anything
+shorter, so ingestion volume — not `LOG_ANALYTICS_RETENTION_IN_DAYS` — is what
+drives the Log Analytics bill.
 
 ## 7. (Optional) Bind a custom domain
 

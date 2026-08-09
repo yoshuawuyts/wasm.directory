@@ -5,8 +5,10 @@ param tags object = {}
 @description('Maximum Log Analytics ingestion in GiB per day. Ingestion stops for the remainder of the day when this limit is exceeded.')
 param dailyQuotaGb int = 1
 
-@description('Number of days to retain Log Analytics data.')
-param retentionInDays int = 7
+@description('Number of days to retain Log Analytics data. The PerGB2018 SKU enforces a 30-day platform minimum, and those first 30 days are included at no extra cost; anything above 30 is billed as extended retention.')
+@minValue(30)
+@maxValue(730)
+param retentionInDays int = 30
 
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: name

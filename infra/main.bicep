@@ -43,8 +43,10 @@ param customDomainName string = ''
 @description('Maximum Log Analytics ingestion in GiB per day.')
 param dailyQuotaGb int = 1
 
-@description('Number of days to retain Log Analytics data.')
-param retentionInDays int = 7
+@description('Number of days to retain Log Analytics data. The PerGB2018 SKU enforces a 30-day platform minimum, and those first 30 days are included at no extra cost.')
+@minValue(30)
+@maxValue(730)
+param retentionInDays int = 30
 
 var rgName = empty(resourceGroupName) ? 'rg-${environmentName}' : resourceGroupName
 var tags = { 'azd-env-name': environmentName }
