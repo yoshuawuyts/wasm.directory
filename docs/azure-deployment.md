@@ -81,7 +81,7 @@ via `readEnvironmentVariable(...)`.
 | `POSTGRES_DB`             | no       | Postgres database name. Defaults to `componentregistry`.                                             |
 | `CUSTOM_DOMAIN_NAME`      | no       | Apex domain to serve the frontend on (e.g. `wasm.directory`). When set, provisioning also creates a DNS zone with records for both the apex (frontend) and the `api.` subdomain (meta-registry API). See [Bind a custom domain](#7-optional-bind-a-custom-domain). |
 | `LOG_ANALYTICS_DAILY_QUOTA_GB` | no | Maximum Log Analytics ingestion per day. Defaults to `1`; ingestion stops for the remainder of the day when exceeded. |
-| `LOG_ANALYTICS_RETENTION_IN_DAYS` | no | Number of days to retain Log Analytics data. Defaults to `30`, which is both the platform minimum and the amount included free on the `PerGB2018` SKU. Values below `30` are rejected at compile time; values above it are billed as extended retention. |
+| `LOG_ANALYTICS_RETENTION_IN_DAYS` | no | Number of days to retain Log Analytics data. Defaults to `30`, which is both the platform minimum and the amount included free on the `PerGB2018` SKU. Values below `30` are rejected during deployment validation, before any resources are created; values above it are billed as extended retention. |
 
 Set them with `azd env set`:
 
@@ -198,6 +198,15 @@ approximately **$36/month**: about $18 for the always-on backend at 0.25 vCPU
 storage, less than $1 for normal Log Analytics ingestion, and about $0.50 for
 Azure DNS. The frontend scales to zero while idle, so its request-driven usage
 is additional but the first request after an idle period has a cold start.
+
+That figure is a floor, and it assumes **one replica per app**. Billing data
+from the running deployment shows the per-unit rates above are correct, but
+that both apps sustain close to three replicas — `maxReplicas` — rather than
+one, because neither defines a `scale.rules` entry. Measured spend was about
+$216/month, with roughly 92% of it Container Apps compute, all of it billed at
+the *active* rate (no idle usage was recorded). Replica count, not per-replica
+sizing, is the dominant term: verify actual replica counts before trusting any
+estimate, and set an explicit scale rule if the apps sit at `maxReplicas`.
 
 The backend resource reduction has not been load-verified. If the service shows
 memory pressure or latency regressions, revert the backend `resources` block
