@@ -82,6 +82,10 @@ via `readEnvironmentVariable(...)`.
 | `CUSTOM_DOMAIN_NAME`      | no       | Apex domain to serve the frontend on (e.g. `wasm.directory`). When set, provisioning also creates a DNS zone with records for both the apex (frontend) and the `api.` subdomain (meta-registry API). See [Bind a custom domain](#7-optional-bind-a-custom-domain). |
 | `LOG_ANALYTICS_DAILY_QUOTA_GB` | no | Maximum Log Analytics ingestion per day, in GB. Defaults to `1`; ingestion stops for the remainder of the day when exceeded. |
 | `LOG_ANALYTICS_RETENTION_IN_DAYS` | no | Number of days to retain Log Analytics data. Defaults to `30`, which is both the platform minimum and the amount included free on the `PerGB2018` SKU. Values below `30` are rejected during deployment validation, before any resources are created; values above it are billed as extended retention. |
+| `BACKEND_MAX_REPLICAS`    | no       | Upper bound on backend replicas, and therefore on worst-case backend compute spend. Defaults to `2` (one warm replica plus one for burst headroom). Accepts `1`–`10`. |
+| `BACKEND_CONCURRENT_REQUESTS` | no   | Concurrent in-flight HTTP requests each backend replica absorbs before another is added. Defaults to `25`. Accepts `1`–`1000`. Lower values scale out sooner and cost more. |
+| `FRONTEND_MAX_REPLICAS`   | no       | Upper bound on frontend replicas, and therefore on worst-case frontend compute spend. Defaults to `2`. Accepts `1`–`10`. |
+| `FRONTEND_CONCURRENT_REQUESTS` | no  | Concurrent in-flight HTTP requests each frontend replica absorbs before another is added. Defaults to `100` — higher than the backend because this app only serves static assets. Accepts `1`–`1000`. |
 
 Set them with `azd env set`:
 
@@ -337,18 +341,25 @@ so the same `AZURE_ENV_NAME` can be reused immediately.
 
 ## Cost
 
-For a low-traffic production deployment, the configuration in this guide is
-approximately **$36/month**: about $18 for the always-on backend at 0.25 vCPU
-/ 0.5 GiB, about $17 for the `Standard_B1ms` PostgreSQL server and its minimum
-storage, less than $1 for normal Log Analytics ingestion, and about $0.50 for
-Azure DNS. The frontend scales to zero while idle, so its request-driven usage
-is additional but the first request after an idle period has a cold start.
+At current traffic the configuration in this guide runs approximately
+**$40/month**, with a ceiling of about **$110/month** if both apps sit at their
+replica maximums.
 
-That figure is a floor, and it assumes **one replica per app**. Billing data
-from the running deployment confirms the per-unit rates above, but over one
-observed multi-day period both apps sustained three replicas — `maxReplicas` —
-rather than one, putting measured spend at about $216/month, roughly 92% of it
-Container Apps compute billed at the *active* rate.
+Steady state breaks down as about $22 for the one always-on backend replica at
+0.25 vCPU / 0.5 GiB, about $17 for the `Standard_B1ms` PostgreSQL server and
+its minimum storage, less than $1 for normal Log Analytics ingestion, and about
+$1 for Azure DNS. The frontend scales to zero while idle, so it contributes
+only request-driven usage — at the price of a cold start on the first request
+after an idle period.
+
+### What the billing data showed
+
+An earlier revision of this guide quoted about $36/month while assuming **one
+replica per app**. Billing data from the running deployment confirms the
+per-unit rates above, but over one observed multi-day period both apps
+sustained three replicas — `maxReplicas` — rather than one, putting measured
+spend at about $216/month, roughly 92% of it Container Apps compute billed at
+the *active* rate.
 
 That plateau is **not** explained by measured load, and its cause is
 unresolved. Over the same period the backend averaged 0.83 requests/second at
@@ -366,6 +377,40 @@ The practical guidance is unchanged: replica count, not per-replica sizing, is
 the dominant cost term. Verify actual replica counts with the `Replicas` metric
 before trusting any estimate, and treat `maxReplicas` as the real ceiling on
 the bill.
+
+Do not read $216/month as a current run-rate. It was measured during the
+three-replica plateau, at roughly ten times the traffic seen since, and replica
+counts fell to one on their own when that traffic dropped. Most of the gap
+between that figure and the numbers at the top of this section closed without
+any configuration change. What the settings below buy is a lower cost per
+replica and an explicit, declared ceiling — not a measured $216 → $40 saving.
+
+### How scaling is configured
+
+Both container apps declare an explicit `http-scaling` rule rather than
+inheriting the platform's implicit ~10-concurrent-request default. That does
+not on its own resolve the plateau described above — its cause remains unknown,
+and the backend threshold is deliberately set to the same value the platform
+was already applying. What it buys is legibility and tunability: the scaling
+behaviour is stated in the template and adjustable per environment without
+editing Bicep.
+
+- `BACKEND_CONCURRENT_REQUESTS` defaults to `10`, matching the previously
+  implicit default. A higher threshold is tempting for a low-traffic service,
+  but the backend runs on 0.25 vCPU, where CPU saturates well before ten
+  simultaneous requests — raising it risks a rule that never fires when a burst
+  actually needs it.
+- `FRONTEND_CONCURRENT_REQUESTS` defaults to `100`. The frontend serves only
+  pre-built static assets, with no per-request database work, so one replica
+  absorbs considerably more concurrency before saturating.
+- `BACKEND_MAX_REPLICAS` and `FRONTEND_MAX_REPLICAS` default to `2`, down from
+  a ceiling of 3. One replica demonstrably served the observed load at about
+  95 ms with no latency regression, so two is headroom rather than a target.
+  Combined with the backend right-sizing to 0.25 vCPU / 0.5 GiB, the
+  provisioned ceiling falls from 2.25 vCPU to 1.0 vCPU.
+
+`minReplicas` is unchanged: 1 on the backend, which keeps a warm Postgres
+connection pool, and 0 on the frontend, which scales to zero while idle.
 
 The backend resource reduction has not been load-verified. If the service shows
 memory pressure or latency regressions, revert the backend `resources` block

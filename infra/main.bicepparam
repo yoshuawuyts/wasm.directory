@@ -19,3 +19,8 @@ param registryPassword = readEnvironmentVariable('REGISTRY_PASSWORD', '')
 param customDomainName = readEnvironmentVariable('CUSTOM_DOMAIN_NAME', '')
 param dailyQuotaGb = int(readEnvironmentVariable('LOG_ANALYTICS_DAILY_QUOTA_GB', '1'))
 param retentionInDays = int(readEnvironmentVariable('LOG_ANALYTICS_RETENTION_IN_DAYS', '30'))
+
+param backendMaxReplicas = int(readEnvironmentVariable('BACKEND_MAX_REPLICAS', '2'))
+param backendConcurrentRequests = int(readEnvironmentVariable('BACKEND_CONCURRENT_REQUESTS', '25'))
+param frontendMaxReplicas = int(readEnvironmentVariable('FRONTEND_MAX_REPLICAS', '2'))
+param frontendConcurrentRequests = int(readEnvironmentVariable('FRONTEND_CONCURRENT_REQUESTS', '100'))
