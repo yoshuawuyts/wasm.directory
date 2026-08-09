@@ -200,13 +200,27 @@ Azure DNS. The frontend scales to zero while idle, so its request-driven usage
 is additional but the first request after an idle period has a cold start.
 
 That figure is a floor, and it assumes **one replica per app**. Billing data
-from the running deployment shows the per-unit rates above are correct, but
-that both apps sustain close to three replicas — `maxReplicas` — rather than
-one, because neither defines a `scale.rules` entry. Measured spend was about
-$216/month, with roughly 92% of it Container Apps compute, all of it billed at
-the *active* rate (no idle usage was recorded). Replica count, not per-replica
-sizing, is the dominant term: verify actual replica counts before trusting any
-estimate, and set an explicit scale rule if the apps sit at `maxReplicas`.
+from the running deployment confirms the per-unit rates above, but over one
+observed multi-day period both apps sustained three replicas — `maxReplicas` —
+rather than one, putting measured spend at about $216/month, roughly 92% of it
+Container Apps compute billed at the *active* rate.
+
+That plateau is **not** explained by measured load, and its cause is
+unresolved. Over the same period the backend averaged 0.83 requests/second at
+about 95 ms per request, which is roughly 0.08 concurrent requests — about two
+orders of magnitude below the ~10-concurrent threshold that Container Apps
+applies by default when a container app declares no `scale.rules` entry. One
+replica comfortably covers that load, and latency did not regress when replica
+counts later fell to one. Scale-in does work: when traffic dropped roughly
+tenfold, both apps scaled down from three replicas to one within hours. Long-
+lived or keep-alive connections inflating the scaler's concurrency count, or
+bursts hidden inside the averaging window, are plausible explanations, but
+neither is confirmed.
+
+The practical guidance is unchanged: replica count, not per-replica sizing, is
+the dominant cost term. Verify actual replica counts with the `Replicas` metric
+before trusting any estimate, and treat `maxReplicas` as the real ceiling on
+the bill.
 
 The backend resource reduction has not been load-verified. If the service shows
 memory pressure or latency regressions, revert the backend `resources` block
