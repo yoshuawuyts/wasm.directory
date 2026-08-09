@@ -190,47 +190,6 @@ The service URLs are printed at the end. You can also retrieve them later:
 azd env get-values | grep _URL
 ```
 
-## Cost
-
-For a low-traffic production deployment, the configuration in this guide is
-approximately **$36/month**: about $18 for the always-on backend at 0.25 vCPU
-/ 0.5 GiB, about $17 for the `Standard_B1ms` PostgreSQL server and its minimum
-storage, less than $1 for normal Log Analytics ingestion, and about $0.50 for
-Azure DNS. The frontend scales to zero while idle, so its request-driven usage
-is additional but the first request after an idle period has a cold start.
-
-That figure is a floor, and it assumes **one replica per app**. Billing data
-from the running deployment confirms the per-unit rates above, but over one
-observed multi-day period both apps sustained three replicas — `maxReplicas` —
-rather than one, putting measured spend at about $216/month, roughly 92% of it
-Container Apps compute billed at the *active* rate.
-
-That plateau is **not** explained by measured load, and its cause is
-unresolved. Over the same period the backend averaged 0.83 requests/second at
-about 95 ms per request, which is roughly 0.08 concurrent requests — about two
-orders of magnitude below the ~10-concurrent threshold that Container Apps
-applies by default when a container app declares no `scale.rules` entry. One
-replica comfortably covers that load, and latency did not regress when replica
-counts later fell to one. Scale-in does work: when traffic dropped roughly
-tenfold, both apps scaled down from three replicas to one within hours. Long-
-lived or keep-alive connections inflating the scaler's concurrency count, or
-bursts hidden inside the averaging window, are plausible explanations, but
-neither is confirmed.
-
-The practical guidance is unchanged: replica count, not per-replica sizing, is
-the dominant cost term. Verify actual replica counts with the `Replicas` metric
-before trusting any estimate, and treat `maxReplicas` as the real ceiling on
-the bill.
-
-The backend resource reduction has not been load-verified. If the service shows
-memory pressure or latency regressions, revert the backend `resources` block
-first. The Log Analytics `dailyQuotaGb` setting is deliberately a cost guard:
-if it is exceeded, log ingestion stops for the remainder of that day rather
-than indicating a workspace fault. Retention is not a cost lever here: the
-`PerGB2018` SKU includes 30 days at no extra charge and rejects anything
-shorter, so ingestion volume — not `LOG_ANALYTICS_RETENTION_IN_DAYS` — is what
-drives the Log Analytics bill.
-
 ## 7. (Optional) Bind a custom domain
 
 By default the frontend is reachable only on its generated
@@ -375,6 +334,47 @@ azd down --purge --force
 
 `--purge` also removes soft-deleted resources (Key Vault, Log Analytics)
 so the same `AZURE_ENV_NAME` can be reused immediately.
+
+## Cost
+
+For a low-traffic production deployment, the configuration in this guide is
+approximately **$36/month**: about $18 for the always-on backend at 0.25 vCPU
+/ 0.5 GiB, about $17 for the `Standard_B1ms` PostgreSQL server and its minimum
+storage, less than $1 for normal Log Analytics ingestion, and about $0.50 for
+Azure DNS. The frontend scales to zero while idle, so its request-driven usage
+is additional but the first request after an idle period has a cold start.
+
+That figure is a floor, and it assumes **one replica per app**. Billing data
+from the running deployment confirms the per-unit rates above, but over one
+observed multi-day period both apps sustained three replicas — `maxReplicas` —
+rather than one, putting measured spend at about $216/month, roughly 92% of it
+Container Apps compute billed at the *active* rate.
+
+That plateau is **not** explained by measured load, and its cause is
+unresolved. Over the same period the backend averaged 0.83 requests/second at
+about 95 ms per request, which is roughly 0.08 concurrent requests — about two
+orders of magnitude below the ~10-concurrent threshold that Container Apps
+applies by default when a container app declares no `scale.rules` entry. One
+replica comfortably covers that load, and latency did not regress when replica
+counts later fell to one. Scale-in does work: when traffic dropped roughly
+tenfold, both apps scaled down from three replicas to one within hours. Long-
+lived or keep-alive connections inflating the scaler's concurrency count, or
+bursts hidden inside the averaging window, are plausible explanations, but
+neither is confirmed.
+
+The practical guidance is unchanged: replica count, not per-replica sizing, is
+the dominant cost term. Verify actual replica counts with the `Replicas` metric
+before trusting any estimate, and treat `maxReplicas` as the real ceiling on
+the bill.
+
+The backend resource reduction has not been load-verified. If the service shows
+memory pressure or latency regressions, revert the backend `resources` block
+first. The Log Analytics `dailyQuotaGb` setting is deliberately a cost guard:
+if it is exceeded, log ingestion stops for the remainder of that day rather
+than indicating a workspace fault. Retention is not a cost lever here: the
+`PerGB2018` SKU includes 30 days at no extra charge and rejects anything
+shorter, so ingestion volume — not `LOG_ANALYTICS_RETENTION_IN_DAYS` — is what
+drives the Log Analytics bill.
 
 ## Automated deployment via GitHub Actions
 
