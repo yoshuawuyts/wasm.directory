@@ -77,9 +77,13 @@ resource backendApp 'Microsoft.App/containerApps@2024-03-01' = {
         {
           name: 'backend'
           image: image
+          // Reduced from 0.5 vCPU / 1.0Gi as a cost optimization; 0.25 vCPU /
+          // 0.5Gi has not been load-verified. If replicas are OOM-killed or
+          // latency regresses, revert this resources block first. Lower
+          // COMPONENT_DATABASE_MAX_CONNECTIONS from 8 if memory pressure appears.
           resources: {
-            cpu: json('0.5')
-            memory: '1.0Gi'
+            cpu: json('0.25')
+            memory: '0.5Gi'
           }
           env: [
             {
