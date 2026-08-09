@@ -38,6 +38,12 @@ param registryPassword string
 @description('Custom apex domain to serve the frontend on, e.g. "wasm.directory". When empty (default) no DNS zone or custom-domain wiring is created and the app is reachable only on its *.azurecontainerapps.io URL.')
 param customDomainName string = ''
 
+@description('Maximum Log Analytics ingestion in GiB per day.')
+param dailyQuotaGb int = 1
+
+@description('Number of days to retain Log Analytics data.')
+param retentionInDays int = 7
+
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 
 // ── Observability ────────────────────────────────────────────────────────────
@@ -48,6 +54,8 @@ module logAnalytics './modules/log-analytics.bicep' = {
     name: 'law-${environmentName}-${resourceToken}'
     location: location
     tags: tags
+    dailyQuotaGb: dailyQuotaGb
+    retentionInDays: retentionInDays
   }
 }
 

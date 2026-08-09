@@ -40,6 +40,12 @@ param registryPassword string = ''
 @description('Custom apex domain to serve the frontend on, e.g. "wasm.directory". Leave empty to skip DNS/custom-domain setup.')
 param customDomainName string = ''
 
+@description('Maximum Log Analytics ingestion in GiB per day.')
+param dailyQuotaGb int = 1
+
+@description('Number of days to retain Log Analytics data.')
+param retentionInDays int = 7
+
 var rgName = empty(resourceGroupName) ? 'rg-${environmentName}' : resourceGroupName
 var tags = { 'azd-env-name': environmentName }
 
@@ -65,6 +71,8 @@ module resources './resources.bicep' = {
     registryUsername: registryUsername
     registryPassword: registryPassword
     customDomainName: customDomainName
+    dailyQuotaGb: dailyQuotaGb
+    retentionInDays: retentionInDays
   }
 }
 

@@ -64,8 +64,10 @@ resource frontendApp 'Microsoft.App/containerApps@2024-03-01' = {
           }
         }
       ]
+      // Scale to zero while idle to avoid compute costs; the first request after
+      // an idle period incurs a cold start.
       scale: {
-        minReplicas: 1
+        minReplicas: 0
         maxReplicas: 3
       }
     }

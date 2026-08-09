@@ -80,6 +80,8 @@ via `readEnvironmentVariable(...)`.
 | `POSTGRES_ADMIN_LOGIN`    | no       | Postgres admin user. Defaults to `pgadmin`.                                                          |
 | `POSTGRES_DB`             | no       | Postgres database name. Defaults to `componentregistry`.                                             |
 | `CUSTOM_DOMAIN_NAME`      | no       | Apex domain to serve the frontend on (e.g. `wasm.directory`). When set, provisioning also creates a DNS zone with records for both the apex (frontend) and the `api.` subdomain (meta-registry API). See [Bind a custom domain](#7-optional-bind-a-custom-domain). |
+| `LOG_ANALYTICS_DAILY_QUOTA_GB` | no | Maximum Log Analytics ingestion per day. Defaults to `1`; ingestion stops for the remainder of the day when exceeded. |
+| `LOG_ANALYTICS_RETENTION_IN_DAYS` | no | Number of days to retain Log Analytics data. Defaults to `7`. |
 
 Set them with `azd env set`:
 
@@ -187,6 +189,21 @@ The service URLs are printed at the end. You can also retrieve them later:
 ```sh
 azd env get-values | grep _URL
 ```
+
+## Cost
+
+For a low-traffic production deployment, the configuration in this guide is
+approximately **$36/month**: about $18 for the always-on backend at 0.25 vCPU
+/ 0.5 GiB, about $17 for the `Standard_B1ms` PostgreSQL server and its minimum
+storage, less than $1 for normal Log Analytics ingestion, and about $0.50 for
+Azure DNS. The frontend scales to zero while idle, so its request-driven usage
+is additional but the first request after an idle period has a cold start.
+
+The backend resource reduction has not been load-verified. If the service shows
+memory pressure or latency regressions, revert the backend `resources` block
+first. The Log Analytics `dailyQuotaGb` setting is deliberately a cost guard:
+if it is exceeded, log ingestion stops for the remainder of that day rather
+than indicating a workspace fault.
 
 ## 7. (Optional) Bind a custom domain
 

@@ -17,3 +17,5 @@ param registryUsername = readEnvironmentVariable('REGISTRY_USERNAME', '')
 param registryPassword = readEnvironmentVariable('REGISTRY_PASSWORD', '')
 
 param customDomainName = readEnvironmentVariable('CUSTOM_DOMAIN_NAME', '')
+param dailyQuotaGb = int(readEnvironmentVariable('LOG_ANALYTICS_DAILY_QUOTA_GB', '1'))
+param retentionInDays = int(readEnvironmentVariable('LOG_ANALYTICS_RETENTION_IN_DAYS', '7'))
