@@ -46,6 +46,26 @@ param dailyQuotaGb int = 1
 @maxValue(730)
 param retentionInDays int = 30
 
+@description('Upper bound on backend replicas. This is the worst-case compute bill, so keep it just high enough to absorb a burst.')
+@minValue(1)
+@maxValue(10)
+param backendMaxReplicas int = 2
+
+@description('Concurrent in-flight HTTP requests each backend replica absorbs before the platform adds another one.')
+@minValue(1)
+@maxValue(1000)
+param backendConcurrentRequests int = 25
+
+@description('Upper bound on frontend replicas. This is the worst-case compute bill, so keep it just high enough to absorb a burst.')
+@minValue(1)
+@maxValue(10)
+param frontendMaxReplicas int = 2
+
+@description('Concurrent in-flight HTTP requests each frontend replica absorbs before the platform adds another one.')
+@minValue(1)
+@maxValue(1000)
+param frontendConcurrentRequests int = 100
+
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 
 // ── Observability ────────────────────────────────────────────────────────────
@@ -102,6 +122,8 @@ module backend './modules/backend.bicep' = {
     registryServer: registryServer
     registryUsername: registryUsername
     registryPassword: registryPassword
+    maxReplicas: backendMaxReplicas
+    concurrentRequests: backendConcurrentRequests
   }
 }
 
@@ -116,6 +138,8 @@ module frontend './modules/frontend.bicep' = {
     registryServer: registryServer
     registryUsername: registryUsername
     registryPassword: registryPassword
+    maxReplicas: frontendMaxReplicas
+    concurrentRequests: frontendConcurrentRequests
   }
 }
 

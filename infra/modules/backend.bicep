@@ -22,6 +22,16 @@ param registryUsername string = ''
 @description('Container registry password or token.')
 param registryPassword string = ''
 
+@description('Upper bound on backend replicas. This is the worst-case compute bill, so keep it just high enough to absorb a burst.')
+@minValue(1)
+@maxValue(10)
+param maxReplicas int = 2
+
+@description('Concurrent in-flight HTTP requests each backend replica absorbs before the platform adds another one.')
+@minValue(1)
+@maxValue(1000)
+param concurrentRequests int = 25
+
 var useRegistry = !empty(registryServer)
 
 var registrySecrets = useRegistry ? [
@@ -101,9 +111,34 @@ resource backendApp 'Microsoft.App/containerApps@2024-03-01' = {
           ]
         }
       ]
+      // Scaling is declared explicitly rather than left to the platform. With
+      // no `rules` entry, Container Apps applies an implicit HTTP rule at ~10
+      // concurrent requests per replica, which nothing in this repo documents
+      // and which left both apps sitting at their replica ceiling.
+      //
+      // `minReplicas: 1` keeps one warm replica: the backend holds a Postgres
+      // connection pool, so scaling to zero would pay a cold start plus pool
+      // re-establishment on the first request after every idle period.
+      //
+      // `concurrentRequests` is deliberately well above the implicit default.
+      // This is a low-traffic package registry serving short, mostly-read API
+      // calls, and each replica already fronts a pool of
+      // COMPONENT_DATABASE_MAX_CONNECTIONS (8) connections — 25 in-flight
+      // requests gives that pool roughly 3x headroom while making scale-out a
+      // response to a genuine burst rather than to routine traffic.
       scale: {
         minReplicas: 1
-        maxReplicas: 3
+        maxReplicas: maxReplicas
+        rules: [
+          {
+            name: 'http-scaling'
+            http: {
+              metadata: {
+                concurrentRequests: string(concurrentRequests)
+              }
+            }
+          }
+        ]
       }
     }
   }

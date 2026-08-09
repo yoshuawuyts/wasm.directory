@@ -20,6 +20,16 @@ param registryUsername string = ''
 @description('Container registry password or token.')
 param registryPassword string = ''
 
+@description('Upper bound on frontend replicas. This is the worst-case compute bill, so keep it just high enough to absorb a burst.')
+@minValue(1)
+@maxValue(10)
+param maxReplicas int = 2
+
+@description('Concurrent in-flight HTTP requests each frontend replica absorbs before the platform adds another one.')
+@minValue(1)
+@maxValue(1000)
+param concurrentRequests int = 100
+
 var useRegistry = !empty(registryServer)
 
 var registrySecrets = useRegistry ? [
@@ -64,11 +74,32 @@ resource frontendApp 'Microsoft.App/containerApps@2024-03-01' = {
           }
         }
       ]
-      // Scale to zero while idle to avoid compute costs; the first request after
-      // an idle period incurs a cold start.
+      // Scaling is declared explicitly rather than left to the platform. With
+      // no `rules` entry, Container Apps applies an implicit HTTP rule at ~10
+      // concurrent requests per replica, which nothing in this repo documents
+      // and which left both apps sitting at their replica ceiling.
+      //
+      // Scale to zero while idle to avoid compute costs; the first request
+      // after an idle period incurs a cold start.
+      //
+      // `concurrentRequests` is deliberately well above the implicit default.
+      // This app only serves pre-built static assets (HTML plus the compiled
+      // Wasm bundle) with no database or backend fan-out of its own, so a
+      // single 0.25 vCPU replica absorbs far more simultaneous requests than a
+      // threshold of 10 assumes.
       scale: {
         minReplicas: 0
-        maxReplicas: 3
+        maxReplicas: maxReplicas
+        rules: [
+          {
+            name: 'http-scaling'
+            http: {
+              metadata: {
+                concurrentRequests: string(concurrentRequests)
+              }
+            }
+          }
+        ]
       }
     }
   }
