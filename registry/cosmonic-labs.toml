@@ -71,3 +71,7 @@ repository = "wasmpay/wasmpay-validator"
 [[component]]
 name = "wasmpay-transaction-manager"
 repository = "wasmpay/transaction-manager"
+
+[[component]]
+name = "kafka"
+repository = "kafka"
