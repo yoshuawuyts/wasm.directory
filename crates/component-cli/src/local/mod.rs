@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use comfy_table::{Table, modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL};
+use comfy_table::{Table, presets::UTF8_FULL};
 use wasm_package_manager::manager::Manager;
 
 /// Detect and manage local WASM files
@@ -61,8 +61,7 @@ impl ListOpts {
         // Create a table for nice output
         let mut table = Table::new();
         table
-            .load_preset(UTF8_FULL)
-            .apply_modifier(UTF8_ROUND_CORNERS)
+            .load_style(UTF8_FULL.with_rounded_corners())
             .set_header(vec!["#", "File Path"]);
 
         for (idx, entry) in wasm_files.iter().enumerate() {
