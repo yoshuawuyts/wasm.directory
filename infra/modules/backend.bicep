@@ -22,12 +22,17 @@ param registryUsername string = ''
 @description('Container registry password or token.')
 param registryPassword string = ''
 
-@description('Upper bound on backend replicas. This is the worst-case compute bill, so keep it just high enough to absorb a burst.')
+@description('Lower bound on backend replicas. 1 keeps the API always on; 0 scales to zero when idle, at the cost of a cold start.')
+@minValue(0)
+@maxValue(10)
+param minReplicas int = 1
+
+@description('Upper bound on backend replicas, and therefore on worst-case backend compute spend.')
 @minValue(1)
 @maxValue(10)
-param maxReplicas int = 2
+param maxReplicas int = 1
 
-@description('Concurrent in-flight HTTP requests each backend replica absorbs before the platform adds another one. Matches the platform default this app previously inherited implicitly.')
+@description('In-flight HTTP requests per backend replica before another is added.')
 @minValue(1)
 @maxValue(1000)
 param concurrentRequests int = 10
@@ -111,27 +116,12 @@ resource backendApp 'Microsoft.App/containerApps@2024-03-01' = {
           ]
         }
       ]
-      // Scaling is declared explicitly rather than left to the platform. With
-      // no `rules` entry, Container Apps applies an implicit HTTP rule at ~10
-      // concurrent requests per replica — a default nothing in this repo wrote
-      // down. Declaring it makes the behaviour legible and tunable per
-      // environment; it is not a fix for anything. This app was observed
-      // sitting at three replicas for ~60 hours at a measured concurrency of
-      // ~0.08 (0.83 req/s x 95ms), two orders of magnitude under that
-      // threshold, and that plateau remains unexplained. See the Cost section
-      // of docs/azure-deployment.md.
-      //
-      // `minReplicas: 1` keeps one warm replica: the backend holds a Postgres
-      // connection pool, so scaling to zero would pay a cold start plus pool
-      // re-establishment on the first request after every idle period.
-      //
-      // `concurrentRequests` deliberately matches the previously implicit
-      // default rather than raising it. A higher threshold looks tempting for a
-      // low-traffic registry, but this container runs on 0.25 vCPU, where CPU
-      // saturates well before 10 simultaneous requests — a higher value risks a
-      // rule that never fires when a burst genuinely needs it.
+      // Declared explicitly so scaling is visible and tunable; with no `rules`
+      // entry the platform silently applies ~10 concurrent requests. Kept at
+      // that same 10, because 0.25 vCPU saturates well before ten in-flight
+      // requests. One replica, always on. See Cost in docs/azure-deployment.md.
       scale: {
-        minReplicas: 1
+        minReplicas: minReplicas
         maxReplicas: maxReplicas
         rules: [
           {

@@ -20,12 +20,17 @@ param registryUsername string = ''
 @description('Container registry password or token.')
 param registryPassword string = ''
 
-@description('Upper bound on frontend replicas. This is the worst-case compute bill, so keep it just high enough to absorb a burst.')
+@description('Lower bound on frontend replicas. 1 keeps the site always on; 0 scales to zero when idle, at the cost of a cold start.')
+@minValue(0)
+@maxValue(10)
+param minReplicas int = 1
+
+@description('Upper bound on frontend replicas, and therefore on worst-case frontend compute spend.')
 @minValue(1)
 @maxValue(10)
-param maxReplicas int = 2
+param maxReplicas int = 1
 
-@description('Concurrent in-flight HTTP requests each frontend replica absorbs before the platform adds another one.')
+@description('In-flight HTTP requests per frontend replica before another is added.')
 @minValue(1)
 @maxValue(1000)
 param concurrentRequests int = 100
@@ -74,24 +79,12 @@ resource frontendApp 'Microsoft.App/containerApps@2024-03-01' = {
           }
         }
       ]
-      // Scaling is declared explicitly rather than left to the platform. With
-      // no `rules` entry, Container Apps applies an implicit HTTP rule at ~10
-      // concurrent requests per replica — a default nothing in this repo wrote
-      // down. Declaring it makes the behaviour legible and tunable per
-      // environment; it is not a fix for anything. This app was observed
-      // sitting at three replicas for ~60 hours at a concurrency far under that
-      // threshold, and that plateau remains unexplained. See the Cost section
-      // of docs/azure-deployment.md.
-      //
-      // Scale to zero while idle to avoid compute costs; the first request
-      // after an idle period incurs a cold start.
-      //
-      // `concurrentRequests` is set well above the backend's threshold because
-      // this app only serves pre-built static assets (HTML plus the compiled
-      // Wasm bundle), with no database work per request, so a replica absorbs
-      // considerably more concurrency before it saturates.
+      // Declared explicitly so scaling is visible and tunable; with no `rules`
+      // entry the platform silently applies ~10 concurrent requests. Set higher
+      // here because this app serves only static assets. One replica, always
+      // on. See Cost in docs/azure-deployment.md.
       scale: {
-        minReplicas: 0
+        minReplicas: minReplicas
         maxReplicas: maxReplicas
         rules: [
           {

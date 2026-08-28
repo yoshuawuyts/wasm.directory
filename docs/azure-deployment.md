@@ -82,10 +82,12 @@ via `readEnvironmentVariable(...)`.
 | `CUSTOM_DOMAIN_NAME`      | no       | Apex domain to serve the frontend on (e.g. `wasm.directory`). When set, provisioning also creates a DNS zone with records for both the apex (frontend) and the `api.` subdomain (meta-registry API). See [Bind a custom domain](#7-optional-bind-a-custom-domain). |
 | `LOG_ANALYTICS_DAILY_QUOTA_GB` | no | Maximum Log Analytics ingestion per day, in GB. Defaults to `1`; ingestion stops for the remainder of the day when exceeded. |
 | `LOG_ANALYTICS_RETENTION_IN_DAYS` | no | Number of days to retain Log Analytics data. Defaults to `30`, which is both the platform minimum and the amount included free on the `PerGB2018` SKU. Values below `30` are rejected during deployment validation, before any resources are created; values above it are billed as extended retention. |
-| `BACKEND_MAX_REPLICAS`    | no       | Upper bound on backend replicas, and therefore on worst-case backend compute spend. Defaults to `2` (one warm replica plus one for burst headroom). Accepts `1`–`10`. |
-| `BACKEND_CONCURRENT_REQUESTS` | no   | Concurrent in-flight HTTP requests each backend replica absorbs before another is added. Defaults to `10`, matching the default Container Apps applies implicitly when no scale rule is declared. Accepts `1`–`1000`. Raising it on a 0.25 vCPU container risks a rule that never fires; see [Cost](#cost). |
-| `FRONTEND_MAX_REPLICAS`   | no       | Upper bound on frontend replicas, and therefore on worst-case frontend compute spend. Defaults to `2`. Accepts `1`–`10`. |
-| `FRONTEND_CONCURRENT_REQUESTS` | no  | Concurrent in-flight HTTP requests each frontend replica absorbs before another is added. Defaults to `100` — higher than the backend because this app only serves static assets. Accepts `1`–`1000`. |
+| `BACKEND_MIN_REPLICAS`    | no       | Lower bound on backend replicas. Defaults to `1`, keeping the API always on. Accepts `0`–`10`; `0` scales to zero when idle, at the cost of a cold start. |
+| `BACKEND_MAX_REPLICAS`    | no       | Upper bound on backend replicas, and therefore on worst-case backend compute spend. Defaults to `1`. Accepts `1`–`10`. |
+| `BACKEND_CONCURRENT_REQUESTS` | no   | In-flight HTTP requests per backend replica before another is added. Defaults to `10`, matching the platform's implicit default. Accepts `1`–`1000`; raising it on a 0.25 vCPU container risks a rule that never fires, see [Cost](#cost). |
+| `FRONTEND_MIN_REPLICAS`   | no       | Lower bound on frontend replicas. Defaults to `1`, keeping the site always on. Accepts `0`–`10`; `0` scales to zero when idle, at the cost of a cold start. |
+| `FRONTEND_MAX_REPLICAS`   | no       | Upper bound on frontend replicas, and therefore on worst-case frontend compute spend. Defaults to `1`. Accepts `1`–`10`. |
+| `FRONTEND_CONCURRENT_REQUESTS` | no  | In-flight HTTP requests per frontend replica before another is added. Defaults to `100`, higher than the backend because this app only serves static assets. Accepts `1`–`1000`. |
 
 Set them with `azd env set`:
 
@@ -341,76 +343,64 @@ so the same `AZURE_ENV_NAME` can be reused immediately.
 
 ## Cost
 
-At current traffic the configuration in this guide runs approximately
-**$40/month**, with a ceiling of about **$110/month** if both apps sit at their
-replica maximums.
+Both apps run one replica at 0.25 vCPU / 0.5 GiB with `minReplicas` and
+`maxReplicas` both set to `1`, so the bill is flat at roughly **$62/month**:
+about $22 per always-on replica, about $17 for the `Standard_B1ms` PostgreSQL
+server and its minimum storage, about $1 for Azure DNS, and under $1 for normal
+Log Analytics ingestion. Because the two replica bounds are equal there is no
+gap between the expected bill and the worst case — spend cannot rise without a
+configuration change.
 
-Steady state breaks down as about $22 for the one always-on backend replica at
-0.25 vCPU / 0.5 GiB, about $17 for the `Standard_B1ms` PostgreSQL server and
-its minimum storage, less than $1 for normal Log Analytics ingestion, and about
-$1 for Azure DNS. The frontend scales to zero while idle, so it contributes
-only request-driven usage — at the price of a cold start on the first request
-after an idle period.
+The trade-off is that neither app has burst headroom, and a single replica is
+also a single point of failure while it restarts. Both bounds are environment
+variables, so raising them needs no code change.
 
 ### What the billing data showed
 
 An earlier revision of this guide quoted about $36/month while assuming **one
-replica per app**. Billing data from the running deployment confirms the
-per-unit rates above, but over one observed multi-day period both apps
-sustained three replicas — `maxReplicas` — rather than one, putting measured
-spend at about $216/month, roughly 92% of it Container Apps compute billed at
-the *active* rate.
+replica per app**. Billing data confirms the per-unit rates above, but over one
+observed multi-day period both apps sustained three replicas — the `maxReplicas`
+of the day — putting measured spend at about $216/month, roughly 92% of it
+Container Apps compute billed at the *active* rate.
 
 That plateau is **not** explained by measured load, and its cause is
 unresolved. Over the same period the backend averaged 0.83 requests/second at
-about 95 ms per request, which is roughly 0.08 concurrent requests — about two
-orders of magnitude below the ~10-concurrent threshold that Container Apps
-applies by default when a container app declares no `scale.rules` entry. One
-replica comfortably covers that load, and latency did not regress when replica
-counts later fell to one. Scale-in does work: when traffic dropped roughly
-tenfold, both apps scaled down from three replicas to one within hours. Long-
-lived or keep-alive connections inflating the scaler's concurrency count, or
-bursts hidden inside the averaging window, are plausible explanations, but
-neither is confirmed.
+about 95 ms per request, or roughly 0.08 concurrent requests — about two orders
+of magnitude below the ~10-concurrent threshold Container Apps applies by
+default when no `scale.rules` entry is declared. Scale-in does work: when
+traffic later dropped roughly tenfold, both apps fell to one replica within
+hours, with no latency regression. Long-lived connections inflating the
+scaler's concurrency count, or bursts hidden inside the averaging window, are
+plausible explanations, but neither is confirmed.
 
-The practical guidance is unchanged: replica count, not per-replica sizing, is
-the dominant cost term. Verify actual replica counts with the `Replicas` metric
-before trusting any estimate, and treat `maxReplicas` as the real ceiling on
-the bill.
-
-Do not read $216/month as a current run-rate. It was measured during the
-three-replica plateau, at roughly ten times the traffic seen since, and replica
-counts fell to one on their own when that traffic dropped. Most of the gap
-between that figure and the numbers at the top of this section closed without
-any configuration change. What the settings below buy is a lower cost per
-replica and an explicit, declared ceiling — not a measured $216 → $40 saving.
+Do not read $216/month as a current run-rate, or the figure above as a measured
+$216 → $62 saving. That measurement came from the plateau period at roughly ten
+times the traffic seen since, and replica counts fell on their own when traffic
+dropped. What the current settings buy is a lower cost per replica and a hard
+ceiling, not a like-for-like reduction. Replica count, not per-replica sizing,
+remains the dominant cost term — verify it with the `Replicas` metric before
+trusting any estimate.
 
 ### How scaling is configured
 
-Both container apps declare an explicit `http-scaling` rule rather than
-inheriting the platform's implicit ~10-concurrent-request default. That does
-not on its own resolve the plateau described above — its cause remains unknown,
-and the backend threshold is deliberately set to the same value the platform
-was already applying. What it buys is legibility and tunability: the scaling
-behaviour is stated in the template and adjustable per environment without
-editing Bicep.
+Both apps declare an explicit `http-scaling` rule rather than inheriting the
+platform's implicit ~10-concurrent-request default. This does not resolve the
+plateau above; it makes the behaviour visible in the template and tunable per
+environment.
 
 - `BACKEND_CONCURRENT_REQUESTS` defaults to `10`, matching the previously
-  implicit default. A higher threshold is tempting for a low-traffic service,
-  but the backend runs on 0.25 vCPU, where CPU saturates well before ten
-  simultaneous requests — raising it risks a rule that never fires when a burst
-  actually needs it.
-- `FRONTEND_CONCURRENT_REQUESTS` defaults to `100`. The frontend serves only
-  pre-built static assets, with no per-request database work, so one replica
-  absorbs considerably more concurrency before saturating.
-- `BACKEND_MAX_REPLICAS` and `FRONTEND_MAX_REPLICAS` default to `2`, down from
-  a ceiling of 3. One replica demonstrably served the observed load at about
-  95 ms with no latency regression, so two is headroom rather than a target.
-  Combined with the backend right-sizing to 0.25 vCPU / 0.5 GiB, the
-  provisioned ceiling falls from 2.25 vCPU to 1.0 vCPU.
-
-`minReplicas` is unchanged: 1 on the backend, which keeps a warm Postgres
-connection pool, and 0 on the frontend, which scales to zero while idle.
+  implicit default. Raising it is tempting for a low-traffic service, but the
+  backend runs on 0.25 vCPU, where CPU saturates well before ten simultaneous
+  requests — a higher value risks a rule that never fires when a burst needs it.
+- `FRONTEND_CONCURRENT_REQUESTS` defaults to `100`, since the frontend serves
+  only static assets and does no per-request database work.
+- `BACKEND_MIN_REPLICAS` and `FRONTEND_MIN_REPLICAS` default to `1` to keep both
+  services always on. The frontend previously scaled to zero, which was cheaper
+  but made the first visitor after an idle period wait on a cold start.
+- `BACKEND_MAX_REPLICAS` and `FRONTEND_MAX_REPLICAS` default to `1`, down from a
+  ceiling of 3. One replica served the observed load at about 95 ms with no
+  latency regression. Combined with the backend right-sizing to 0.25 vCPU /
+  0.5 GiB, the provisioned ceiling falls from 2.25 vCPU to 0.5 vCPU.
 
 The backend resource reduction has not been load-verified. If the service shows
 memory pressure or latency regressions, revert the backend `resources` block
