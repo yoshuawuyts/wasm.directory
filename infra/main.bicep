@@ -48,6 +48,36 @@ param dailyQuotaGb int = 1
 @maxValue(730)
 param retentionInDays int = 30
 
+@description('Lower bound on backend replicas. 1 keeps the API always on; 0 scales to zero when idle, at the cost of a cold start.')
+@minValue(0)
+@maxValue(10)
+param backendMinReplicas int = 1
+
+@description('Upper bound on backend replicas, and therefore on worst-case backend compute spend.')
+@minValue(1)
+@maxValue(10)
+param backendMaxReplicas int = 1
+
+@description('In-flight HTTP requests per backend replica before another is added.')
+@minValue(1)
+@maxValue(1000)
+param backendConcurrentRequests int = 10
+
+@description('Lower bound on frontend replicas. 1 keeps the site always on; 0 scales to zero when idle, at the cost of a cold start.')
+@minValue(0)
+@maxValue(10)
+param frontendMinReplicas int = 1
+
+@description('Upper bound on frontend replicas, and therefore on worst-case frontend compute spend.')
+@minValue(1)
+@maxValue(10)
+param frontendMaxReplicas int = 1
+
+@description('In-flight HTTP requests per frontend replica before another is added.')
+@minValue(1)
+@maxValue(1000)
+param frontendConcurrentRequests int = 100
+
 var rgName = empty(resourceGroupName) ? 'rg-${environmentName}' : resourceGroupName
 var tags = { 'azd-env-name': environmentName }
 
@@ -75,6 +105,12 @@ module resources './resources.bicep' = {
     customDomainName: customDomainName
     dailyQuotaGb: dailyQuotaGb
     retentionInDays: retentionInDays
+    backendMaxReplicas: backendMaxReplicas
+    backendMinReplicas: backendMinReplicas
+    backendConcurrentRequests: backendConcurrentRequests
+    frontendMaxReplicas: frontendMaxReplicas
+    frontendMinReplicas: frontendMinReplicas
+    frontendConcurrentRequests: frontendConcurrentRequests
   }
 }
 

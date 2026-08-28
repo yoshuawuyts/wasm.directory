@@ -22,6 +22,21 @@ param registryUsername string = ''
 @description('Container registry password or token.')
 param registryPassword string = ''
 
+@description('Lower bound on backend replicas. 1 keeps the API always on; 0 scales to zero when idle, at the cost of a cold start.')
+@minValue(0)
+@maxValue(10)
+param minReplicas int = 1
+
+@description('Upper bound on backend replicas, and therefore on worst-case backend compute spend.')
+@minValue(1)
+@maxValue(10)
+param maxReplicas int = 1
+
+@description('In-flight HTTP requests per backend replica before another is added.')
+@minValue(1)
+@maxValue(1000)
+param concurrentRequests int = 10
+
 var useRegistry = !empty(registryServer)
 
 var registrySecrets = useRegistry ? [
@@ -101,9 +116,23 @@ resource backendApp 'Microsoft.App/containerApps@2024-03-01' = {
           ]
         }
       ]
+      // Declared explicitly so scaling is visible and tunable; with no `rules`
+      // entry the platform silently applies ~10 concurrent requests. Kept at
+      // that same 10, because 0.25 vCPU saturates well before ten in-flight
+      // requests. One replica, always on. See Cost in docs/azure-deployment.md.
       scale: {
-        minReplicas: 1
-        maxReplicas: 3
+        minReplicas: minReplicas
+        maxReplicas: maxReplicas
+        rules: [
+          {
+            name: 'http-scaling'
+            http: {
+              metadata: {
+                concurrentRequests: string(concurrentRequests)
+              }
+            }
+          }
+        ]
       }
     }
   }
