@@ -1,0 +1,19 @@
+[namespace]
+name = "andreiltd"
+registry = "ghcr.io/andreiltd"
+
+[[component]]
+name = "componentize-qjs-runtime"
+repository = "componentize-qjs/componentize-qjs-runtime"
+
+[[component]]
+name = "componentize-qjs-runtime-opt-size"
+repository = "componentize-qjs/componentize-qjs-runtime-opt-size"
+
+[[component]]
+name = "componentize-qjs-runtime-sync"
+repository = "componentize-qjs/componentize-qjs-runtime-sync"
+
+[[component]]
+name = "componentize-qjs-runtime-opt-size-sync"
+repository = "componentize-qjs/componentize-qjs-runtime-opt-size-sync"
