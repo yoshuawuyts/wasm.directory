@@ -1,74 +1,73 @@
-//! WASI HTTP P3 native-cert hooks.
+//! Native-cert [`WasiHttpHooks`] implementation.
 
 use bytes::Bytes;
 use core::pin::Pin;
 use core::task::{Context, Poll, ready};
 use core::time::Duration;
 use http::uri::Scheme;
-use http_body_util::combinators::UnsyncBoxBody;
 use std::future::Future;
 use tokio::net::TcpStream;
 use tracing::warn;
-use wasmtime_wasi::TrappableError;
-use wasmtime_wasi_http::{
-    io::TokioIo,
-    p3::{
-        RequestOptions, WasiHttpHooks,
-        bindings::http::types::{DnsErrorPayload, ErrorCode},
-    },
-};
+use wasmtime_wasi_http::{Error, RequestOptions, WasiBody, WasiHttpHooks, io::TokioIo};
 
 use super::{RwStream, native_root_tls_config};
 
+/// Default timeout applied when the guest does not configure one.
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(600);
+
 /// [`WasiHttpHooks`] implementation that trusts native OS CA certificates in addition to
 /// the built-in [`webpki_roots`] bundle.
+///
+/// The same hooks serve both the WASI HTTP P2 (`wasi:http/outgoing-handler`) and P3
+/// (`wasi:http/handler`) paths, which share a single outgoing-request hook.
 pub(crate) struct NativeCertHooks;
 
 impl WasiHttpHooks for NativeCertHooks {
     fn send_request(
         &mut self,
-        request: http::Request<UnsyncBoxBody<Bytes, ErrorCode>>,
+        request: http::Request<WasiBody>,
         options: Option<RequestOptions>,
-        _fut: Box<dyn Future<Output = Result<(), ErrorCode>> + Send>,
+        _fut: Box<dyn Future<Output = Result<(), Error>> + Send>,
     ) -> Box<
         dyn Future<
                 Output = Result<
                     (
-                        http::Response<UnsyncBoxBody<Bytes, ErrorCode>>,
-                        Box<dyn Future<Output = Result<(), ErrorCode>> + Send>,
+                        http::Response<WasiBody>,
+                        Box<dyn Future<Output = Result<(), Error>> + Send>,
                     ),
-                    TrappableError<ErrorCode>,
+                    Error,
                 >,
             > + Send,
     > {
         Box::new(async move {
-            let (res, io) = send(request, options).await.map_err(TrappableError::from)?;
+            let (res, io) = send(request, options).await?;
             Ok((
                 res.map(http_body_util::BodyExt::boxed_unsync),
-                Box::new(io) as Box<dyn Future<Output = Result<(), ErrorCode>> + Send>,
+                Box::new(io) as Box<dyn Future<Output = Result<(), Error>> + Send>,
             ))
         })
     }
 }
 
+/// Async inner implementation of the native-cert request sender.
+///
+/// Mirrors [`wasmtime_wasi_http::default_send_request`] but builds the TLS root store from
+/// both [`webpki_roots`] and the OS native cert store.
 async fn send(
-    mut req: http::Request<UnsyncBoxBody<Bytes, ErrorCode>>,
+    mut req: http::Request<WasiBody>,
     options: Option<RequestOptions>,
 ) -> Result<
     (
         http::Response<ResponseBody>,
-        impl Future<Output = Result<(), ErrorCode>> + Send,
+        impl Future<Output = Result<(), Error>> + Send,
     ),
-    ErrorCode,
+    Error,
 > {
     use core::future::poll_fn;
     use core::pin::pin;
 
     let uri = req.uri();
-    let authority = uri
-        .authority()
-        .ok_or(ErrorCode::HttpRequestUriInvalid)?
-        .clone();
+    let authority = uri.authority().ok_or(Error::HttpRequestUriInvalid)?.clone();
     let use_tls = uri.scheme() == Some(&Scheme::HTTPS);
     let addr = if authority.port().is_some() {
         authority.to_string()
@@ -78,53 +77,31 @@ async fn send(
 
     let connect_timeout = options
         .and_then(|o| o.connect_timeout)
-        .unwrap_or(Duration::from_mins(10));
+        .unwrap_or(DEFAULT_TIMEOUT);
     let first_byte_timeout = options
         .and_then(|o| o.first_byte_timeout)
-        .unwrap_or(Duration::from_mins(10));
+        .unwrap_or(DEFAULT_TIMEOUT);
     let between_bytes_timeout = options
         .and_then(|o| o.between_bytes_timeout)
-        .unwrap_or(Duration::from_mins(10));
+        .unwrap_or(DEFAULT_TIMEOUT);
 
     let tcp = match tokio::time::timeout(connect_timeout, TcpStream::connect(&addr)).await {
         Ok(Ok(s)) => s,
         Ok(Err(e)) if e.kind() == std::io::ErrorKind::AddrNotAvailable => {
-            return Err(ErrorCode::DnsError(DnsErrorPayload {
-                rcode: Some("address not available".to_string()),
-                info_code: Some(0),
-            }));
+            return Err(dns_error());
         }
         Ok(Err(e))
             if e.to_string()
                 .starts_with("failed to lookup address information") =>
         {
-            return Err(ErrorCode::DnsError(DnsErrorPayload {
-                rcode: Some("address not available".to_string()),
-                info_code: Some(0),
-            }));
+            return Err(dns_error());
         }
-        Ok(Err(_)) => return Err(ErrorCode::ConnectionRefused),
-        Err(_) => return Err(ErrorCode::ConnectionTimeout),
+        Ok(Err(_)) => return Err(Error::ConnectionRefused),
+        Err(_) => return Err(Error::ConnectionTimeout),
     };
 
     let stream: Box<dyn RwStream> = if use_tls {
-        use rustls::pki_types::ServerName;
-
-        let connector = tokio_rustls::TlsConnector::from(native_root_tls_config());
-        let domain = ServerName::try_from(authority.host())
-            .map_err(|e| {
-                warn!("invalid DNS name: {e:?}");
-                ErrorCode::DnsError(DnsErrorPayload {
-                    rcode: Some("invalid dns name".to_string()),
-                    info_code: Some(0),
-                })
-            })?
-            .to_owned();
-        let tls = connector.connect(domain, tcp).await.map_err(|e| {
-            warn!("TLS protocol error: {e:?}");
-            ErrorCode::TlsProtocolError
-        })?;
-        Box::new(tls)
+        Box::new(tls_connect(&authority, tcp).await?)
     } else {
         Box::new(tcp)
     };
@@ -134,8 +111,7 @@ async fn send(
         hyper::client::conn::http1::Builder::new().handshake(TokioIo::new(stream)),
     )
     .await
-    .map_err(|_| ErrorCode::ConnectionTimeout)?
-    .map_err(ErrorCode::from_hyper_request_error)?;
+    .map_err(|_| Error::ConnectionTimeout)??;
 
     // HTTP/1.1 must not include scheme or authority in the request URI.
     *req.uri_mut() = http::Uri::builder()
@@ -150,8 +126,8 @@ async fn send(
     let send_fut = async move {
         let res = tokio::time::timeout(first_byte_timeout, sender.send_request(req))
             .await
-            .map_err(|_| ErrorCode::ConnectionReadTimeout)?
-            .map_err(ErrorCode::from_hyper_request_error)?;
+            .map_err(|_| Error::ConnectionReadTimeout)?
+            .map_err(Error::from)?;
         let mut timeout = tokio::time::interval(between_bytes_timeout);
         timeout.reset();
         Ok(res.map(|incoming| ResponseBody { incoming, timeout }))
@@ -164,7 +140,7 @@ async fn send(
     let res = poll_fn(|cx| match send_fut.as_mut().poll(cx) {
         Poll::Ready(v) => Poll::Ready(v),
         Poll::Pending => {
-            let Some(ref mut c) = conn else {
+            let Some(c) = conn.as_mut() else {
                 return Poll::Pending;
             };
             match ready!(Pin::new(c).poll(cx)) {
@@ -172,7 +148,7 @@ async fn send(
                     conn = None;
                     send_fut.as_mut().poll(cx)
                 }
-                Err(err) => Poll::Ready(Err(ErrorCode::from_hyper_request_error(err))),
+                Err(err) => Poll::Ready(Err(Error::from(err))),
             }
         }
     })
@@ -185,14 +161,48 @@ async fn send(
         };
         c.await.map_err(|err| {
             if err.is_timeout() {
-                ErrorCode::HttpResponseTimeout
+                Error::HttpResponseTimeout
             } else {
-                ErrorCode::HttpProtocolError
+                Error::from(err)
             }
         })
     };
 
     Ok((res, io_fut))
+}
+
+/// Perform the TLS handshake for an outgoing request, using the shared
+/// native-cert-augmented client configuration.
+async fn tls_connect(
+    authority: &http::uri::Authority,
+    tcp: TcpStream,
+) -> Result<tokio_rustls::client::TlsStream<TcpStream>, Error> {
+    use rustls::pki_types::ServerName;
+
+    let connector = tokio_rustls::TlsConnector::from(native_root_tls_config());
+    let domain = ServerName::try_from(authority.host())
+        .map_err(|e| {
+            warn!("invalid DNS name: {e:?}");
+            dns_error_with("invalid dns name")
+        })?
+        .to_owned();
+    connector.connect(domain, tcp).await.map_err(|e| {
+        warn!("TLS protocol error: {e:?}");
+        Error::TlsProtocolError
+    })
+}
+
+/// DNS failure reported when an address could not be resolved.
+fn dns_error() -> Error {
+    dns_error_with("address not available")
+}
+
+/// DNS failure carrying `rcode` as the failure reason.
+fn dns_error_with(rcode: &str) -> Error {
+    Error::DnsError {
+        rcode: Some(rcode.to_string()),
+        info_code: Some(0),
+    }
 }
 
 /// Response body that enforces the between-bytes read timeout.
@@ -203,7 +213,7 @@ struct ResponseBody {
 
 impl http_body::Body for ResponseBody {
     type Data = Bytes;
-    type Error = ErrorCode;
+    type Error = Error;
 
     fn poll_frame(
         mut self: Pin<&mut Self>,
@@ -212,9 +222,9 @@ impl http_body::Body for ResponseBody {
         match Pin::new(&mut self.as_mut().incoming).poll_frame(cx) {
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Ready(Some(Err(err))) => Poll::Ready(Some(Err(if err.is_timeout() {
-                ErrorCode::HttpResponseTimeout
+                Error::HttpResponseTimeout
             } else {
-                ErrorCode::HttpProtocolError
+                Error::from(err)
             }))),
             Poll::Ready(Some(Ok(frame))) => {
                 self.timeout.reset();
@@ -222,7 +232,7 @@ impl http_body::Body for ResponseBody {
             }
             Poll::Pending => {
                 ready!(self.timeout.poll_tick(cx));
-                Poll::Ready(Some(Err(ErrorCode::ConnectionReadTimeout)))
+                Poll::Ready(Some(Err(Error::ConnectionReadTimeout)))
             }
         }
     }

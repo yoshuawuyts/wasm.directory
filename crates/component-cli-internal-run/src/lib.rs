@@ -23,12 +23,8 @@ use wasmparser::{Encoding, Parser, Payload};
 use wasmtime::component::{Component, Linker, Val};
 use wasmtime::{Engine, Store};
 use wasmtime_wasi::p2::bindings::sync::Command;
-use wasmtime_wasi::{DirPerms, FilePerms, ResourceTable, WasiCtxBuilder, WasiCtxView, WasiView};
-use wasmtime_wasi_http::WasiHttpCtx;
-use wasmtime_wasi_http::p2::{WasiHttpCtxView, WasiHttpView};
-use wasmtime_wasi_http::p3::{
-    WasiHttpCtxView as WasiHttpCtxViewP3, WasiHttpView as WasiHttpViewP3,
-};
+use wasmtime_wasi::{FsPerms, ResourceTable, WasiCtxBuilder, WasiCtxView, WasiView};
+use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpCtxView, WasiHttpView};
 
 pub use errors::RunError;
 
@@ -37,8 +33,7 @@ struct WasiState {
     ctx: wasmtime_wasi::WasiCtx,
     http: WasiHttpCtx,
     table: ResourceTable,
-    p2_hooks: http_hooks::NativeCertHooksP2,
-    p3_hooks: http_hooks::NativeCertHooks,
+    hooks: http_hooks::NativeCertHooks,
 }
 
 impl WasiView for WasiState {
@@ -55,17 +50,7 @@ impl WasiHttpView for WasiState {
         WasiHttpCtxView {
             ctx: &mut self.http,
             table: &mut self.table,
-            hooks: &mut self.p2_hooks,
-        }
-    }
-}
-
-impl WasiHttpViewP3 for WasiState {
-    fn http(&mut self) -> WasiHttpCtxViewP3<'_> {
-        WasiHttpCtxViewP3 {
-            ctx: &mut self.http,
-            table: &mut self.table,
-            hooks: &mut self.p3_hooks,
+            hooks: &mut self.hooks,
         }
     }
 }
@@ -125,12 +110,7 @@ fn build_wasi_state(
     // Pre-open directories with full read/write permissions.
     for dir in &permissions.allow_dirs {
         builder
-            .preopened_dir(
-                dir,
-                dir.to_string_lossy(),
-                DirPerms::all(),
-                FilePerms::all(),
-            )
+            .preopened_dir(dir, dir.to_string_lossy(), FsPerms::ReadWrite)
             .map_err(into_miette)
             .wrap_err_with(|| format!("failed to pre-open directory: {}", dir.display()))?;
     }
@@ -146,8 +126,7 @@ fn build_wasi_state(
         ctx: wasi_ctx,
         http: WasiHttpCtx::new(),
         table: ResourceTable::new(),
-        p2_hooks: http_hooks::NativeCertHooksP2,
-        p3_hooks: http_hooks::NativeCertHooks,
+        hooks: http_hooks::NativeCertHooks,
     })
 }
 

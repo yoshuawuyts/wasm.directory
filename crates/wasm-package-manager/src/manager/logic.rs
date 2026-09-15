@@ -316,7 +316,7 @@ fn prefix_matches_version(prefix: &str, major: u64, minor: u64) -> bool {
     // If the prefix has a minor component, it must match exactly.
     // If not (e.g. just "0"), match any minor.
     match parts.next() {
-        Some(s) => s.parse::<u64>().ok().is_some_and(|m| m == minor),
+        Some(s) => s.parse::<u64>().is_ok_and(|m| m == minor),
         None => true,
     }
 }

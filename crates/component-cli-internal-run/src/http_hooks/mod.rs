@@ -2,19 +2,19 @@
 //!
 //! The default [`wasmtime_wasi_http`] implementation only trusts the [`webpki_roots`] bundle,
 //! which breaks in environments that use a TLS inspection proxy with a private CA (e.g.
-//! corporate proxies or cloud sandbox environments). This module provides drop-in
-//! replacements — one for WASI HTTP P3 ([`NativeCertHooks`]) and one for WASI HTTP P2
-//! ([`NativeCertHooksP2`]) — that each load the OS certificate store via
-//! [`rustls_native_certs`] in addition to the standard webpki roots.
+//! corporate proxies or cloud sandbox environments). This module provides a drop-in
+//! replacement ([`NativeCertHooks`]), shared by the WASI HTTP P2 and P3 paths, that loads
+//! the OS certificate store via [`rustls_native_certs`] in addition to the standard
+//! webpki roots.
 //!
-//! The two hook implementations live in their own modules ([`p3`] and [`p2`]); the shared
-//! TLS root store / [`rustls::ClientConfig`] construction lives here so it is built only
-//! once and reused across requests.
+//! The hook implementation lives in its own module ([`native_cert`]); the shared TLS root
+//! store / [`rustls::ClientConfig`] construction lives here so it is built only once and
+//! reused across requests.
 //!
 //! # Alternative approach
 //!
 //! The same behaviour can be achieved without any extra code by patching
-//! `wasmtime-wasi-http` directly: replace the two lines in `src/p3/request.rs` that
+//! `wasmtime-wasi-http` directly: replace the two lines in `src/default_send_request.rs` that
 //! construct the `RootCertStore` with code that also calls
 //! `rustls_native_certs::load_native_certs()`, and add `rustls-native-certs` to
 //! `default-send-request` in `Cargo.toml`. This requires vendoring the upstream crate
@@ -22,11 +22,9 @@
 //! The hooks approach avoids that maintenance burden at the cost of duplicating ~100 lines
 //! of connection logic from `default_send_request`.
 
-mod p2;
-mod p3;
+mod native_cert;
 
-pub(crate) use p2::NativeCertHooksP2;
-pub(crate) use p3::NativeCertHooks;
+pub(crate) use native_cert::NativeCertHooks;
 
 use std::sync::{Arc, OnceLock};
 

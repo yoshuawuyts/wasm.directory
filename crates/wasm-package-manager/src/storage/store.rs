@@ -1181,17 +1181,15 @@ fn payload_to_summary(
         .map(|e| e.name.clone())
         .collect();
 
-    #[allow(clippy::cast_sign_loss)]
     let size_bytes = {
         let r = &meta.range;
         let size = r.end.saturating_sub(r.start);
-        if size > 0 { Some(size as u64) } else { None }
+        if size > 0 { Some(size) } else { None }
     };
 
-    #[allow(clippy::cast_sign_loss)]
     let (range_start, range_end) = {
         let r = &meta.range;
-        (Some(r.start as u64), Some(r.end as u64))
+        (Some(r.start), Some(r.end))
     };
 
     let bill_of_materials: Vec<BomEntry> = meta
@@ -1244,13 +1242,17 @@ fn payload_to_summary(
 /// `wasmparser` to read raw component import/export names.
 fn extract_wit_imports_exports(
     parent_bytes: &[u8],
-    range: &std::ops::Range<usize>,
+    range: &std::ops::Range<u64>,
     root_wit: Option<&wit_parser::decoding::DecodedWasm>,
 ) -> (
     Vec<wasm_meta_registry_types::WitInterfaceRef>,
     Vec<wasm_meta_registry_types::WitInterfaceRef>,
 ) {
-    let Some(bytes) = parent_bytes.get(range.start..range.end) else {
+    let Some(bytes) = usize::try_from(range.start)
+        .ok()
+        .zip(usize::try_from(range.end).ok())
+        .and_then(|(start, end)| parent_bytes.get(start..end))
+    else {
         return (vec![], vec![]);
     };
 

@@ -216,6 +216,8 @@ async fn namespace_page(headers: HeaderMap, Path(namespace): Path<String>) -> Re
 // r[impl frontend.pages.package-redirect]
 // r[impl frontend.routing.reserved-namespaces]
 /// Redirect `/<namespace>/<name>` to `/<namespace>/<name>/<latest-version>`.
+// `Response` is axum's own error carrier here; boxing it would break `IntoResponse`.
+#[allow(clippy::result_large_err)]
 async fn package_redirect(
     Path((namespace, name)): Path<(String, String)>,
 ) -> Result<Redirect, Response> {
@@ -637,6 +639,8 @@ async fn child_component_detail(
 /// not found, or the version tag doesn't exist. Returns `Err(Response)` with
 /// a `502 Bad Gateway` response when the upstream API call fails, so that
 /// registry outages are surfaced correctly instead of being masked as 404s.
+// `Response` is axum's own error carrier here; boxing it would break `IntoResponse`.
+#[allow(clippy::result_large_err)]
 async fn fetch_package_or_404(
     client: &RegistryClient,
     namespace: &str,

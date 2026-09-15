@@ -18,10 +18,7 @@ use wasmtime_wasi_http::io::TokioIo;
 use wasmtime_wasi_http::p2::bindings::ProxyPre;
 use wasmtime_wasi_http::p2::bindings::http::types::Scheme;
 use wasmtime_wasi_http::p2::body::HyperOutgoingBody;
-use wasmtime_wasi_http::{
-    WasiHttpCtx,
-    p2::{WasiHttpCtxView, WasiHttpView},
-};
+use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpCtxView, WasiHttpView};
 
 use super::errors::RunError;
 
@@ -255,8 +252,7 @@ fn apply_permissions(
             .preopened_dir(
                 dir,
                 dir.to_string_lossy(),
-                wasmtime_wasi::DirPerms::all(),
-                wasmtime_wasi::FilePerms::all(),
+                wasmtime_wasi::FsPerms::ReadWrite,
             )
             .map_err(crate::util::into_miette)
             .wrap_err_with(|| format!("failed to pre-open directory: {}", dir.display()))?;
