@@ -879,6 +879,34 @@ mod tests {
 }
 
 // ============================================================
+// Registry stats
+// ============================================================
+
+/// Aggregate counts over the whole package index, returned by `/v1/stats`.
+///
+/// Only packages with at least one semver release tag are counted, matching
+/// what the listing endpoints return.
+///
+/// # Example
+///
+/// ```rust
+/// use wasm_meta_registry_types::RegistryStats;
+///
+/// let stats = RegistryStats { packages: 3, namespaces: 2, versions: 6 };
+/// let json = serde_json::to_string(&stats).unwrap();
+/// assert_eq!(json, r#"{"packages":3,"namespaces":2,"versions":6}"#);
+/// ```
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RegistryStats {
+    /// Number of indexed packages with at least one release.
+    pub packages: u64,
+    /// Number of distinct WIT namespaces (or repository owners as fallback).
+    pub namespaces: u64,
+    /// Total number of release versions across all packages.
+    pub versions: u64,
+}
+
+// ============================================================
 // Queue status
 // ============================================================
 

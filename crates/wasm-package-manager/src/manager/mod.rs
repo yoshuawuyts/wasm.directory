@@ -991,6 +991,12 @@ impl Manager {
         }
     }
 
+    /// Compute aggregate package, namespace, and version counts over the
+    /// whole index (not limited by pagination).
+    pub async fn registry_stats(&self) -> anyhow::Result<wasm_meta_registry_types::RegistryStats> {
+        self.store.registry_stats().await
+    }
+
     /// Add or update a known package entry.
     pub async fn add_known_package(
         &self,

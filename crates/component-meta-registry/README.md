@@ -67,6 +67,7 @@ component-meta-registry registry/ --sync-interval 3600 --bind 0.0.0.0:8080
 ## API Endpoints
 
 - `GET /v1/health` — Health check
+- `GET /v1/stats` — Package, namespace, and version counts for the whole index
 - `GET /v1/search?q={query}&offset={n}&limit={n}` — Search packages
 - `GET /v1/packages?offset={n}&limit={n}` — List all packages
 - `GET /v1/packages/{registry}/{repository}` — Get a specific package
