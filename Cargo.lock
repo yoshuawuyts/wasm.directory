@@ -1204,6 +1204,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tower",
  "wasm-meta-registry-client",
  "wit-parser 0.256.0",
  "wstd",

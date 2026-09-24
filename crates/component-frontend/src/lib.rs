@@ -13,6 +13,7 @@
 
 mod components;
 mod escape;
+mod favicon;
 mod footer;
 mod layout;
 mod markdown;
@@ -45,6 +46,8 @@ fn app() -> Router {
         .route("/status", get(queue_status))
         .route("/health", get(health))
         .route("/robots.txt", get(robots))
+        .route("/favicon.svg", get(favicon::svg))
+        .route("/favicon.ico", get(favicon::ico))
         .route("/{namespace}/{name}", get(package_redirect))
         .route("/{namespace}/{name}/", get(package_redirect))
         .route("/{namespace}", get(namespace_page))

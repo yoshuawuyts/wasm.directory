@@ -135,6 +135,8 @@ fn render_document(title: &str, body_class: &str, body_children: &str) -> String
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Browse and discover WebAssembly components and WIT interfaces published to OCI registries.">
   <title>{escaped_title} — Wasm Directory</title>
+  <link rel="icon" href="/favicon.ico" type="image/vnd.microsoft.icon" sizes="16x16 32x32 48x48">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     /* Early theme init — prevent flash of wrong theme */
@@ -1042,6 +1044,35 @@ fn escape_html_text(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_document_layout_includes_favicons_in_its_head() {
+        let documents = [
+            document("Basic", "<p>Body</p>"),
+            document_with_nav("Navigation", "<p>Body</p>"),
+            document_grid("Package", BODY_CLASS_GRID, "<main>Package</main>"),
+            document_design_system("Design System", "<p>Body</p>"),
+            document_landing("Home", "<p>Body</p>"),
+            crate::pages::not_found::render(),
+            crate::pages::error::render("Registry unavailable"),
+        ];
+        for document in documents {
+            let head = document
+                .split_once("<head>")
+                .expect("document should have a head")
+                .1
+                .split_once("</head>")
+                .expect("document head should close")
+                .0;
+            for link in [
+                r#"<link rel="icon" href="/favicon.ico" type="image/vnd.microsoft.icon" sizes="16x16 32x32 48x48">"#,
+                r#"<link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any">"#,
+            ] {
+                assert_eq!(head.matches(link).count(), 1);
+                assert_eq!(document.matches(link).count(), 1);
+            }
+        }
+    }
 
     // r[verify frontend.rendering.html-crate]
     // r[verify frontend.styling.tailwind]

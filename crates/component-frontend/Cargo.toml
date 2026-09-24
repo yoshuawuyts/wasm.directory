@@ -37,6 +37,7 @@ wasm-meta-registry-client = { workspace = true, features = ["client"] }
 [dev-dependencies]
 insta = { workspace = true }
 tokio = { workspace = true }
+tower = { version = "0.5", features = ["util"] }
 
 [lints]
 workspace = true
