@@ -160,7 +160,9 @@ impl Manager {
         } else {
             self.store.known_tags(registry, repository).await?
         };
-        let has_new_tags = semver_tags.iter().any(|t| !known.queued.contains(*t));
+        let has_new_tags = semver_tags
+            .iter()
+            .any(|t| !known.queued.contains(*t) && !known.cached.contains(*t));
 
         // The description comes from a manifest annotation. Pulls store the
         // annotations of every version they fetch, so only look it up here
