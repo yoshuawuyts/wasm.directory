@@ -178,7 +178,7 @@ impl RegistryClient {
         })
     }
 
-    /// Fetch packages ordered by when they were first indexed, newest first.
+    /// Fetch packages ordered by when they were first published, newest first.
     pub async fn fetch_new_packages(&self, limit: u32) -> Result<Vec<KnownPackage>, ApiError> {
         let url = format!("{}/v1/packages/new?limit={limit}", self.base_url);
         self.fetch_packages_from(&url).await

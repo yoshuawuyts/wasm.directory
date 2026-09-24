@@ -1,58 +1,38 @@
 //! Landing-page highlight queries: new packages, recent releases, and
 //! popular (most depended-upon) packages.
 
-use std::collections::HashMap;
+mod timeline;
 
-use chrono::{DateTime, Utc};
-use sea_orm::{EntityTrait, FromQueryResult, QueryOrder, QuerySelect, Statement};
+use std::cmp::Reverse;
+
+use sea_orm::{EntityTrait, FromQueryResult, Statement};
 use wasm_meta_registry_types::{KnownPackage, PackageRelease, PopularPackage};
 use wasm_package_manager_migration::entities::oci_repository;
 
+use self::timeline::{PackageTimeline, RELEASE_ROWS_SQL, ReleaseRow, package_timelines};
 use super::{Store, bind_placeholders, known_package_from_repo};
 
-/// Number of rows scanned per round-trip while collecting highlights.
-const SCAN_BATCH: u64 = 100;
-
 impl Store {
-    /// List packages ordered by when they were first indexed, newest first.
+    /// List packages by when they were first published, newest first.
     ///
-    /// Packages without any semver tags (e.g. not-yet-pulled stubs) are
-    /// skipped *before* pagination, so `offset` and `limit` count only
-    /// packages that are actually returned.
+    /// A package's publish date is its earliest semver release, dated by the
+    /// publisher's `org.opencontainers.image.created` annotation (falling
+    /// back to when the tag was indexed). Each package appears once, showing
+    /// its latest tags; packages without semver releases are skipped before
+    /// pagination.
     pub(crate) async fn list_new_known_packages(
         &self,
         offset: u32,
         limit: u32,
     ) -> anyhow::Result<Vec<KnownPackage>> {
+        let mut timelines = self.package_timelines().await?;
+        timelines.sort_by_key(|t| Reverse(t.first.sort_key()));
+        let offset = usize::try_from(offset).unwrap_or(usize::MAX);
         let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-        let mut to_skip = usize::try_from(offset).unwrap_or(usize::MAX);
         let mut out = Vec::new();
-        let mut scanned = 0u64;
-        while out.len() < limit {
-            let rows = oci_repository::Entity::find()
-                .order_by_desc(oci_repository::Column::CreatedAt)
-                .order_by_desc(oci_repository::Column::Id)
-                .offset(scanned)
-                .limit(SCAN_BATCH)
-                .all(&self.db)
-                .await?;
-            if rows.is_empty() {
-                break;
-            }
-            scanned += SCAN_BATCH;
-            for r in rows {
-                if out.len() >= limit {
-                    break;
-                }
-                let pkg = known_package_from_repo(&self.db, r).await?;
-                if pkg.tags.is_empty() {
-                    continue;
-                }
-                if to_skip > 0 {
-                    to_skip -= 1;
-                    continue;
-                }
-                out.push(pkg);
+        for timeline in timelines.into_iter().skip(offset).take(limit) {
+            if let Some(package) = self.load_known_package(timeline.latest.repo_id).await? {
+                out.push(package);
             }
         }
         Ok(out)
@@ -69,48 +49,54 @@ impl Store {
         &self,
         limit: u32,
     ) -> anyhow::Result<Vec<PackageRelease>> {
-        let sql = "\
-            SELECT t.id AS tag_id, t.oci_repository_id AS repo_id, t.tag AS tag, \
-                   t.created_at AS indexed_at, m.oci_created AS oci_created \
-            FROM oci_tag t \
-            LEFT JOIN oci_manifest m \
-              ON m.oci_repository_id = t.oci_repository_id \
-             AND m.digest = t.manifest_digest";
-        let backend = self.db.get_database_backend();
-        let stmt = Statement::from_sql_and_values(backend, bind_placeholders(backend, sql), []);
-        let rows = ReleaseRow::find_by_statement(stmt).all(&self.db).await?;
-
+        let mut timelines = self.package_timelines().await?;
+        timelines.sort_by_key(|t| Reverse(t.latest.sort_key()));
         let limit = usize::try_from(limit).unwrap_or(usize::MAX);
         let mut out = Vec::new();
-        for latest in latest_release_per_repo(rows) {
-            if out.len() >= limit {
-                break;
+        for PackageTimeline { latest, .. } in timelines.into_iter().take(limit) {
+            if let Some(package) = self.load_known_package(latest.repo_id).await? {
+                out.push(PackageRelease {
+                    package,
+                    version: latest.tag,
+                    released_at: latest.released_at.to_rfc3339(),
+                });
             }
-            let repo = oci_repository::Entity::find_by_id(latest.repo_id)
-                .one(&self.db)
-                .await?;
-            let Some(repo) = repo else { continue };
-            out.push(PackageRelease {
-                package: known_package_from_repo(&self.db, repo).await?,
-                version: latest.tag,
-                released_at: latest.released_at.to_rfc3339(),
-            });
         }
         Ok(out)
+    }
+
+    /// One release timeline per package, across every indexed tag.
+    async fn package_timelines(&self) -> anyhow::Result<Vec<PackageTimeline>> {
+        let backend = self.db.get_database_backend();
+        let stmt = Statement::from_string(backend, RELEASE_ROWS_SQL);
+        let rows = ReleaseRow::find_by_statement(stmt).all(&self.db).await?;
+        Ok(package_timelines(rows))
+    }
+
+    /// Load a repository as a [`KnownPackage`], if it still exists.
+    async fn load_known_package(&self, repo_id: i64) -> anyhow::Result<Option<KnownPackage>> {
+        let repo = oci_repository::Entity::find_by_id(repo_id)
+            .one(&self.db)
+            .await?;
+        match repo {
+            Some(repo) => Ok(Some(known_package_from_repo(&self.db, repo).await?)),
+            None => Ok(None),
+        }
     }
 
     /// List packages ranked by how many distinct *other* indexed
     /// repositories declare them as a WIT dependency.
     ///
-    /// Only repositories with at least one tag are ranked; any whose tags
-    /// are all non-semver are additionally dropped from the page.
+    /// Repositories sharing a WIT package name count as one package. Only
+    /// repositories with at least one tag are ranked; any whose tags are all
+    /// non-semver are additionally dropped from the page.
     pub(crate) async fn list_popular_known_packages(
         &self,
         offset: u32,
         limit: u32,
     ) -> anyhow::Result<Vec<PopularPackage>> {
         let sql = "\
-            SELECT repo.id AS repo_id, \
+            SELECT MAX(repo.id) AS repo_id, \
                    COUNT(DISTINCT dependent_repo.id) AS dependents \
             FROM wit_package_dependency wpd \
             JOIN wit_package wp ON wpd.dependent_id = wp.id \
@@ -122,8 +108,8 @@ impl Store {
               AND EXISTS ( \
                 SELECT 1 FROM oci_tag t WHERE t.oci_repository_id = repo.id \
               ) \
-            GROUP BY repo.id, repo.repository \
-            ORDER BY dependents DESC, repo.repository ASC \
+            GROUP BY repo.wit_namespace, repo.wit_name \
+            ORDER BY dependents DESC, repo.wit_namespace ASC, repo.wit_name ASC \
             LIMIT ? OFFSET ?";
         let backend = self.db.get_database_backend();
         let stmt = Statement::from_sql_and_values(
@@ -156,68 +142,6 @@ impl Store {
     }
 }
 
-/// A tag joined with its manifest's publish-time annotation.
-#[derive(FromQueryResult)]
-struct ReleaseRow {
-    tag_id: i64,
-    repo_id: i64,
-    tag: String,
-    indexed_at: DateTime<Utc>,
-    oci_created: Option<String>,
-}
-
-/// The newest release of one repository.
-struct LatestRelease {
-    repo_id: i64,
-    tag_id: i64,
-    tag: String,
-    released_at: DateTime<Utc>,
-}
-
-/// Keep each repository's newest semver release, ordered newest first.
-/// Ties on time break on the most recently inserted tag so the order is
-/// stable across requests.
-fn latest_release_per_repo(rows: Vec<ReleaseRow>) -> Vec<LatestRelease> {
-    let mut latest: HashMap<i64, LatestRelease> = HashMap::new();
-    for row in rows {
-        if crate::manager::parse_tag_as_semver(&row.tag).is_none() {
-            continue;
-        }
-        let candidate = LatestRelease {
-            repo_id: row.repo_id,
-            tag_id: row.tag_id,
-            released_at: release_time(row.oci_created.as_deref(), row.indexed_at),
-            tag: row.tag,
-        };
-        let is_newer = latest
-            .get(&candidate.repo_id)
-            .is_none_or(|cur| candidate.sort_key() > cur.sort_key());
-        if is_newer {
-            latest.insert(candidate.repo_id, candidate);
-        }
-    }
-    let mut out: Vec<_> = latest.into_values().collect();
-    out.sort_by_key(|r| std::cmp::Reverse(r.sort_key()));
-    out
-}
-
-impl LatestRelease {
-    fn sort_key(&self) -> (DateTime<Utc>, i64) {
-        (self.released_at, self.tag_id)
-    }
-}
-
-/// Prefer the publisher-supplied creation time; fall back to index time.
-///
-/// A release can't have been published after we indexed it, so a
-/// future-dated annotation is capped at the index time rather than pinning
-/// the release to the top of the list.
-fn release_time(oci_created: Option<&str>, indexed_at: DateTime<Utc>) -> DateTime<Utc> {
-    oci_created
-        .and_then(|s| DateTime::parse_from_rfc3339(s.trim()).ok())
-        .map_or(indexed_at, |t| t.with_timezone(&Utc).min(indexed_at))
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -228,7 +152,7 @@ mod tests {
         Store, insert_wit_package_dependency, upsert_oci_manifest, upsert_oci_repository_full,
         upsert_oci_tag, upsert_wit_package,
     };
-    use super::release_time;
+    use super::timeline::release_time;
 
     /// Insert a repository with a single manifest carrying `tags`. Returns
     /// `(repo_id, manifest_id)`.
@@ -374,6 +298,64 @@ mod tests {
             [("c/plain", "0.1.0"), ("b/new", "1.0.0"), ("a/old", "1.0.0")]
         );
         assert_eq!(releases[1].released_at, "2001-01-01T00:00:00+00:00");
+    }
+
+    #[tokio::test]
+    async fn new_packages_rank_by_first_publish_and_show_latest_tag() {
+        let store = Store::open_in_memory().await.expect("open store");
+        let (fresh, _) = seed_repo(&store, "a", "fresh", &[]).await;
+        let (veteran, _) = seed_repo(&store, "b", "veteran", &[]).await;
+        // `b:veteran` was indexed last, and has a brand-new release, but it
+        // first appeared long before `a:fresh`.
+        seed_release(&store, fresh, "0.1.0", Some("2024-01-01T00:00:00Z")).await;
+        seed_release(&store, veteran, "1.0.0", Some("2010-01-01T00:00:00Z")).await;
+        seed_release(&store, veteran, "3.0.0", Some("2025-01-01T00:00:00Z")).await;
+        seed_release(&store, veteran, "2.0.0", Some("2015-01-01T00:00:00Z")).await;
+
+        let pkgs = store.list_new_known_packages(0, 10).await.expect("query");
+        let got: Vec<_> = pkgs
+            .iter()
+            .map(|p| (p.repository.as_str(), p.tags.first().map(String::as_str)))
+            .collect();
+        assert_eq!(
+            got,
+            [("a/fresh", Some("0.1.0")), ("b/veteran", Some("3.0.0"))]
+        );
+    }
+
+    #[tokio::test]
+    async fn highlights_dedupe_repositories_sharing_a_package_name() {
+        let store = Store::open_in_memory().await.expect("open store");
+        let (primary, _) = seed_repo(&store, "acme", "widget", &[]).await;
+        let mirror = upsert_oci_repository_full(
+            &store.db,
+            "docker.io",
+            "mirror/widget",
+            Some("acme"),
+            Some("widget"),
+            None,
+        )
+        .await
+        .expect("upsert mirror");
+        seed_release(&store, primary, "1.0.0", Some("2020-01-01T00:00:00Z")).await;
+        seed_release(&store, mirror, "1.1.0", Some("2021-01-01T00:00:00Z")).await;
+
+        let pkgs = store.list_new_known_packages(0, 10).await.expect("query");
+        assert_eq!(pkgs.len(), 1, "one entry per WIT package");
+        assert_eq!(pkgs[0].repository, "mirror/widget", "shows latest release");
+
+        let releases = store.list_recent_releases(10).await.expect("query");
+        assert_eq!(releases.len(), 1, "one entry per WIT package");
+        assert_eq!(releases[0].version, "1.1.0");
+
+        let (_, app_manifest) = seed_repo(&store, "ba", "app", &["1.0.0"]).await;
+        seed_dependency(&store, app_manifest, "ba:app", "acme:widget").await;
+        let popular = store
+            .list_popular_known_packages(0, 10)
+            .await
+            .expect("query");
+        assert_eq!(popular.len(), 1, "one entry per WIT package");
+        assert_eq!(popular[0].dependents, 1);
     }
 
     #[test]

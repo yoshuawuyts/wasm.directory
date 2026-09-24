@@ -1005,8 +1005,8 @@ impl Manager {
         self.store.registry_stats().await
     }
 
-    /// Get known packages ordered by when they were first indexed, newest
-    /// first.
+    /// Get known packages ordered by when they were first published (their
+    /// earliest semver release), newest first, one entry per package.
     ///
     /// Uses pagination with `offset` and `limit` parameters. The
     /// `dependencies` field of the returned packages is left empty.
