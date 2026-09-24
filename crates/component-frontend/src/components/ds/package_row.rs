@@ -43,7 +43,7 @@ pub(crate) fn render(pkg: &KnownPackage) -> Division {
 }
 
 /// Extract display name and optional href from a package.
-fn identity(pkg: &KnownPackage) -> (String, Option<String>) {
+pub(crate) fn identity(pkg: &KnownPackage) -> (String, Option<String>) {
     match (&pkg.wit_namespace, &pkg.wit_name) {
         (Some(ns), Some(name)) => (format!("{ns}:{name}"), Some(format!("/{ns}/{name}"))),
         _ => (pkg.repository.clone(), None),

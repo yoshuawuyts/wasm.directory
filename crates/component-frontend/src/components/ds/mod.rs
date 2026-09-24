@@ -189,6 +189,7 @@ pub(crate) mod link_button;
 pub(crate) mod metadata_table;
 pub(crate) mod nav_list;
 pub(crate) mod package_card;
+pub(crate) mod package_columns;
 pub(crate) mod package_row;
 pub(crate) mod search_bar;
 pub(crate) mod section_group;

@@ -200,6 +200,80 @@ impl KnownPackage {
     }
 }
 
+/// A single release (package + version tag), as returned by
+/// `GET /v1/releases/recent`.
+///
+/// # Example
+///
+/// ```rust
+/// use wasm_meta_registry_types::{KnownPackage, PackageRelease};
+///
+/// let release = PackageRelease {
+///     package: KnownPackage {
+///         registry: "ghcr.io".into(),
+///         repository: "user/repo".into(),
+///         kind: None,
+///         description: None,
+///         tags: vec!["1.1.0".into(), "1.0.0".into()],
+///         signature_tags: vec![],
+///         attestation_tags: vec![],
+///         last_seen_at: String::new(),
+///         created_at: String::new(),
+///         wit_namespace: None,
+///         wit_name: None,
+///         dependencies: vec![],
+///     },
+///     version: "1.0.0".into(),
+///     released_at: "2025-01-01T00:00:00Z".into(),
+/// };
+/// assert_eq!(release.version, "1.0.0");
+/// ```
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PackageRelease {
+    /// The package the release belongs to.
+    pub package: KnownPackage,
+    /// The released version tag (e.g. `"1.0.0"`).
+    pub version: String,
+    /// When the registry first indexed this tag (RFC 3339).
+    pub released_at: String,
+}
+
+/// A package ranked by how many other packages depend on it, as returned by
+/// `GET /v1/packages/popular`.
+///
+/// # Example
+///
+/// ```rust
+/// use wasm_meta_registry_types::{KnownPackage, PopularPackage};
+///
+/// let popular = PopularPackage {
+///     package: KnownPackage {
+///         registry: "ghcr.io".into(),
+///         repository: "webassembly/wasi/io".into(),
+///         kind: None,
+///         description: None,
+///         tags: vec!["0.2.0".into()],
+///         signature_tags: vec![],
+///         attestation_tags: vec![],
+///         last_seen_at: String::new(),
+///         created_at: String::new(),
+///         wit_namespace: Some("wasi".into()),
+///         wit_name: Some("io".into()),
+///         dependencies: vec![],
+///     },
+///     dependents: 42,
+/// };
+/// assert_eq!(popular.dependents, 42);
+/// ```
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PopularPackage {
+    /// The ranked package.
+    pub package: KnownPackage,
+    /// Number of distinct other indexed repositories that declare this
+    /// package as a WIT dependency.
+    pub dependents: u64,
+}
+
 // ============================================================
 // New types for the rich API
 // ============================================================

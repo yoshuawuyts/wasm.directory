@@ -2,6 +2,7 @@
 
 // r[impl frontend.pages.home]
 
+use futures_concurrency::prelude::*;
 use wasm_meta_registry_client::{ApiError, RegistryClient, RegistryStats};
 
 use crate::components::ds::{
@@ -9,34 +10,82 @@ use crate::components::ds::{
     hero::{self, Hero},
     install_widget::{self, InstallOption},
     navbar,
+    package_columns::{self, Column, ColumnRow, ColumnState},
     quick_start::{self, QuickStart, QuickStartStep},
     search_bar,
 };
 use crate::layout;
 
-/// Fetch index-wide stats and render the home page.
+/// Number of entries shown in each highlight column.
+const COLUMN_LEN: u32 = 10;
+
+/// Fetch index-wide stats and highlights and render the home page.
 pub(crate) async fn render(client: &RegistryClient) -> String {
-    match client.fetch_stats().await {
-        Ok(stats) => render_stats(&stats),
-        Err(err) => render_error(&err),
+    let (stats, releases, new_packages, popular) = (
+        client.fetch_stats(),
+        client.fetch_recent_releases(COLUMN_LEN),
+        client.fetch_new_packages(COLUMN_LEN),
+        client.fetch_popular_packages(COLUMN_LEN),
+    )
+        .join()
+        .await;
+    let highlights = Highlights {
+        releases: ColumnState::from_result(releases, ColumnRow::release),
+        new_packages: ColumnState::from_result(new_packages, ColumnRow::package),
+        popular: ColumnState::from_result(popular, ColumnRow::popular),
+    };
+    match stats {
+        Ok(stats) => render_stats(&stats, &highlights),
+        Err(err) => render_error(&err, &highlights),
     }
 }
 
 /// Render the home page with live registry stats.
-fn render_stats(stats: &RegistryStats) -> String {
-    let body = compose_body(stats, None);
+fn render_stats(stats: &RegistryStats, highlights: &Highlights) -> String {
+    let body = compose_body(stats, highlights, None);
     layout::document_landing("Home", &body)
 }
 
 /// Render the home page with an API error message — keep the chrome but
 /// surface a small notice so visitors know the live data is unavailable.
-fn render_error(err: &ApiError) -> String {
+fn render_error(err: &ApiError, highlights: &Highlights) -> String {
     let notice = format!(
         r#"<div class="mx-auto max-w-[1280px] w-full px-4 md:px-8 pt-4"><div role="status" class="flex items-start gap-2 rounded-md border border-line bg-surfaceMuted px-3 py-2 text-[12px] text-ink-700"><span class="mono uppercase tracking-wider text-ink-500">Registry offline</span><span>Live package data is temporarily unavailable, so search may return nothing right now. The <code class="px-1 py-0.5 rounded-sm bg-surface text-ink-900 mono text-[0.875em]">component</code> CLI still works locally without the registry. See the <a href="/docs" class="text-ink-900 hover:underline">docs</a> to get started. ({err})</span></div></div>"#,
         err = html_escape(&err.to_string()),
     );
-    let body = compose_body(&RegistryStats::default(), Some(&notice));
+    let body = compose_body(&RegistryStats::default(), highlights, Some(&notice));
     layout::document_landing("Home", &body)
+}
+
+/// Content for the three highlight columns below the hero.
+#[derive(Default)]
+struct Highlights {
+    /// Newest releases across all packages.
+    releases: ColumnState,
+    /// Most recently indexed packages.
+    new_packages: ColumnState,
+    /// Most depended-upon packages.
+    popular: ColumnState,
+}
+
+impl Highlights {
+    /// Render the highlight band.
+    fn render(&self) -> String {
+        package_columns::render(&[
+            Column {
+                title: "New releases",
+                state: &self.releases,
+            },
+            Column {
+                title: "New packages",
+                state: &self.new_packages,
+            },
+            Column {
+                title: "Popular packages",
+                state: &self.popular,
+            },
+        ])
+    }
 }
 
 /// Minimal HTML escape for inline error text.
@@ -59,8 +108,13 @@ fn alpha_notice() -> String {
 
 /// Compose the full landing page body. The alpha call-out lives inside the
 /// hero (below the lede); `notice_html` is rendered above the hero when
-/// present (for example, a registry-offline banner).
-fn compose_body(stats: &RegistryStats, notice_html: Option<&str>) -> String {
+/// present (for example, a registry-offline banner). The highlight columns
+/// sit directly below the hero, before the quick start.
+fn compose_body(
+    stats: &RegistryStats,
+    highlights: &Highlights,
+    notice_html: Option<&str>,
+) -> String {
     let pkg_count = format_count(stats.packages);
     let ns_count = format_count(stats.namespaces);
     let version_count = format_count(stats.versions);
@@ -172,11 +226,13 @@ fn compose_body(stats: &RegistryStats, notice_html: Option<&str>) -> String {
         ],
     });
 
+    let highlights_html = highlights.render();
     let offline_notice = notice_html.unwrap_or("");
     format!(
         r#"{offline_notice}
 {hero_html}
 <div class="pb-16 md:pb-24">
+{highlights_html}
 {quickstart_html}
 {cta_html}
 </div>"#
@@ -200,6 +256,7 @@ fn format_count(n: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wasm_meta_registry_client::KnownPackage;
 
     // r[verify frontend.pages.home]
     #[test]
@@ -216,7 +273,7 @@ mod tests {
             namespaces: 73,
             versions: 4902,
         };
-        let body = compose_body(&stats, None);
+        let body = compose_body(&stats, &Highlights::default(), None);
         assert!(body.contains(
             "Browse 1\u{2009}248 packages \u{00b7} 73 namespaces \u{00b7} 4\u{2009}902 versions"
         ));
@@ -224,7 +281,7 @@ mod tests {
 
     #[test]
     fn body_includes_alpha_notice() {
-        let body = compose_body(&RegistryStats::default(), None);
+        let body = compose_body(&RegistryStats::default(), &Highlights::default(), None);
         assert!(
             body.contains(r#"role="note""#),
             "alpha call-out should render as a note landmark"
@@ -259,7 +316,7 @@ mod tests {
 
     #[test]
     fn quick_start_sits_between_search_and_publish() {
-        let body = compose_body(&RegistryStats::default(), None);
+        let body = compose_body(&RegistryStats::default(), &Highlights::default(), None);
         assert!(
             body.contains("data-quickstart"),
             "quick start should render"
@@ -279,8 +336,65 @@ mod tests {
     }
 
     #[test]
+    fn highlight_columns_sit_between_hero_and_quick_start() {
+        let body = compose_body(&RegistryStats::default(), &Highlights::default(), None);
+        let search_at = body
+            .find("Search the meta-registry.")
+            .expect("search card present");
+        let columns_at = body
+            .find("data-package-columns")
+            .expect("highlight columns present");
+        let quickstart_at = body.find("data-quickstart").expect("quick start present");
+        assert!(
+            search_at < columns_at && columns_at < quickstart_at,
+            "highlight columns should sit below the hero and above the quick start"
+        );
+        let releases_at = body.find(">New releases</h2>").expect("releases column");
+        let new_at = body
+            .find(">New packages</h2>")
+            .expect("new packages column");
+        let popular_at = body.find(">Popular packages</h2>").expect("popular column");
+        assert!(releases_at < new_at && new_at < popular_at);
+    }
+
+    fn pkg(ns: &str, name: &str, tags: &[&str], description: Option<&str>) -> KnownPackage {
+        KnownPackage {
+            registry: "ghcr.io".into(),
+            repository: format!("{ns}/{name}"),
+            kind: None,
+            description: description.map(str::to_owned),
+            tags: tags.iter().map(|s| (*s).to_owned()).collect(),
+            signature_tags: vec![],
+            attestation_tags: vec![],
+            last_seen_at: String::new(),
+            created_at: String::new(),
+            wit_namespace: Some(ns.into()),
+            wit_name: Some(name.into()),
+            dependencies: vec![],
+        }
+    }
+
+    #[test]
+    fn highlight_columns_render_fetched_rows() {
+        let highlights = Highlights {
+            releases: ColumnState::Rows(vec![ColumnRow::package(&pkg(
+                "wasi",
+                "http",
+                &["0.2.1"],
+                None,
+            ))]),
+            new_packages: ColumnState::Unavailable,
+            popular: ColumnState::default(),
+        };
+        let body = compose_body(&RegistryStats::default(), &highlights, None);
+        assert!(body.contains(r#"href="/wasi/http""#));
+        assert!(body.contains("Unavailable right now."));
+        assert!(body.contains("Nothing here yet."));
+    }
+
+    #[test]
     fn quick_start_folds_in_install_and_all_commands() {
-        let body = compose_body(&RegistryStats::default(), None);
+        let body = compose_body(&RegistryStats::default(), &Highlights::default(), None);
         // Step one is the install widget: a platform dropdown with the real
         // install command for each supported OS.
         assert!(

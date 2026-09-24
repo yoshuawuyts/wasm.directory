@@ -1005,6 +1005,43 @@ impl Manager {
         self.store.registry_stats().await
     }
 
+    /// Get known packages ordered by when they were first indexed, newest
+    /// first.
+    ///
+    /// Uses pagination with `offset` and `limit` parameters. The
+    /// `dependencies` field of the returned packages is left empty.
+    pub async fn list_new_known_packages(
+        &self,
+        offset: u32,
+        limit: u32,
+    ) -> anyhow::Result<Vec<KnownPackage>> {
+        self.store.list_new_known_packages(offset, limit).await
+    }
+
+    /// Get the most recently indexed semver releases across all packages,
+    /// newest first, one entry per `(package, version)`.
+    ///
+    /// The `dependencies` field of the embedded packages is left empty.
+    pub async fn list_recent_releases(
+        &self,
+        limit: u32,
+    ) -> anyhow::Result<Vec<wasm_meta_registry_types::PackageRelease>> {
+        self.store.list_recent_releases(limit).await
+    }
+
+    /// Get known packages ranked by how many distinct other indexed
+    /// repositories declare them as a WIT dependency.
+    ///
+    /// Uses pagination with `offset` and `limit` parameters. The
+    /// `dependencies` field of the embedded packages is left empty.
+    pub async fn list_popular_known_packages(
+        &self,
+        offset: u32,
+        limit: u32,
+    ) -> anyhow::Result<Vec<wasm_meta_registry_types::PopularPackage>> {
+        self.store.list_popular_known_packages(offset, limit).await
+    }
+
     /// Add or update a known package entry.
     pub async fn add_known_package(
         &self,

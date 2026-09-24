@@ -1,0 +1,83 @@
+---
+source: crates/component-frontend/src/components/ds/package_columns.rs
+expression: "crate::components::ds::pretty_html(&sample())"
+---
+<section aria-label="Package highlights" data-package-columns class="mx-auto max-w-[1280px] w-full px-4 md:px-8 mt-12 md:mt-16">
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-10 md:gap-8">
+    <div class="min-w-0">
+      <h2 class="text-[12px] mono uppercase tracking-wider text-ink-500">
+        New releases
+      </h2>
+      <ol class="mt-4 border-t-[1.5px] border-lineSoft">
+        <li class="border-b border-lineSoft">
+          <a href="/wasi/http" class="group block py-3 no-underline">
+            <span class="flex items-baseline justify-between gap-4">
+              <span class="mono text-[14px] font-medium text-ink-900 truncate group-hover:underline decoration-1 underline-offset-4">
+                wasi:http
+              </span>
+              <span class="mono text-[12px] text-ink-500 tabular-nums shrink-0">
+                0.2.0
+              </span>
+            </span>
+            <span class="mt-0.5 block text-[13px] text-ink-500 truncate">
+              HTTP &lt;types&gt;
+            </span>
+          </a>
+        </li>
+      </ol>
+    </div>
+    <div class="min-w-0">
+      <h2 class="text-[12px] mono uppercase tracking-wider text-ink-500">
+        New packages
+      </h2>
+      <ol class="mt-4 border-t-[1.5px] border-lineSoft">
+        <li class="border-b border-lineSoft">
+          <div class="block py-3">
+            <span class="flex items-baseline justify-between gap-4">
+              <span class="mono text-[14px] font-medium text-ink-900 truncate group-hover:underline decoration-1 underline-offset-4">
+                x/y
+              </span>
+              <span class="mono text-[12px] text-ink-500 tabular-nums shrink-0">
+                1.0.0
+              </span>
+            </span>
+          </div>
+        </li>
+      </ol>
+    </div>
+    <div class="min-w-0">
+      <h2 class="text-[12px] mono uppercase tracking-wider text-ink-500">
+        Popular packages
+      </h2>
+      <ol class="mt-4 border-t-[1.5px] border-lineSoft">
+        <li class="border-b border-lineSoft">
+          <a href="/wasi/io" class="group block py-3 no-underline">
+            <span class="flex items-baseline justify-between gap-4">
+              <span class="mono text-[14px] font-medium text-ink-900 truncate group-hover:underline decoration-1 underline-offset-4">
+                wasi:io
+              </span>
+              <span class="mono text-[12px] text-ink-500 tabular-nums shrink-0">
+                12 dependents
+              </span>
+            </span>
+          </a>
+        </li>
+        <li class="border-b border-lineSoft">
+          <a href="/wasi/http" class="group block py-3 no-underline">
+            <span class="flex items-baseline justify-between gap-4">
+              <span class="mono text-[14px] font-medium text-ink-900 truncate group-hover:underline decoration-1 underline-offset-4">
+                wasi:http
+              </span>
+              <span class="mono text-[12px] text-ink-500 tabular-nums shrink-0">
+                1 dependent
+              </span>
+            </span>
+            <span class="mt-0.5 block text-[13px] text-ink-500 truncate">
+              HTTP &lt;types&gt;
+            </span>
+          </a>
+        </li>
+      </ol>
+    </div>
+  </div>
+</section>

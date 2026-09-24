@@ -42,6 +42,8 @@ use wasm_package_manager_migration::entities::{
     wit_package, wit_package_dependency, wit_world, wit_world_export, wit_world_import,
 };
 
+mod highlights;
+
 use super::config::StateInfo;
 use super::known_package::KnownPackageParams;
 use super::models::Migrations;

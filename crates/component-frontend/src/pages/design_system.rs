@@ -56,6 +56,7 @@ const TOC_COMPONENT_ENTRIES: &[(&str, &str)] = &[
     ("#c-principles-grid", "C11 \u{2014} Principles Grid"),
     ("#c-cta-strip", "C12 \u{2014} CTA Strip"),
     ("#c-footer", "C13 \u{2014} Footer"),
+    ("#c-package-columns", "C14 \u{2014} Package Columns"),
 ];
 
 /// Render the design system reference page.
@@ -360,14 +361,14 @@ pub(crate) fn render() -> String {
         ds::navbar::ANATOMY_ITEMS,
     ));
 
-    // Landing-page composed components (C07–C13)
+    // Landing-page composed components (C07–C14)
     html.push_str(RULE_MT);
     html.push_str(&render_landing_components());
 
     layout::document_design_system("Design System", &html)
 }
 
-/// Render the landing-page composed components (C07–C13). Each section uses
+/// Render the landing-page composed components (C07–C14). Each section uses
 /// the two-column [`ds::section`] helper and showcases one component with
 /// representative content.
 fn render_landing_components() -> String {
@@ -620,5 +621,43 @@ fn render_landing_components() -> String {
         &footer_demo,
     ));
 
+    html.push_str(RULE_MT);
+    html.push_str(&ds::section(
+        "c-package-columns",
+        "C14",
+        "Package Columns",
+        "Three-up package highlights used below the landing hero: new releases, new packages, and popular packages. Each column has a mono kicker, a heavy top rule, and rows with a mono name, a muted detail, and an optional one-line description. Empty and unavailable columns show a short note.",
+        &render_package_columns_demo(),
+    ));
+
     html
+}
+
+/// Demo content for the package-columns component (C14).
+fn render_package_columns_demo() -> String {
+    use crate::components::ds::package_columns::{self, Column, ColumnRow, ColumnState};
+
+    let row = |name: &str, detail: &str, description: &str| ColumnRow {
+        name: name.to_owned(),
+        href: Some("#".to_owned()),
+        detail: detail.to_owned(),
+        description: Some(description.to_owned()),
+    };
+    package_columns::render(&[
+        Column {
+            title: "New releases",
+            state: &ColumnState::Rows(vec![
+                row("wasi:http", "0.2.4", "WASI standard for HTTP"),
+                row("wasi:cli", "0.2.4", "Command-line entry points"),
+            ]),
+        },
+        Column {
+            title: "New packages",
+            state: &ColumnState::Rows(vec![]),
+        },
+        Column {
+            title: "Popular packages",
+            state: &ColumnState::Unavailable,
+        },
+    ])
 }

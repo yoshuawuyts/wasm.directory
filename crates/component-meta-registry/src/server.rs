@@ -167,6 +167,9 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/search/by-export", get(search_by_export))
         .route("/v1/packages", get(list_packages))
         .route("/v1/packages/recent", get(list_recent_packages))
+        .route("/v1/packages/new", get(list_new_packages))
+        .route("/v1/packages/popular", get(list_popular_packages))
+        .route("/v1/releases/recent", get(list_recent_releases))
         .nest("/v1/packages/detail", package_detail_routes)
         .nest("/v1/packages/versions", package_versions_routes)
         .route(
@@ -245,6 +248,43 @@ async fn list_recent_packages(
         .list_recent_known_packages(params.offset, limit)
         .await?;
     Ok(Json(packages))
+}
+
+/// List known packages ordered by when they were first indexed.
+async fn list_new_packages(
+    State(manager): State<AppState>,
+    Query(params): Query<ListParams>,
+) -> Result<impl IntoResponse, AppError> {
+    let limit = clamp_limit(params.limit);
+    let manager = manager.read().await;
+    let packages = manager
+        .list_new_known_packages(params.offset, limit)
+        .await?;
+    Ok(Json(packages))
+}
+
+/// List known packages ranked by how many other packages depend on them.
+async fn list_popular_packages(
+    State(manager): State<AppState>,
+    Query(params): Query<ListParams>,
+) -> Result<impl IntoResponse, AppError> {
+    let limit = clamp_limit(params.limit);
+    let manager = manager.read().await;
+    let packages = manager
+        .list_popular_known_packages(params.offset, limit)
+        .await?;
+    Ok(Json(packages))
+}
+
+/// List the most recently indexed releases across all packages.
+async fn list_recent_releases(
+    State(manager): State<AppState>,
+    Query(params): Query<ListParams>,
+) -> Result<impl IntoResponse, AppError> {
+    let limit = clamp_limit(params.limit);
+    let manager = manager.read().await;
+    let releases = manager.list_recent_releases(limit).await?;
+    Ok(Json(releases))
 }
 
 /// Get a specific package by registry and repository.
@@ -592,6 +632,38 @@ mod tests {
         let stats: wasm_meta_registry_types::RegistryStats =
             resp.json().await.expect("invalid json");
         assert_eq!(stats, wasm_meta_registry_types::RegistryStats::default());
+
+        server.abort();
+    }
+
+    /// The landing-page highlight endpoints respond with JSON arrays, even
+    /// when the registry is empty.
+    #[tokio::test]
+    async fn highlight_endpoints_return_arrays() {
+        let (_data_dir, manager) = isolated_manager().await;
+        let state = Arc::new(tokio::sync::RwLock::new(manager));
+        let app = router(state);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("failed to bind listener");
+        let addr = listener.local_addr().expect("failed to get local addr");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("server error");
+        });
+
+        for path in [
+            "/v1/packages/new?limit=10",
+            "/v1/packages/popular?limit=10",
+            "/v1/releases/recent?limit=10",
+        ] {
+            let resp = reqwest::get(format!("http://{addr}{path}"))
+                .await
+                .expect("request failed");
+            assert_eq!(resp.status(), StatusCode::OK, "{path}");
+            let body: serde_json::Value = resp.json().await.expect("invalid json");
+            assert!(body.is_array(), "{path} should return a JSON array");
+        }
 
         server.abort();
     }

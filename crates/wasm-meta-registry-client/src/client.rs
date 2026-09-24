@@ -10,7 +10,8 @@ use std::fmt;
 
 use crate::KnownPackage;
 use wasm_meta_registry_types::{
-    NotifyOutcome, PackageDetail, PackageVersion, QueueStatus, RegistryStats,
+    NotifyOutcome, PackageDetail, PackageRelease, PackageVersion, PopularPackage, QueueStatus,
+    RegistryStats,
 };
 
 /// Default API base URL when no environment variable is set.
@@ -175,6 +176,27 @@ impl RegistryClient {
                 "received an unexpected response from the registry: {e}"
             ))
         })
+    }
+
+    /// Fetch packages ordered by when they were first indexed, newest first.
+    pub async fn fetch_new_packages(&self, limit: u32) -> Result<Vec<KnownPackage>, ApiError> {
+        let url = format!("{}/v1/packages/new?limit={limit}", self.base_url);
+        self.fetch_packages_from(&url).await
+    }
+
+    /// Fetch packages ranked by how many other packages depend on them.
+    pub async fn fetch_popular_packages(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<PopularPackage>, ApiError> {
+        let url = format!("{}/v1/packages/popular?limit={limit}", self.base_url);
+        self.fetch_list(&url).await
+    }
+
+    /// Fetch the most recently indexed releases across all packages.
+    pub async fn fetch_recent_releases(&self, limit: u32) -> Result<Vec<PackageRelease>, ApiError> {
+        let url = format!("{}/v1/releases/recent?limit={limit}", self.base_url);
+        self.fetch_list(&url).await
     }
 
     /// Search packages by query string.
