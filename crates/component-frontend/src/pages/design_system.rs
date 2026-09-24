@@ -635,35 +635,52 @@ fn render_landing_components() -> String {
 
 /// Demo content for the package-columns component (C14).
 fn render_package_columns_demo() -> String {
-    use crate::components::ds::package_columns::{self, Column, ColumnRow, ColumnState, Released};
+    use crate::components::ds::package_columns::{self, Age, Column, ColumnRow, ColumnState};
 
-    let row = |name: &str, detail: &str, description: &str, age: &str| ColumnRow {
-        name: name.to_owned(),
-        href: Some("#".to_owned()),
-        detail: detail.to_owned(),
-        description: Some(description.to_owned()),
-        released: Some(Released {
-            datetime: "2026-01-01T00:00:00Z".to_owned(),
-            date: "2026-01-01".to_owned(),
-            age: age.to_owned(),
-        }),
-    };
+    let row =
+        |name: &str, detail: &str, description: Option<&str>, event: &str, age: &str| ColumnRow {
+            name: name.to_owned(),
+            href: Some("#".to_owned()),
+            detail: detail.to_owned(),
+            description: description.map(str::to_owned),
+            age: Some(Age {
+                datetime: "2026-01-01T00:00:00Z".to_owned(),
+                title: format!("{event} 2026-01-01"),
+                label: age.to_owned(),
+            }),
+        };
     package_columns::render(&[
         Column {
             title: "New releases",
             state: &ColumnState::Rows(vec![
-                row("wasi:http", "0.2.4", "WASI standard for HTTP", "3 days ago"),
+                row(
+                    "wasi:http",
+                    "0.2.4",
+                    Some("WASI standard for HTTP"),
+                    "Released",
+                    "3 days ago",
+                ),
                 row(
                     "wasi:cli",
                     "0.2.4",
-                    "Command-line entry points",
+                    Some("Command-line entry points"),
+                    "Released",
                     "2 weeks ago",
                 ),
             ]),
         },
         Column {
             title: "New packages",
-            state: &ColumnState::Rows(vec![]),
+            state: &ColumnState::Rows(vec![
+                row(
+                    "acme:widget",
+                    "0.1.0",
+                    Some("Widgets for everyone"),
+                    "First indexed",
+                    "today",
+                ),
+                row("acme:gadget", "1.2.0", None, "First indexed", "5 days ago"),
+            ]),
         },
         Column {
             title: "Popular packages",

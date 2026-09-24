@@ -6,13 +6,14 @@
 //! and install card): a header strip with the mono column title, then rows
 //! divided by `lineSoft` hairlines. A row shows the package name with a muted mono detail on the
 //! right (version or dependents count) and an optional one-line description.
-//! Release rows also show how long ago they were published.
+//! Release rows also show how long ago they were published, and new-package
+//! rows how long ago the registry first indexed them.
 //! Cards stack on narrow viewports and sit side by side from `md` up.
 
 use std::fmt::Write as _;
 
 use chrono::{DateTime, SecondsFormat, Utc};
-use wasm_meta_registry_client::{KnownPackage, PackageRelease, PopularPackage};
+use wasm_meta_registry_client::{KnownPackage, NewPackage, PackageRelease, PopularPackage};
 
 use super::package_row;
 use crate::escape::{escape_html_attr, escape_html_text};
@@ -29,43 +30,49 @@ pub(crate) struct ColumnRow {
     pub detail: String,
     /// Optional one-line description.
     pub description: Option<String>,
-    /// When the row's release was published, if it is a release.
-    pub released: Option<Released>,
+    /// How long ago the row's event happened (a release was published, or
+    /// a package was first indexed), when the column tracks one.
+    pub age: Option<Age>,
 }
 
-/// A publish time, rendered as a relative age with the exact date on hover.
+/// When something happened, rendered as a relative age with the event and
+/// exact date on hover.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Released {
+pub(crate) struct Age {
     /// Machine-readable timestamp for the `<time datetime>` attribute.
     pub datetime: String,
-    /// Calendar date shown as a tooltip (e.g. `2026-07-08`).
-    pub date: String,
+    /// Tooltip naming the event and its date (e.g. `Released 2026-07-08`).
+    pub title: String,
     /// Relative age (e.g. `3 days ago`).
-    pub age: String,
+    pub label: String,
 }
 
-impl Released {
-    /// Describe an RFC 3339 timestamp relative to `now`. Returns `None` when
-    /// the timestamp can't be parsed.
+impl Age {
+    /// Describe an RFC 3339 timestamp of `event` (e.g. `"Released"`)
+    /// relative to `now`. Returns `None` when the timestamp can't be parsed.
     #[must_use]
-    pub(crate) fn parse(rfc3339: &str, now: DateTime<Utc>) -> Option<Self> {
+    pub(crate) fn parse(event: &str, rfc3339: &str, now: DateTime<Utc>) -> Option<Self> {
         let then = DateTime::parse_from_rfc3339(rfc3339)
             .ok()?
             .with_timezone(&Utc);
         Some(Self {
             datetime: then.to_rfc3339_opts(SecondsFormat::Secs, true),
-            date: then.format("%Y-%m-%d").to_string(),
-            age: relative_age(then, now),
+            title: format!("{event} {}", then.format("%Y-%m-%d")),
+            label: relative_age(then, now),
         })
     }
 }
 
 impl ColumnRow {
-    /// Row for a package, showing its latest version.
+    /// Row for a newly added package, showing its latest version and how
+    /// long before `now` the registry first indexed it.
     #[must_use]
-    pub(crate) fn package(pkg: &KnownPackage) -> Self {
-        let detail = pkg.tags.first().cloned().unwrap_or_default();
-        Self::with_detail(pkg, detail)
+    pub(crate) fn new_package(new: &NewPackage, now: DateTime<Utc>) -> Self {
+        let detail = new.package.tags.first().cloned().unwrap_or_default();
+        Self {
+            age: Age::parse("First indexed", &new.first_indexed_at, now),
+            ..Self::with_detail(&new.package, detail)
+        }
     }
 
     /// Row for a single release, showing the released version and how long
@@ -73,7 +80,7 @@ impl ColumnRow {
     #[must_use]
     pub(crate) fn release(release: &PackageRelease, now: DateTime<Utc>) -> Self {
         Self {
-            released: Released::parse(&release.released_at, now),
+            age: Age::parse("Released", &release.released_at, now),
             ..Self::with_detail(&release.package, release.version.clone())
         }
     }
@@ -102,7 +109,7 @@ impl ColumnRow {
             href,
             detail,
             description,
-            released: None,
+            age: None,
         }
     }
 }
@@ -222,7 +229,7 @@ fn render_row(row: &ColumnRow) -> String {
 }
 
 /// Render the second line of a row: the description (an empty placeholder
-/// when missing, to keep rows the same height) and the publish age.
+/// when missing, to keep rows the same height) and the event's age.
 fn render_meta(row: &ColumnRow) -> String {
     let description = match row.description.as_deref() {
         Some(d) => format!(
@@ -231,15 +238,15 @@ fn render_meta(row: &ColumnRow) -> String {
         ),
         None => format!(r#"<span aria-hidden="true" class="{DESC_CLASS}"></span>"#),
     };
-    let released = row.released.as_ref().map_or_else(String::new, |r| {
+    let age = row.age.as_ref().map_or_else(String::new, |a| {
         format!(
             r#"<time datetime="{}" title="{}" class="{TIME_CLASS}">{}</time>"#,
-            escape_html_attr(&r.datetime),
-            escape_html_attr(&r.date),
-            escape_html_text(&r.age),
+            escape_html_attr(&a.datetime),
+            escape_html_attr(&a.title),
+            escape_html_text(&a.label),
         )
     });
-    format!("{description}{released}")
+    format!("{description}{age}")
 }
 
 #[cfg(test)]
@@ -299,7 +306,13 @@ mod tests {
             },
             Column {
                 title: "New packages",
-                state: &ColumnState::Rows(vec![ColumnRow::package(&raw)]),
+                state: &ColumnState::Rows(vec![ColumnRow::new_package(
+                    &NewPackage {
+                        package: raw,
+                        first_indexed_at: "2026-08-24T12:00:00Z".into(),
+                    },
+                    now(),
+                )]),
             },
             Column {
                 title: "Popular packages",
@@ -354,16 +367,20 @@ mod tests {
     }
 
     #[test]
-    fn releases_show_how_long_ago_they_were_published() {
+    fn releases_and_new_packages_show_how_long_ago() {
         let html = sample();
-        assert!(
-            html.contains(r#"<time datetime="2026-09-21T06:30:00Z" title="2026-09-21" class="#)
-        );
+        assert!(html.contains(
+            r#"<time datetime="2026-09-21T06:30:00Z" title="Released 2026-09-21" class="#
+        ));
         assert!(html.contains(">3 days ago</time>"));
+        assert!(html.contains(
+            r#"<time datetime="2026-08-24T12:00:00Z" title="First indexed 2026-08-24" class="#
+        ));
+        assert!(html.contains(">4 weeks ago</time>"));
         assert_eq!(
             html.matches("<time").count(),
-            1,
-            "unparseable timestamps and non-release rows show no age"
+            2,
+            "unparseable timestamps and popular rows show no age"
         );
     }
 

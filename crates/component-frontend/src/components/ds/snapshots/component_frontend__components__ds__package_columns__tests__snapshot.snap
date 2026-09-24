@@ -22,7 +22,7 @@ expression: "crate::components::ds::pretty_html(&sample())"
             <span class="h-5 leading-5 text-[13px] text-ink-500 truncate">
               HTTP &lt;types&gt;
             </span>
-            <time datetime="2026-09-21T06:30:00Z" title="2026-09-21" class="h-5 leading-5 mono text-[12px] text-ink-500 tabular-nums text-right whitespace-nowrap">
+            <time datetime="2026-09-21T06:30:00Z" title="Released 2026-09-21" class="h-5 leading-5 mono text-[12px] text-ink-500 tabular-nums text-right whitespace-nowrap">
               3 days ago
             </time>
           </a>
@@ -58,6 +58,9 @@ expression: "crate::components::ds::pretty_html(&sample())"
             </span>
             <span aria-hidden="true" class="h-5 leading-5 text-[13px] text-ink-500 truncate">
             </span>
+            <time datetime="2026-08-24T12:00:00Z" title="First indexed 2026-08-24" class="h-5 leading-5 mono text-[12px] text-ink-500 tabular-nums text-right whitespace-nowrap">
+              4 weeks ago
+            </time>
           </div>
         </li>
       </ol>

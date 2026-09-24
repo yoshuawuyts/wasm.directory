@@ -32,7 +32,7 @@ pub(crate) async fn render(client: &RegistryClient) -> String {
     let now = chrono::Utc::now();
     let highlights = Highlights {
         releases: ColumnState::from_result(releases, |r| ColumnRow::release(r, now)),
-        new_packages: ColumnState::from_result(new_packages, ColumnRow::package),
+        new_packages: ColumnState::from_result(new_packages, |p| ColumnRow::new_package(p, now)),
         popular: ColumnState::from_result(popular, ColumnRow::popular),
     };
     match stats {
@@ -257,7 +257,7 @@ fn format_count(n: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wasm_meta_registry_client::KnownPackage;
+    use wasm_meta_registry_client::{KnownPackage, PopularPackage};
 
     // r[verify frontend.pages.home]
     #[test]
@@ -378,12 +378,10 @@ mod tests {
     #[test]
     fn highlight_columns_render_fetched_rows() {
         let highlights = Highlights {
-            releases: ColumnState::Rows(vec![ColumnRow::package(&pkg(
-                "wasi",
-                "http",
-                &["0.2.1"],
-                None,
-            ))]),
+            releases: ColumnState::Rows(vec![ColumnRow::popular(&PopularPackage {
+                package: pkg("wasi", "http", &["0.2.1"], None),
+                dependents: 3,
+            })]),
             new_packages: ColumnState::Unavailable,
             popular: ColumnState::default(),
         };

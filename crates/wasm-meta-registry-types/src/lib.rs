@@ -241,6 +241,42 @@ pub struct PackageRelease {
     pub released_at: String,
 }
 
+/// A package recently added to the registry, as returned by
+/// `GET /v1/packages/new` (one entry per package).
+///
+/// # Example
+///
+/// ```rust
+/// use wasm_meta_registry_types::{KnownPackage, NewPackage};
+///
+/// let new = NewPackage {
+///     package: KnownPackage {
+///         registry: "ghcr.io".into(),
+///         repository: "user/repo".into(),
+///         kind: None,
+///         description: None,
+///         tags: vec!["0.2.0".into(), "0.1.0".into()],
+///         signature_tags: vec![],
+///         attestation_tags: vec![],
+///         last_seen_at: String::new(),
+///         created_at: String::new(),
+///         wit_namespace: None,
+///         wit_name: None,
+///         dependencies: vec![],
+///     },
+///     first_indexed_at: "2025-01-01T00:00:00Z".into(),
+/// };
+/// assert_eq!(new.first_indexed_at, "2025-01-01T00:00:00Z");
+/// ```
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct NewPackage {
+    /// The package, with all of its current tags.
+    pub package: KnownPackage,
+    /// When this registry first indexed any of the package's releases
+    /// (RFC 3339): when it learned the package exists.
+    pub first_indexed_at: String,
+}
+
 /// A package ranked by how many other packages depend on it, as returned by
 /// `GET /v1/packages/popular`.
 ///

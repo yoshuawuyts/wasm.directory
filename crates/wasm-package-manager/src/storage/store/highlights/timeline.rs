@@ -1,7 +1,8 @@
 //! Per-package release timelines used to rank landing-page highlights.
 //!
-//! Every semver tag is placed in time using its publish time, and tags are
-//! grouped by package identity so each package is summarized exactly once.
+//! Every semver tag is placed in time using its publish time and the time
+//! this registry first indexed it, and tags are grouped by package identity
+//! so each package is summarized exactly once.
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -68,6 +69,7 @@ pub(super) struct Release {
     pub(super) tag_id: i64,
     pub(super) tag: String,
     pub(super) released_at: DateTime<Utc>,
+    pub(super) indexed_at: DateTime<Utc>,
 }
 
 impl Release {
@@ -78,12 +80,15 @@ impl Release {
     }
 }
 
-/// When one package was first and most recently published.
+/// When one package was first and most recently published, and when this
+/// registry first learned about it.
 pub(super) struct PackageTimeline {
     /// The package's earliest release: when it first appeared.
     pub(super) first: Release,
     /// The package's most recent release.
     pub(super) latest: Release,
+    /// When this registry first indexed any of the package's releases.
+    pub(super) first_indexed: DateTime<Utc>,
 }
 
 impl PackageTimeline {
@@ -93,14 +98,22 @@ impl PackageTimeline {
         self.latest.tag_id != self.first.tag_id
     }
 
+    /// Order by when the registry first learned about the package; ties
+    /// (e.g. packages discovered in the same sync) break on first publish.
+    pub(super) fn discovery_key(&self) -> (DateTime<Utc>, (DateTime<Utc>, i64)) {
+        (self.first_indexed, self.first.sort_key())
+    }
+
     fn new(release: Release) -> Self {
         Self {
+            first_indexed: release.indexed_at,
             first: release.clone(),
             latest: release,
         }
     }
 
     fn absorb(&mut self, release: Release) {
+        self.first_indexed = self.first_indexed.min(release.indexed_at);
         if release.sort_key() < self.first.sort_key() {
             self.first = release.clone();
         }
@@ -136,14 +149,16 @@ pub(super) fn package_timelines(rows: Vec<ReleaseRow>) -> Vec<PackageTimeline> {
             continue;
         }
         let key = PackageKey::of(&row);
+        let indexed_at = row.indexed_at();
         let release = Release {
             repo_id: row.repo_id,
             publisher: row.publisher(),
             tag_id: row.tag_id,
             released_at: release_time(
                 [row.oci_created.as_deref(), row.config_created.as_deref()],
-                row.indexed_at(),
+                indexed_at,
             ),
+            indexed_at,
             tag: row.tag,
         };
         match by_package.entry(key) {
@@ -192,7 +207,7 @@ pub(super) fn release_time(
 mod tests {
     use chrono::{DateTime, Utc};
 
-    use super::ReleaseRow;
+    use super::{ReleaseRow, package_timelines};
 
     fn at(s: &str) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339(s)
@@ -222,6 +237,20 @@ mod tests {
         assert_eq!(recreated_tag.indexed_at(), at("2026-05-12T00:00:00Z"));
         let no_manifest = row("a/b", "2026-09-24T00:00:00Z", None);
         assert_eq!(no_manifest.indexed_at(), at("2026-09-24T00:00:00Z"));
+    }
+
+    #[test]
+    fn first_indexed_is_earliest_sighting_across_releases() {
+        let mut debut = row("a/b", "2026-09-24T00:00:00Z", Some("2026-05-12T00:00:00Z"));
+        debut.tag = "1.0.0".to_owned();
+        let mut update = row("a/b", "2026-09-24T00:00:00Z", Some("2026-09-24T00:00:00Z"));
+        update.tag_id = 2;
+        update.tag = "2.0.0".to_owned();
+
+        let timelines = package_timelines(vec![update, debut]);
+        assert_eq!(timelines.len(), 1);
+        assert_eq!(timelines[0].first_indexed, at("2026-05-12T00:00:00Z"));
+        assert_eq!(timelines[0].latest.tag, "2.0.0");
     }
 
     #[test]

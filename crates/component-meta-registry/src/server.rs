@@ -250,7 +250,7 @@ async fn list_recent_packages(
     Ok(Json(packages))
 }
 
-/// List known packages ordered by when they were first published.
+/// List known packages ordered by when the registry first indexed them.
 async fn list_new_packages(
     State(manager): State<AppState>,
     Query(params): Query<ListParams>,

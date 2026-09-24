@@ -1005,9 +1005,9 @@ impl Manager {
         self.store.registry_stats().await
     }
 
-    /// Get known packages ordered by when they were first published (their
-    /// earliest semver release), newest first, one entry per package and at
-    /// most two per publisher.
+    /// Get known packages ordered by when this registry first indexed them
+    /// (fresh additions), newest first, one entry per package and at most
+    /// two per publisher. Each entry carries its first-indexed time.
     ///
     /// Uses pagination with `offset` and `limit` parameters. The
     /// `dependencies` field of the returned packages is left empty.
@@ -1015,7 +1015,7 @@ impl Manager {
         &self,
         offset: u32,
         limit: u32,
-    ) -> anyhow::Result<Vec<KnownPackage>> {
+    ) -> anyhow::Result<Vec<wasm_meta_registry_types::NewPackage>> {
         self.store.list_new_known_packages(offset, limit).await
     }
 

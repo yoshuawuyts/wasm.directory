@@ -6,7 +6,7 @@ mod timeline;
 use std::cmp::Reverse;
 
 use sea_orm::{EntityTrait, FromQueryResult, Statement};
-use wasm_meta_registry_types::{KnownPackage, PackageRelease, PopularPackage};
+use wasm_meta_registry_types::{KnownPackage, NewPackage, PackageRelease, PopularPackage};
 use wasm_package_manager_migration::entities::oci_repository;
 
 use self::timeline::{
@@ -19,21 +19,23 @@ use super::{Store, bind_placeholders, known_package_from_repo};
 const MAX_PER_PUBLISHER: usize = 2;
 
 impl Store {
-    /// List packages by when they were first published, newest first.
+    /// List packages by when this registry first indexed them, newest
+    /// first: fresh additions to the registry.
     ///
-    /// A package's publish date is its earliest semver release, dated by the
-    /// publisher's `org.opencontainers.image.created` annotation or config
-    /// `created` field (falling back to when the release was first indexed). Each package appears
-    /// once, showing its latest tags, and each publisher (registry + owner)
-    /// contributes at most [`MAX_PER_PUBLISHER`] packages. Packages without
-    /// semver releases are skipped before pagination.
+    /// A package's first-indexed time is the earliest time any of its
+    /// semver releases was indexed; packages discovered together (e.g. in
+    /// one sync) are ordered by when they were first published. Each package
+    /// appears once, showing its latest tags alongside its first-indexed
+    /// time, and each publisher (registry + owner) contributes at most
+    /// [`MAX_PER_PUBLISHER`] packages. Packages without semver releases are
+    /// skipped before pagination.
     pub(crate) async fn list_new_known_packages(
         &self,
         offset: u32,
         limit: u32,
-    ) -> anyhow::Result<Vec<KnownPackage>> {
+    ) -> anyhow::Result<Vec<NewPackage>> {
         let mut timelines = self.package_timelines().await?;
-        timelines.sort_by_key(|t| Reverse(t.first.sort_key()));
+        timelines.sort_by_key(|t| Reverse(t.discovery_key()));
         let offset = usize::try_from(offset).unwrap_or(usize::MAX);
         let limit = usize::try_from(limit).unwrap_or(usize::MAX);
         let mut out = Vec::new();
@@ -42,7 +44,10 @@ impl Store {
             .take(limit);
         for timeline in page {
             if let Some(package) = self.load_known_package(timeline.latest.repo_id).await? {
-                out.push(package);
+                out.push(NewPackage {
+                    package,
+                    first_indexed_at: timeline.first_indexed.to_rfc3339(),
+                });
             }
         }
         Ok(out)
@@ -163,6 +168,9 @@ mod tests {
     use std::collections::HashMap;
 
     use chrono::{DateTime, Utc};
+    use sea_orm::sea_query::Expr;
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+    use wasm_package_manager_migration::entities::{oci_manifest, oci_tag};
 
     use super::super::{
         Store, insert_wit_package_dependency, upsert_oci_manifest, upsert_oci_repository_full,
@@ -234,15 +242,15 @@ mod tests {
         seed_repo(&store, "c", "second", &["0.1.0"]).await;
 
         let pkgs = store.list_new_known_packages(0, 10).await.expect("query");
-        let names: Vec<_> = pkgs.iter().map(|p| p.repository.as_str()).collect();
+        let names: Vec<_> = pkgs.iter().map(|p| p.package.repository.as_str()).collect();
         assert_eq!(names, ["c/second", "a/first"]);
 
         // A tag-less repo at the top must not eat into the page.
         seed_repo(&store, "d", "newest-untagged", &[]).await;
         let first = store.list_new_known_packages(0, 1).await.expect("query");
-        assert_eq!(first[0].repository, "c/second");
+        assert_eq!(first[0].package.repository, "c/second");
         let second = store.list_new_known_packages(1, 1).await.expect("query");
-        assert_eq!(second[0].repository, "a/first");
+        assert_eq!(second[0].package.repository, "a/first");
     }
 
     /// Add `tag` to `repo_id` on its own manifest, optionally annotated with
@@ -358,10 +366,13 @@ mod tests {
         }
 
         let pkgs = store.list_new_known_packages(0, 10).await.expect("query");
-        let names: Vec<_> = pkgs.iter().map(|p| p.repository.as_str()).collect();
+        let names: Vec<_> = pkgs.iter().map(|p| p.package.repository.as_str()).collect();
         assert_eq!(names, ["bulk/c", "bulk/b", "solo/x"]);
         let second = store.list_new_known_packages(2, 1).await.expect("query");
-        assert_eq!(second[0].repository, "solo/x", "offset counts capped list");
+        assert_eq!(
+            second[0].package.repository, "solo/x",
+            "offset counts capped list"
+        );
 
         let releases = store.list_recent_releases(10).await.expect("query");
         let names: Vec<_> = releases
@@ -371,27 +382,70 @@ mod tests {
         assert_eq!(names, ["bulk/c", "bulk/b", "solo/x"]);
     }
 
+    /// Backdate when every manifest and tag of `repo_id` was indexed.
+    async fn set_indexed_at(store: &Store, repo_id: i64, when: &str) {
+        let when = DateTime::parse_from_rfc3339(when)
+            .expect("valid timestamp")
+            .with_timezone(&Utc);
+        oci_manifest::Entity::update_many()
+            .col_expr(oci_manifest::Column::CreatedAt, Expr::value(when))
+            .filter(oci_manifest::Column::OciRepositoryId.eq(repo_id))
+            .exec(&store.db)
+            .await
+            .expect("backdate manifests");
+        oci_tag::Entity::update_many()
+            .col_expr(oci_tag::Column::CreatedAt, Expr::value(when))
+            .filter(oci_tag::Column::OciRepositoryId.eq(repo_id))
+            .exec(&store.db)
+            .await
+            .expect("backdate tags");
+    }
+
     #[tokio::test]
-    async fn new_packages_rank_by_first_publish_and_show_latest_tag() {
+    async fn new_packages_rank_by_first_indexed_and_show_latest_tag() {
         let store = Store::open_in_memory().await.expect("open store");
         let (fresh, _) = seed_repo(&store, "a", "fresh", &[]).await;
         let (veteran, _) = seed_repo(&store, "b", "veteran", &[]).await;
-        // `b:veteran` was indexed last, and has a brand-new release, but it
-        // first appeared long before `a:fresh`.
-        seed_release(&store, fresh, "0.1.0", Some("2024-01-01T00:00:00Z")).await;
-        seed_release(&store, veteran, "1.0.0", Some("2010-01-01T00:00:00Z")).await;
-        seed_release(&store, veteran, "3.0.0", Some("2025-01-01T00:00:00Z")).await;
-        seed_release(&store, veteran, "2.0.0", Some("2015-01-01T00:00:00Z")).await;
+        // `b:veteran` has a brand-new release, but the registry has known it
+        // since 2020. `a:fresh` was published long ago but only just
+        // discovered, so it is the fresh addition.
+        seed_release(&store, veteran, "1.0.0", Some("2019-01-01T00:00:00Z")).await;
+        set_indexed_at(&store, veteran, "2020-01-01T00:00:00Z").await;
+        seed_release(&store, veteran, "2.0.0", Some("2025-01-01T00:00:00Z")).await;
+        seed_release(&store, fresh, "0.1.0", Some("2010-01-01T00:00:00Z")).await;
 
         let pkgs = store.list_new_known_packages(0, 10).await.expect("query");
         let got: Vec<_> = pkgs
             .iter()
-            .map(|p| (p.repository.as_str(), p.tags.first().map(String::as_str)))
+            .map(|p| {
+                (
+                    p.package.repository.as_str(),
+                    p.package.tags.first().map(String::as_str),
+                )
+            })
             .collect();
         assert_eq!(
             got,
-            [("a/fresh", Some("0.1.0")), ("b/veteran", Some("3.0.0"))]
+            [("a/fresh", Some("0.1.0")), ("b/veteran", Some("2.0.0"))]
         );
+        assert_eq!(pkgs[1].first_indexed_at, "2020-01-01T00:00:00+00:00");
+        assert!(pkgs[0].first_indexed_at > pkgs[1].first_indexed_at);
+    }
+
+    #[tokio::test]
+    async fn new_packages_discovered_together_rank_by_first_publish() {
+        let store = Store::open_in_memory().await.expect("open store");
+        let (newer, _) = seed_repo(&store, "a", "newer", &[]).await;
+        let (older, _) = seed_repo(&store, "b", "older", &[]).await;
+        seed_release(&store, newer, "1.0.0", Some("2024-01-01T00:00:00Z")).await;
+        seed_release(&store, older, "1.0.0", Some("2023-01-01T00:00:00Z")).await;
+        for repo in [newer, older] {
+            set_indexed_at(&store, repo, "2025-06-01T00:00:00Z").await;
+        }
+
+        let pkgs = store.list_new_known_packages(0, 10).await.expect("query");
+        let names: Vec<_> = pkgs.iter().map(|p| p.package.repository.as_str()).collect();
+        assert_eq!(names, ["a/newer", "b/older"]);
     }
 
     #[tokio::test]
@@ -413,7 +467,10 @@ mod tests {
 
         let pkgs = store.list_new_known_packages(0, 10).await.expect("query");
         assert_eq!(pkgs.len(), 1, "one entry per WIT package");
-        assert_eq!(pkgs[0].repository, "mirror/widget", "shows latest release");
+        assert_eq!(
+            pkgs[0].package.repository, "mirror/widget",
+            "shows latest release"
+        );
 
         let releases = store.list_recent_releases(10).await.expect("query");
         assert_eq!(releases.len(), 1, "one entry per WIT package");
