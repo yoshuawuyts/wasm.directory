@@ -399,8 +399,8 @@ environment.
   but made the first visitor after an idle period wait on a cold start.
 - `BACKEND_MAX_REPLICAS` and `FRONTEND_MAX_REPLICAS` default to `1`, down from a
   ceiling of 3. One replica served the observed load at about 95 ms with no
-  latency regression. Combined with the backend right-sizing to 0.25 vCPU /
-  0.5 GiB, the provisioned ceiling falls from 2.25 vCPU to 0.5 vCPU.
+  latency regression. With both apps at 0.25 vCPU, that lowers the provisioned
+  ceiling from 1.5 vCPU to 0.5 vCPU.
 
 The backend resource reduction has not been load-verified. If the service shows
 memory pressure or latency regressions, revert the backend `resources` block

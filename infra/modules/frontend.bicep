@@ -81,8 +81,8 @@ resource frontendApp 'Microsoft.App/containerApps@2024-03-01' = {
       ]
       // Declared explicitly so scaling is visible and tunable; with no `rules`
       // entry the platform silently applies ~10 concurrent requests. Set higher
-      // here because this app serves only static assets. One replica, always
-      // on. See Cost in docs/azure-deployment.md.
+      // here because this app serves only static assets. Defaults to one
+      // replica, always on. See Cost in docs/azure-deployment.md.
       scale: {
         minReplicas: minReplicas
         maxReplicas: maxReplicas

@@ -119,7 +119,8 @@ resource backendApp 'Microsoft.App/containerApps@2024-03-01' = {
       // Declared explicitly so scaling is visible and tunable; with no `rules`
       // entry the platform silently applies ~10 concurrent requests. Kept at
       // that same 10, because 0.25 vCPU saturates well before ten in-flight
-      // requests. One replica, always on. See Cost in docs/azure-deployment.md.
+      // requests. Defaults to one replica, always on. See Cost in
+      // docs/azure-deployment.md.
       scale: {
         minReplicas: minReplicas
         maxReplicas: maxReplicas
