@@ -68,9 +68,11 @@ impl IndexerLease {
     /// Acquire or re-confirm the lease.
     ///
     /// Returns `true` when this process holds the lease and should run the
-    /// indexer. `pg_try_advisory_lock` never blocks, and calling it again on
-    /// the session that already holds the lock succeeds, so this also works
-    /// as a liveness check.
+    /// indexer. This never blocks. Advisory locks are re-entrant, so the
+    /// lock is only requested when `pg_locks` shows this session doesn't
+    /// already hold it; otherwise every renewal would bump the lock count.
+    /// Checking `pg_locks` also catches a pool reconnect, where the new
+    /// session has to re-acquire the lock.
     ///
     /// # Errors
     ///
@@ -79,10 +81,15 @@ impl IndexerLease {
         let Some(conn) = &self.conn else {
             return Ok(true);
         };
+        let (class_id, obj_id) = lock_key_parts(POSTGRES_INDEXER_ADVISORY_LOCK_KEY);
         let stmt = Statement::from_sql_and_values(
             DbBackend::Postgres,
-            "SELECT pg_try_advisory_lock($1) AS held",
-            [POSTGRES_INDEXER_ADVISORY_LOCK_KEY.into()],
+            HOLD_LEASE_SQL,
+            [
+                POSTGRES_INDEXER_ADVISORY_LOCK_KEY.into(),
+                class_id.into(),
+                obj_id.into(),
+            ],
         );
         let row = conn
             .query_one_raw(stmt)
@@ -94,6 +101,44 @@ impl IndexerLease {
             .context("failed to decode indexer advisory lock result")?;
         Ok(held)
     }
+
+    /// Release one level of the advisory lock, as if the lease had been
+    /// acquired only once. Returns whether an unlock happened.
+    #[cfg(test)]
+    pub(crate) async fn unlock_once(&self) -> anyhow::Result<bool> {
+        let Some(conn) = &self.conn else {
+            return Ok(false);
+        };
+        let stmt = Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "SELECT pg_advisory_unlock($1) AS released",
+            [POSTGRES_INDEXER_ADVISORY_LOCK_KEY.into()],
+        );
+        let row = conn
+            .query_one_raw(stmt)
+            .await?
+            .context("advisory unlock query returned no rows")?;
+        Ok(row.try_get("", "released")?)
+    }
+}
+
+/// Acquire the indexer lock unless this session already holds it.
+///
+/// `CASE` only evaluates the volatile `pg_try_advisory_lock` when the
+/// `EXISTS` branch is false, so an existing hold isn't counted twice.
+const HOLD_LEASE_SQL: &str = "SELECT CASE WHEN EXISTS ( \
+        SELECT 1 FROM pg_locks \
+        WHERE locktype = 'advisory' AND pid = pg_backend_pid() AND granted \
+          AND classid::bigint = $2 AND objid::bigint = $3 AND objsubid = 1 \
+    ) THEN true ELSE pg_try_advisory_lock($1) END AS held";
+
+/// Split a 64-bit advisory-lock key into the `classid` (high 32 bits) and
+/// `objid` (low 32 bits) columns that `pg_locks` reports for it.
+fn lock_key_parts(key: i64) -> (i64, i64) {
+    let bits = u64::from_be_bytes(key.to_be_bytes());
+    let high = i64::try_from(bits >> 32).expect("32-bit value fits in i64");
+    let low = i64::try_from(bits & 0xFFFF_FFFF).expect("32-bit value fits in i64");
+    (high, low)
 }
 
 #[cfg(test)]
@@ -114,6 +159,16 @@ mod tests {
         assert_ne!(
             POSTGRES_INDEXER_ADVISORY_LOCK_KEY,
             super::super::store::POSTGRES_MIGRATION_ADVISORY_LOCK_KEY
+        );
+    }
+
+    #[test]
+    fn lock_key_parts_split_high_and_low_words() {
+        assert_eq!(lock_key_parts(0x0000_0001_0000_0002), (1, 2));
+        assert_eq!(lock_key_parts(-1), (0xFFFF_FFFF, 0xFFFF_FFFF));
+        assert_eq!(
+            lock_key_parts(POSTGRES_INDEXER_ADVISORY_LOCK_KEY),
+            (0x636D_7069, 0x6E64_7821)
         );
     }
 

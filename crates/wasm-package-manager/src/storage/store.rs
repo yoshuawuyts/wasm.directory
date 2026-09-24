@@ -4196,17 +4196,27 @@ mod smoke_tests {
             !b.try_hold().await.expect("lease B query"),
             "B is locked out"
         );
-        drop(a);
+        // Renewals must not stack: a single unlock frees the lock.
+        assert!(a.unlock_once().await.expect("lease A unlock"));
+        assert!(
+            b.try_hold().await.expect("lease B after unlock"),
+            "B acquires after A's single unlock"
+        );
+        assert!(
+            !a.try_hold().await.expect("lease A requery"),
+            "A is now locked out"
+        );
+        drop(b);
         // Dropping the pool closes the session asynchronously; poll briefly.
         let mut acquired = false;
         for _ in 0..50 {
-            if b.try_hold().await.expect("lease B retry") {
+            if a.try_hold().await.expect("lease A retry") {
                 acquired = true;
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
-        assert!(acquired, "B takes over once A goes away");
+        assert!(acquired, "A takes over once B goes away");
     }
 
     #[tokio::test]
