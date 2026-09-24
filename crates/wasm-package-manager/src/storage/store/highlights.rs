@@ -5,7 +5,7 @@ mod timeline;
 
 use std::cmp::Reverse;
 
-use sea_orm::{EntityTrait, FromQueryResult, Statement};
+use sea_orm::{ColumnTrait, EntityTrait, FromQueryResult, QueryFilter, QueryOrder, Statement};
 use wasm_meta_registry_types::{KnownPackage, NewPackage, PackageRelease, PopularPackage};
 use wasm_package_manager_migration::entities::oci_repository;
 
@@ -105,18 +105,34 @@ impl Store {
         }
     }
 
-    /// Load a repository as a [`KnownPackage`] if it still exists and has
-    /// at least one semver release.
-    async fn load_released_package(&self, repo_id: i64) -> anyhow::Result<Option<KnownPackage>> {
-        let package = self.load_known_package(repo_id).await?;
-        Ok(package.filter(|p| !p.tags.is_empty()))
+    /// Load the newest repository for a WIT package that has at least one
+    /// semver release, skipping mirrors that only carry e.g. `latest`.
+    async fn load_released_wit_package(
+        &self,
+        namespace: &str,
+        name: &str,
+    ) -> anyhow::Result<Option<KnownPackage>> {
+        let repos = oci_repository::Entity::find()
+            .filter(oci_repository::Column::WitNamespace.eq(namespace))
+            .filter(oci_repository::Column::WitName.eq(name))
+            .order_by_desc(oci_repository::Column::Id)
+            .all(&self.db)
+            .await?;
+        for repo in repos {
+            let package = known_package_from_repo(&self.db, repo).await?;
+            if !package.tags.is_empty() {
+                return Ok(Some(package));
+            }
+        }
+        Ok(None)
     }
 
     /// List packages ranked by how many distinct *other* indexed
     /// repositories declare them as a WIT dependency.
     ///
-    /// Repositories sharing a WIT package name count as one package.
-    /// Packages without semver tags are skipped before pagination, so pages
+    /// Repositories sharing a WIT package name count as one package, shown
+    /// via its newest repository with semver releases. Packages without
+    /// semver tags are skipped before pagination, so pages
     /// stay full and offsets don't skip valid entries.
     pub(crate) async fn list_popular_known_packages(
         &self,
@@ -124,7 +140,7 @@ impl Store {
         limit: u32,
     ) -> anyhow::Result<Vec<PopularPackage>> {
         let sql = "\
-            SELECT MAX(repo.id) AS repo_id, \
+            SELECT repo.wit_namespace AS wit_namespace, repo.wit_name AS wit_name, \
                    COUNT(DISTINCT dependent_repo.id) AS dependents \
             FROM wit_package_dependency wpd \
             JOIN wit_package wp ON wpd.dependent_id = wp.id \
@@ -142,7 +158,8 @@ impl Store {
         let stmt = Statement::from_string(backend, sql);
         #[derive(FromQueryResult)]
         struct Row {
-            repo_id: i64,
+            wit_namespace: String,
+            wit_name: String,
             dependents: i64,
         }
         let rows = Row::find_by_statement(stmt).all(&self.db).await?;
@@ -153,7 +170,10 @@ impl Store {
             if out.len() >= limit {
                 break;
             }
-            let Some(package) = self.load_released_package(row.repo_id).await? else {
+            let package = self
+                .load_released_wit_package(&row.wit_namespace, &row.wit_name)
+                .await?;
+            let Some(package) = package else {
                 continue;
             };
             if skip > 0 {
@@ -581,6 +601,53 @@ mod tests {
             .await
             .expect("query");
         assert_eq!(names(second), ["a/third"]);
+    }
+
+    /// A newer mirror without semver tags doesn't hide a package whose
+    /// other repository has releases.
+    #[tokio::test]
+    async fn popular_packages_skip_unreleased_mirrors() {
+        let store = Store::open_in_memory().await.expect("open store");
+        seed_repo(&store, "wasi", "io", &["0.2.0"]).await;
+        let mirror = upsert_oci_repository_full(
+            &store.db,
+            "ghcr.io",
+            "mirror/io",
+            Some("wasi"),
+            Some("io"),
+            None,
+        )
+        .await
+        .expect("upsert mirror");
+        upsert_oci_manifest(
+            &store.db,
+            mirror,
+            "sha256:mirror",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &HashMap::new(),
+        )
+        .await
+        .expect("upsert manifest");
+        upsert_oci_tag(&store.db, mirror, "latest", "sha256:mirror")
+            .await
+            .expect("upsert tag");
+        let (_, user) = seed_repo(&store, "ba", "app", &["1.0.0"]).await;
+        seed_dependency(&store, user, "ba:app", "wasi:io").await;
+
+        let popular = store
+            .list_popular_known_packages(0, 10)
+            .await
+            .expect("query");
+        let got: Vec<_> = popular
+            .iter()
+            .map(|p| (p.package.repository.as_str(), p.dependents))
+            .collect();
+        assert_eq!(got, [("wasi/io", 1)]);
     }
 
     /// The popularity query is hand-written SQL; make sure it also runs on
