@@ -951,54 +951,73 @@ fn render_document(title: &str, body_class: &str, body_children: &str) -> String
     }})();
   </script>
   <script>
-    /* Theme dropdown */
+    /* Theme toggle */
     (function() {{
-      var trigger = document.getElementById('theme-trigger');
-      var menu = document.getElementById('theme-menu');
-      if (!trigger || !menu) return;
+      var triggers = Array.prototype.slice.call(document.querySelectorAll('.theme-toggle'));
+      if (triggers.length === 0) return;
       var root = document.documentElement;
       var mq = window.matchMedia('(prefers-color-scheme: dark)');
       var stored = localStorage.getItem('ds-theme');
-      var current = (stored === 'dark' || stored === 'light') ? stored : 'auto';
+      var explicit = (stored === 'dark' || stored === 'light') ? stored : null;
 
-      function updateIcon(mode) {{
+      function systemMode() {{
+        return mq.matches ? 'dark' : 'light';
+      }}
+
+      function effectiveMode() {{
+        return explicit || systemMode();
+      }}
+
+      function updateControls() {{
+        var mode = effectiveMode();
         document.querySelectorAll('.theme-icon').forEach(function(el) {{ el.style.display = 'none'; }});
         document.querySelectorAll('.theme-icon-' + mode).forEach(function(el) {{ el.style.display = ''; }});
+        triggers.forEach(function(trigger) {{
+          var next = mode === 'dark' ? 'light' : 'dark';
+          var label = explicit
+            ? 'Use system color theme'
+            : 'Use ' + next + ' color theme';
+          var knob = trigger.querySelector('.theme-toggle-knob');
+          trigger.setAttribute('aria-label', label);
+          trigger.setAttribute('aria-pressed', explicit ? 'true' : 'false');
+          trigger.setAttribute('title', label);
+          trigger.style.borderColor = explicit ? 'var(--c-ink-900)' : '';
+          trigger.style.backgroundColor = explicit ? 'var(--c-surface-muted)' : '';
+          if (knob) {{
+            knob.style.transform = mode === 'dark' ? 'translateX(22px)' : 'translateX(2px)';
+          }}
+        }});
       }}
+
       function apply(mode) {{
-        current = mode;
-        updateIcon(mode);
-        if (mode === 'auto') {{
+        explicit = mode;
+        if (explicit) {{
+          root.setAttribute('data-theme', explicit);
+          root.style.background = explicit === 'dark' ? '#1C1C20' : '#F4F4F5';
+          localStorage.setItem('ds-theme', explicit);
+        }} else {{
           root.removeAttribute('data-theme');
           root.style.background = mq.matches ? '#1C1C20' : '#F4F4F5';
           localStorage.removeItem('ds-theme');
-        }} else {{
-          root.setAttribute('data-theme', mode);
-          root.style.background = mode === 'dark' ? '#1C1C20' : '#F4F4F5';
-          localStorage.setItem('ds-theme', mode);
         }}
+        updateControls();
       }}
-      updateIcon(current);
-      trigger.addEventListener('click', function(e) {{
-        e.stopPropagation();
-        var open = !menu.classList.contains('hidden');
-        menu.classList.toggle('hidden');
-        trigger.setAttribute('aria-expanded', !open);
-      }});
-      menu.querySelectorAll('.theme-option').forEach(function(btn) {{
-        btn.addEventListener('click', function() {{
-          apply(this.getAttribute('data-theme-value'));
-          menu.classList.add('hidden');
-          trigger.setAttribute('aria-expanded', 'false');
+
+      updateControls();
+      triggers.forEach(function(trigger) {{
+        trigger.addEventListener('click', function() {{
+          if (explicit) {{
+            apply(null);
+          }} else {{
+            apply(effectiveMode() === 'dark' ? 'light' : 'dark');
+          }}
         }});
       }});
-      document.addEventListener('click', function() {{
-        menu.classList.add('hidden');
-        trigger.setAttribute('aria-expanded', 'false');
-      }});
+
       mq.addEventListener('change', function() {{
-        if (current === 'auto') {{
+        if (!explicit) {{
           root.style.background = mq.matches ? '#1C1C20' : '#F4F4F5';
+          updateControls();
         }}
       }});
     }})();
@@ -1040,5 +1059,8 @@ mod tests {
         // Dark mode infrastructure
         assert!(html.contains("prefers-color-scheme: dark"));
         assert!(html.contains("data-theme"));
+        assert!(html.contains("document.querySelectorAll('.theme-toggle')"));
+        assert!(html.contains("localStorage.removeItem('ds-theme')"));
+        assert!(!html.contains("theme-menu"));
     }
 }

@@ -103,34 +103,23 @@ pub(crate) struct NavLink {
 /// without competing with the purple accent reserved for primary actions.
 pub(crate) const ALPHA_BADGE: &str = r#"<span class="inline-flex items-center h-5 px-1.5 rounded text-[10px] font-semibold uppercase tracking-wider text-orange-700 bg-orange-100 border border-orange-200 whitespace-nowrap" title="This service is in alpha. Expect breaking changes." aria-label="Alpha release">alpha</span>"#;
 
-/// SVG icons for the theme dropdown (14px, currentColor).
+/// SVG icons for the theme toggle (14px, currentColor).
 const THEME_SUN: &str = r#"<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>"#;
 const THEME_MOON: &str = concat!(
     r#"<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">"#,
     include_str!("../../../../../vendor/lucide/moon.svg"),
     "</svg>"
 );
-const THEME_AUTO: &str = concat!(
-    r#"<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">"#,
-    include_str!("../../../../../vendor/lucide/eclipse.svg"),
-    "</svg>"
-);
 
-/// Render the theme dropdown (Auto / Light / Dark) with icons + labels.
-pub(crate) fn theme_dropdown() -> String {
+/// Render the color theme toggle.
+pub(crate) fn theme_toggle() -> String {
     format!(
-        r#"<div class="relative" id="theme-dropdown">
-<button type="button" id="theme-trigger" aria-label="Color theme" aria-haspopup="true" aria-expanded="false" class="inline-flex items-center justify-center h-7 w-7 rounded-md text-ink-500 hover:bg-surfaceMuted hover:text-ink-900 transition-colors">
-<span class="theme-icon theme-icon-auto">{THEME_AUTO}</span>
+        r#"<button type="button" class="theme-toggle relative inline-flex h-6 w-10 items-center rounded-full border border-line bg-surface text-ink-500 hover:bg-surfaceMuted hover:text-ink-900 transition-colors" aria-label="Toggle color theme" aria-pressed="false" title="Toggle color theme">
+<span class="theme-toggle-knob inline-flex h-4 w-4 translate-x-[2px] items-center justify-center rounded-full bg-ink-900 text-canvas transition-transform">
 <span class="theme-icon theme-icon-light" style="display:none">{THEME_SUN}</span>
 <span class="theme-icon theme-icon-dark" style="display:none">{THEME_MOON}</span>
-</button>
-<div id="theme-menu" class="absolute right-0 mt-1.5 w-36 rounded-md bg-surface border border-line shadow-tooltip py-1 text-[13px] hidden z-50">
-<button type="button" data-theme-value="auto" class="theme-option w-full text-left px-3 h-8 flex items-center gap-2.5 text-ink-700 hover:bg-surfaceMuted hover:text-ink-900 rounded-sm">{THEME_AUTO} Auto</button>
-<button type="button" data-theme-value="light" class="theme-option w-full text-left px-3 h-8 flex items-center gap-2.5 text-ink-700 hover:bg-surfaceMuted hover:text-ink-900 rounded-sm">{THEME_SUN} Light</button>
-<button type="button" data-theme-value="dark" class="theme-option w-full text-left px-3 h-8 flex items-center gap-2.5 text-ink-700 hover:bg-surfaceMuted hover:text-ink-900 rounded-sm">{THEME_MOON} Dark</button>
-</div>
-</div>"#
+</span>
+</button>"#
     )
 }
 
@@ -173,7 +162,7 @@ pub(crate) fn render_bar(crumbs: &[Crumb], links: &[NavLink]) -> String {
         });
     }
     right.division(|d| d.class("hidden sm:block w-px h-4 bg-line mx-0.5"));
-    right.text(theme_dropdown());
+    right.text(theme_toggle());
     let right = right.build().to_string();
 
     let bar = html::content::Header::builder()
@@ -228,7 +217,7 @@ pub(crate) fn render_bar_grid(crumbs: &[Crumb], links: &[NavLink]) -> String {
         });
     }
     right.division(|d| d.class("hidden sm:block w-px h-4 bg-line mx-0.5"));
-    right.text(theme_dropdown());
+    right.text(theme_toggle());
     let right = right.build().to_string();
 
     let bar = html::content::Header::builder()
@@ -277,7 +266,7 @@ pub(crate) const ANATOMY_ITEMS: &[&str] = &[
     r#"<strong>Brand cluster</strong> — 24×24 sigil + 13px mono name + optional 11px ink-500 mono context label that hides below <code class="mono text-[12px]">sm</code>. Wrapped in a single <code class="mono text-[12px]">&lt;a&gt;</code> back to the home page."#,
     r#"<strong>Command palette trigger</strong> — a button (not an input). Uses the form system’s compact recipe trimmed to bar height: <code class="mono text-[12px]">h-8 rounded-md border-line bg-surface</code>, placeholder colour <code class="mono text-[12px]">text-ink-500</code>, leading 14px magnifier (<code class="mono text-[12px]">ink-400</code>), trailing <code class="mono text-[12px]">⌘K</code> kbd hint matching Section 13’s prominent search variant. Clicking opens the palette modal — the input lives there, not in the bar."#,
     r#"<strong>Nav links</strong> — 12px ink-500 in <code class="mono text-[12px]">h-7 px-2 rounded-md</code> hit areas with <code class="mono text-[12px]">hover:bg-surfaceMuted hover:text-ink-900</code>. No underline, no separator dots — spacing carries the rhythm."#,
-    r#"<strong>Theme toggle</strong> — same shape as the form system’s icon button (<code class="mono text-[12px]">h-7</code> bordered, surface bg). Always visible at every viewport so users can correct an unwanted theme without hunting."#,
+    r#"<strong>Theme toggle</strong> — compact switch (<code class="mono text-[12px]">h-6 w-10</code>) with one click target and no menu. It persists the opposite effective scheme from system mode, then clears back to system on the next click."#,
     r#"<strong>Responsive collapse</strong> — drop the brand tagline below <code class="mono text-[12px]">sm</code>; trim primary nav at <code class="mono text-[12px]">md</code>; collapse the search button to a <code class="mono text-[12px]">h-8 w-8</code> icon button below <code class="mono text-[12px]">sm</code> and stash all links behind a hamburger."#,
 ];
 

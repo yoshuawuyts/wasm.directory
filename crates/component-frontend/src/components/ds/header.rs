@@ -20,7 +20,7 @@ pub(crate) fn render(version: &str, subtitle: &str, title: &str, description: &s
             .span(|s| s.class("h-1 w-1 rounded-full bg-ink-300"))
             .span(|s| s.text(subtitle.clone()))
             .span(|s| s.class("ml-auto"))
-            .text(navbar::theme_dropdown())
+            .text(navbar::theme_toggle())
         })
         .heading_1(|h1| {
             h1.class("mt-3 text-[36px] md:text-[44px] leading-[1.05] font-semibold tracking-tight")

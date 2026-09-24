@@ -14,14 +14,8 @@ expression: "crate::components::ds::pretty_html(&render(\"v1.0\",\n\"Foundations
     </span>
     <span class="ml-auto">
     </span>
-    <div class="relative" id="theme-dropdown">
-      <button type="button" id="theme-trigger" aria-label="Color theme" aria-haspopup="true" aria-expanded="false" class="inline-flex items-center justify-center h-7 w-7 rounded-md text-ink-500 hover:bg-surfaceMuted hover:text-ink-900 transition-colors">
-        <span class="theme-icon theme-icon-auto">
-          <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 2a7 7 0 1 0 10 10" />
-          </svg>
-        </span>
+    <button type="button" class="theme-toggle relative inline-flex h-6 w-10 items-center rounded-full border border-line bg-surface text-ink-500 hover:bg-surfaceMuted hover:text-ink-900 transition-colors" aria-label="Toggle color theme" aria-pressed="false" title="Toggle color theme">
+      <span class="theme-toggle-knob inline-flex h-4 w-4 translate-x-[2px] items-center justify-center rounded-full bg-ink-900 text-canvas transition-transform">
         <span class="theme-icon theme-icon-light" style="display:none">
           <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <circle cx="12" cy="12" r="5"/>
@@ -33,30 +27,8 @@ expression: "crate::components::ds::pretty_html(&render(\"v1.0\",\n\"Foundations
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
           </svg>
         </span>
-      </button>
-      <div id="theme-menu" class="absolute right-0 mt-1.5 w-36 rounded-md bg-surface border border-line shadow-tooltip py-1 text-[13px] hidden z-50">
-        <button type="button" data-theme-value="auto" class="theme-option w-full text-left px-3 h-8 flex items-center gap-2.5 text-ink-700 hover:bg-surfaceMuted hover:text-ink-900 rounded-sm">
-          <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 2a7 7 0 1 0 10 10" />
-          </svg>
-          Auto
-        </button>
-        <button type="button" data-theme-value="light" class="theme-option w-full text-left px-3 h-8 flex items-center gap-2.5 text-ink-700 hover:bg-surfaceMuted hover:text-ink-900 rounded-sm">
-          <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-            <circle cx="12" cy="12" r="5"/>
-            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
-          </svg>
-          Light
-        </button>
-        <button type="button" data-theme-value="dark" class="theme-option w-full text-left px-3 h-8 flex items-center gap-2.5 text-ink-700 hover:bg-surfaceMuted hover:text-ink-900 rounded-sm">
-          <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-          </svg>
-          Dark
-        </button>
-      </div>
-    </div>
+      </span>
+    </button>
   </div>
   <h1 class="mt-3 text-[36px] md:text-[44px] leading-[1.05] font-semibold tracking-tight">
     Design System

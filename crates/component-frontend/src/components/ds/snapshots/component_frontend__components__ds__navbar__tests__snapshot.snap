@@ -484,11 +484,11 @@ expression: "crate::components::ds::pretty_html(&render(\"c-navbar\", \"C06\", \
               <strong>
                 Theme toggle
               </strong>
-              — same shape as the form system’s icon button (
+              — compact switch (
               <code class="mono text-[12px]">
-                h-7
+                h-6 w-10
               </code>
-              bordered, surface bg). Always visible at every viewport so users can correct an unwanted theme without hunting.
+              ) with one click target and no menu. It persists the opposite effective scheme from system mode, then clears back to system on the next click.
             </p>
           </li>
           <li>
