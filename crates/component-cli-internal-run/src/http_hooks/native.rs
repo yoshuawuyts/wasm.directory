@@ -1,4 +1,4 @@
-//! WASI HTTP P3 native-cert hooks.
+//! Shared WASI HTTP P2 and P3 native-cert hooks.
 
 use bytes::Bytes;
 use core::pin::Pin;
@@ -9,14 +9,7 @@ use http_body_util::combinators::UnsyncBoxBody;
 use std::future::Future;
 use tokio::net::TcpStream;
 use tracing::warn;
-use wasmtime_wasi::TrappableError;
-use wasmtime_wasi_http::{
-    io::TokioIo,
-    p3::{
-        RequestOptions, WasiHttpHooks,
-        bindings::http::types::{DnsErrorPayload, ErrorCode},
-    },
-};
+use wasmtime_wasi_http::{Error as ErrorCode, RequestOptions, WasiHttpHooks, io::TokioIo};
 
 use super::{RwStream, native_root_tls_config};
 
@@ -37,12 +30,12 @@ impl WasiHttpHooks for NativeCertHooks {
                         http::Response<UnsyncBoxBody<Bytes, ErrorCode>>,
                         Box<dyn Future<Output = Result<(), ErrorCode>> + Send>,
                     ),
-                    TrappableError<ErrorCode>,
+                    ErrorCode,
                 >,
             > + Send,
     > {
         Box::new(async move {
-            let (res, io) = send(request, options).await.map_err(TrappableError::from)?;
+            let (res, io) = send(request, options).await?;
             Ok((
                 res.map(http_body_util::BodyExt::boxed_unsync),
                 Box::new(io) as Box<dyn Future<Output = Result<(), ErrorCode>> + Send>,
@@ -89,19 +82,19 @@ async fn send(
     let tcp = match tokio::time::timeout(connect_timeout, TcpStream::connect(&addr)).await {
         Ok(Ok(s)) => s,
         Ok(Err(e)) if e.kind() == std::io::ErrorKind::AddrNotAvailable => {
-            return Err(ErrorCode::DnsError(DnsErrorPayload {
+            return Err(ErrorCode::DnsError {
                 rcode: Some("address not available".to_string()),
                 info_code: Some(0),
-            }));
+            });
         }
         Ok(Err(e))
             if e.to_string()
                 .starts_with("failed to lookup address information") =>
         {
-            return Err(ErrorCode::DnsError(DnsErrorPayload {
+            return Err(ErrorCode::DnsError {
                 rcode: Some("address not available".to_string()),
                 info_code: Some(0),
-            }));
+            });
         }
         Ok(Err(_)) => return Err(ErrorCode::ConnectionRefused),
         Err(_) => return Err(ErrorCode::ConnectionTimeout),
@@ -114,10 +107,10 @@ async fn send(
         let domain = ServerName::try_from(authority.host())
             .map_err(|e| {
                 warn!("invalid DNS name: {e:?}");
-                ErrorCode::DnsError(DnsErrorPayload {
+                ErrorCode::DnsError {
                     rcode: Some("invalid dns name".to_string()),
                     info_code: Some(0),
-                })
+                }
             })?
             .to_owned();
         let tls = connector.connect(domain, tcp).await.map_err(|e| {
@@ -135,7 +128,7 @@ async fn send(
     )
     .await
     .map_err(|_| ErrorCode::ConnectionTimeout)?
-    .map_err(ErrorCode::from_hyper_request_error)?;
+    .map_err(ErrorCode::from)?;
 
     // HTTP/1.1 must not include scheme or authority in the request URI.
     *req.uri_mut() = http::Uri::builder()
@@ -151,7 +144,7 @@ async fn send(
         let res = tokio::time::timeout(first_byte_timeout, sender.send_request(req))
             .await
             .map_err(|_| ErrorCode::ConnectionReadTimeout)?
-            .map_err(ErrorCode::from_hyper_request_error)?;
+            .map_err(ErrorCode::from)?;
         let mut timeout = tokio::time::interval(between_bytes_timeout);
         timeout.reset();
         Ok(res.map(|incoming| ResponseBody { incoming, timeout }))
@@ -172,7 +165,7 @@ async fn send(
                     conn = None;
                     send_fut.as_mut().poll(cx)
                 }
-                Err(err) => Poll::Ready(Err(ErrorCode::from_hyper_request_error(err))),
+                Err(err) => Poll::Ready(Err(ErrorCode::from(err))),
             }
         }
     })

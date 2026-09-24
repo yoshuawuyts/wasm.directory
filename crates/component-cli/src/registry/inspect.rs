@@ -57,7 +57,7 @@ impl InspectOpts {
 }
 
 /// Get the max value of the `range` field across a payload and all children.
-fn find_range_max(max: &mut usize, payload: &Payload) {
+fn find_range_max(max: &mut u64, payload: &Payload) {
     let range = &payload.metadata().range;
     if range.end > *max {
         *max = range.end;
@@ -108,7 +108,7 @@ fn write_summary_table_inner(
     payload: &Payload,
     parent: &str,
     unknown_id: &mut u16,
-    range_max: usize,
+    range_max: u64,
     table: &mut Table,
 ) -> Result<()> {
     let Metadata {
@@ -126,10 +126,7 @@ fn write_summary_table_inner(
         name
     };
     let size_bytes = range.end - range.start;
-    let size = ByteSize::b(u64::try_from(size_bytes).unwrap_or(u64::MAX))
-        .display()
-        .si_short()
-        .to_string();
+    let size = ByteSize::b(size_bytes).display().si_short().to_string();
 
     let percent = size_bytes
         .saturating_mul(100)

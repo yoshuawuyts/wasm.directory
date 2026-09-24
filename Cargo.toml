@@ -108,6 +108,7 @@ tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 
 # OCI dependencies
 docker_credential = "1.3.2"
+# Keep compatible with the OCI types exposed by oci-wasm.
 oci-client = { version = "0.17", default-features = false, features = [
     "rustls-tls",
 ] }
@@ -128,11 +129,11 @@ clap_mangen = "0.3.0"
 comfy-table = "8.0.0"
 console = "0.16"
 indicatif = "0.18"
-dirs = "6.0.0"
+dirs = "7.0.0"
 insta = "1.44.3"
 serde_json = { version = "1.0.145", features = ["alloc"] }
 termcolor = "1.4.1"
-wasm-metadata = "0.256.0"
+wasm-metadata = "0.259.0"
 bytes = "1"
 http = "1"
 http-body = "1"
@@ -141,9 +142,9 @@ rustls = { version = "0.23", features = ["ring"] }
 rustls-native-certs = "0.8"
 tokio-rustls = { version = "0.26", features = ["ring", "tls12"] }
 webpki-roots = "1.0"
-wasmtime = { version = "47.0.2", features = ["component-model-async"] }
-wasmtime-wasi = "47.0.2"
-wasmtime-wasi-http = { version = "47.0.2", features = ["p3"] }
+wasmtime = { version = "48.0.2", features = ["component-model-async"] }
+wasmtime-wasi = "48.0.2"
+wasmtime-wasi-http = { version = "48.0.2", features = ["p3"] }
 hyper = { version = "1", features = ["http1", "server"] }
 
 # store dependencies
@@ -159,14 +160,14 @@ cacache = { version = "13.1.0", features = [
 ], default-features = false }
 pubgrub = "0.4"
 # SeaORM 2.0 RC.
-sea-orm = { version = "=2.0.2", default-features = false, features = [
+sea-orm = { version = "=2.0.3", default-features = false, features = [
     "runtime-tokio-rustls",
     "sqlx-sqlite",
     "sqlx-postgres",
     "macros",
     "with-chrono",
 ] }
-sea-orm-migration = { version = "=2.0.2", default-features = false, features = [
+sea-orm-migration = { version = "=2.0.3", default-features = false, features = [
     "runtime-tokio-rustls",
     "sqlx-sqlite",
     "sqlx-postgres",
@@ -177,9 +178,9 @@ semver = { version = "1.0.27", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
 toml = "1.0"
 thiserror = "2.0"
-wasmparser = "0.256"
-wit-component = "0.256"
-wit-parser = "0.256"
+wasmparser = "0.259"
+wit-component = "0.259"
+wit-parser = "0.259"
 
 # frontend dependencies
 html = "0.6"
@@ -200,9 +201,9 @@ reqwest = { version = "0.13", default-features = false, features = [
 tower-http = { version = "0.7.0", features = ["cors", "trace"] }
 
 # composition dependencies
-wac-parser = "0.10.0"
-wac-graph = "0.10.0"
-wac-resolver = "0.10.0"
+wac-parser = "0.11.0"
+wac-graph = "0.11.0"
+wac-resolver = "0.11.0"
 wac-types = "0.10.0"
 
 # detector dependencies

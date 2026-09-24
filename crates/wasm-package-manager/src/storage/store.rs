@@ -1195,18 +1195,13 @@ fn payload_to_summary(
         .map(|e| e.name.clone())
         .collect();
 
-    #[allow(clippy::cast_sign_loss)]
     let size_bytes = {
         let r = &meta.range;
         let size = r.end.saturating_sub(r.start);
-        if size > 0 { Some(size as u64) } else { None }
+        if size > 0 { Some(size) } else { None }
     };
 
-    #[allow(clippy::cast_sign_loss)]
-    let (range_start, range_end) = {
-        let r = &meta.range;
-        (Some(r.start as u64), Some(r.end as u64))
-    };
+    let (range_start, range_end) = (Some(meta.range.start), Some(meta.range.end));
 
     let bill_of_materials: Vec<BomEntry> = meta
         .dependencies
@@ -1258,13 +1253,24 @@ fn payload_to_summary(
 /// `wasmparser` to read raw component import/export names.
 fn extract_wit_imports_exports(
     parent_bytes: &[u8],
-    range: &std::ops::Range<usize>,
+    range: &std::ops::Range<u64>,
     root_wit: Option<&wit_parser::decoding::DecodedWasm>,
 ) -> (
     Vec<wasm_meta_registry_types::WitInterfaceRef>,
     Vec<wasm_meta_registry_types::WitInterfaceRef>,
 ) {
-    let Some(bytes) = parent_bytes.get(range.start..range.end) else {
+    let (Ok(start), Ok(end)) = (usize::try_from(range.start), usize::try_from(range.end)) else {
+        tracing::warn!(
+            ?range,
+            "Component metadata byte range exceeds addressable memory"
+        );
+        return (vec![], vec![]);
+    };
+    let Some(bytes) = parent_bytes.get(start..end) else {
+        tracing::warn!(
+            ?range,
+            "Component metadata byte range is outside the binary"
+        );
         return (vec![], vec![]);
     };
 
@@ -4934,6 +4940,30 @@ mod component_tests {
         let (imports, exports) = extract_wit_imports_exports(b"short", &(0..100), None);
         assert!(imports.is_empty());
         assert!(exports.is_empty());
+    }
+
+    #[test]
+    fn extract_wit_imports_exports_returns_empty_for_oversized_range() {
+        let (imports, exports) = extract_wit_imports_exports(b"short", &(0..u64::MAX), None);
+        assert!(imports.is_empty());
+        assert!(exports.is_empty());
+    }
+
+    #[test]
+    fn payload_to_summary_preserves_nested_byte_ranges() {
+        let bytes = b"\0asm\x0d\0\x01\0\x01\x08\0asm\x01\0\0\0";
+        let payload = wasm_metadata::Payload::from_binary(bytes)
+            .expect("decode component containing an empty core module");
+        let summary = payload_to_summary(&payload, bytes, None);
+
+        assert_eq!(summary.range_start, Some(0));
+        assert_eq!(summary.range_end, Some(18));
+        assert_eq!(summary.size_bytes, Some(18));
+        assert_eq!(summary.children.len(), 1);
+        let child = summary.children.first().expect("nested core module");
+        assert_eq!(child.range_start, Some(10));
+        assert_eq!(child.range_end, Some(18));
+        assert_eq!(child.size_bytes, Some(8));
     }
 
     #[test]
