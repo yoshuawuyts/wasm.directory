@@ -171,6 +171,7 @@ const DETAIL_CLASS: &str =
     "h-5 leading-5 max-w-[20ch] mono text-[12px] text-ink-500 tabular-nums text-right truncate";
 const DESC_CLASS: &str = "col-start-1 row-start-2 row-span-2 self-start h-10 leading-5 text-[13px] text-ink-500 line-clamp-2 break-words";
 const TIME_CLASS: &str = "col-start-2 row-start-2 h-5 leading-5 mono text-[12px] text-ink-500 tabular-nums text-right whitespace-nowrap";
+const DESC_MISSING: &str = "No description";
 const NOTE_CLASS: &str = "px-4 py-3 text-[13px] text-ink-500";
 
 /// Render the highlight columns as a full-width landing-page band.
@@ -229,15 +230,16 @@ fn render_row(row: &ColumnRow) -> String {
     }
 }
 
-/// Render the second line of a row: the description (an empty placeholder
-/// when missing, to keep rows the same height) and the event's age.
+/// Render the second line of a row: the description (an italic "No
+/// description" placeholder when missing, so the gap reads as missing data
+/// rather than a rendering error) and the event's age.
 fn render_meta(row: &ColumnRow) -> String {
     let description = match row.description.as_deref() {
         Some(d) => format!(
             r#"<span class="{DESC_CLASS}">{}</span>"#,
             escape_html_text(d)
         ),
-        None => format!(r#"<span aria-hidden="true" class="{DESC_CLASS}"></span>"#),
+        None => format!(r#"<span class="{DESC_CLASS} italic">{DESC_MISSING}</span>"#),
     };
     let age = row.age.as_ref().map_or_else(String::new, |a| {
         format!(
@@ -352,15 +354,14 @@ mod tests {
             "description is escaped"
         );
         // Packages without a WIT identity render unlinked, and blank
-        // descriptions are dropped but keep an empty line so rows stay the
-        // same height.
+        // descriptions are dropped in favour of an italic placeholder.
         assert!(html.contains(">x/y</span>"));
         assert!(!html.contains(r#"href="/x"#));
         let rows = html.matches(ROW_GRID).count();
         assert_eq!(html.matches(DESC_CLASS).count(), rows);
         assert_eq!(
             html.matches(&format!(
-                r#"aria-hidden="true" class="{DESC_CLASS}"></span>"#
+                r#"class="{DESC_CLASS} italic">{DESC_MISSING}</span>"#
             ))
             .count(),
             rows - 2

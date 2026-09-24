@@ -35,7 +35,8 @@ expression: "crate::components::ds::pretty_html(&sample())"
             <span title="0.2.0" class="h-5 leading-5 max-w-[20ch] mono text-[12px] text-ink-500 tabular-nums text-right truncate">
               0.2.0
             </span>
-            <span aria-hidden="true" class="col-start-1 row-start-2 row-span-2 self-start h-10 leading-5 text-[13px] text-ink-500 line-clamp-2 break-words">
+            <span class="col-start-1 row-start-2 row-span-2 self-start h-10 leading-5 text-[13px] text-ink-500 line-clamp-2 break-words italic">
+              No description
             </span>
           </a>
         </li>
@@ -56,7 +57,8 @@ expression: "crate::components::ds::pretty_html(&sample())"
             <span title="1.0.0" class="h-5 leading-5 max-w-[20ch] mono text-[12px] text-ink-500 tabular-nums text-right truncate">
               1.0.0
             </span>
-            <span aria-hidden="true" class="col-start-1 row-start-2 row-span-2 self-start h-10 leading-5 text-[13px] text-ink-500 line-clamp-2 break-words">
+            <span class="col-start-1 row-start-2 row-span-2 self-start h-10 leading-5 text-[13px] text-ink-500 line-clamp-2 break-words italic">
+              No description
             </span>
             <time datetime="2026-08-24T12:00:00Z" title="First indexed 2026-08-24" class="col-start-2 row-start-2 h-5 leading-5 mono text-[12px] text-ink-500 tabular-nums text-right whitespace-nowrap">
               4 weeks ago
@@ -80,7 +82,8 @@ expression: "crate::components::ds::pretty_html(&sample())"
             <span title="12 dependents" class="h-5 leading-5 max-w-[20ch] mono text-[12px] text-ink-500 tabular-nums text-right truncate">
               12 dependents
             </span>
-            <span aria-hidden="true" class="col-start-1 row-start-2 row-span-2 self-start h-10 leading-5 text-[13px] text-ink-500 line-clamp-2 break-words">
+            <span class="col-start-1 row-start-2 row-span-2 self-start h-10 leading-5 text-[13px] text-ink-500 line-clamp-2 break-words italic">
+              No description
             </span>
           </a>
         </li>
