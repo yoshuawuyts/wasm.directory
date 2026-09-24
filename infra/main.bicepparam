@@ -25,4 +25,4 @@ param backendMaxReplicas = int(readEnvironmentVariable('BACKEND_MAX_REPLICAS', '
 param backendConcurrentRequests = int(readEnvironmentVariable('BACKEND_CONCURRENT_REQUESTS', '10'))
 param frontendMinReplicas = int(readEnvironmentVariable('FRONTEND_MIN_REPLICAS', '1'))
 param frontendMaxReplicas = int(readEnvironmentVariable('FRONTEND_MAX_REPLICAS', '1'))
-param frontendConcurrentRequests = int(readEnvironmentVariable('FRONTEND_CONCURRENT_REQUESTS', '100'))
+param frontendConcurrentRequests = int(readEnvironmentVariable('FRONTEND_CONCURRENT_REQUESTS', '10'))

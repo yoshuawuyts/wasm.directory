@@ -51,7 +51,7 @@ param retentionInDays int = 30
 @maxValue(10)
 param backendMinReplicas int = 1
 
-@description('Upper bound on backend replicas, and therefore on worst-case backend compute spend.')
+@description('Upper bound on backend replicas, and therefore on worst-case backend compute spend. Raised to match the minimum if that is set higher.')
 @minValue(1)
 @maxValue(10)
 param backendMaxReplicas int = 1
@@ -66,7 +66,7 @@ param backendConcurrentRequests int = 10
 @maxValue(10)
 param frontendMinReplicas int = 1
 
-@description('Upper bound on frontend replicas, and therefore on worst-case frontend compute spend.')
+@description('Upper bound on frontend replicas, and therefore on worst-case frontend compute spend. Raised to match the minimum if that is set higher.')
 @minValue(1)
 @maxValue(10)
 param frontendMaxReplicas int = 1
@@ -74,7 +74,7 @@ param frontendMaxReplicas int = 1
 @description('In-flight HTTP requests per frontend replica before another is added.')
 @minValue(1)
 @maxValue(1000)
-param frontendConcurrentRequests int = 100
+param frontendConcurrentRequests int = 10
 
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 

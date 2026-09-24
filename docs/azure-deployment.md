@@ -83,11 +83,11 @@ via `readEnvironmentVariable(...)`.
 | `LOG_ANALYTICS_DAILY_QUOTA_GB` | no | Maximum Log Analytics ingestion per day, in GB. Defaults to `1`; ingestion stops for the remainder of the day when exceeded. |
 | `LOG_ANALYTICS_RETENTION_IN_DAYS` | no | Number of days to retain Log Analytics data. Defaults to `30`, which is both the platform minimum and the amount included free on the `PerGB2018` SKU. Values below `30` are rejected during deployment validation, before any resources are created; values above it are billed as extended retention. |
 | `BACKEND_MIN_REPLICAS`    | no       | Lower bound on backend replicas. Defaults to `1`, keeping the API always on. Accepts `0`–`10`; `0` scales to zero when idle, at the cost of a cold start. |
-| `BACKEND_MAX_REPLICAS`    | no       | Upper bound on backend replicas, and therefore on worst-case backend compute spend. Defaults to `1`. Accepts `1`–`10`. |
+| `BACKEND_MAX_REPLICAS`    | no       | Upper bound on backend replicas, and therefore on worst-case backend compute spend. Defaults to `1`. Accepts `1`–`10`; raised to match `BACKEND_MIN_REPLICAS` if that is set higher. |
 | `BACKEND_CONCURRENT_REQUESTS` | no   | In-flight HTTP requests per backend replica before another is added. Defaults to `10`, matching the platform's implicit default. Accepts `1`–`1000`; raising it on a 0.25 vCPU container risks a rule that never fires, see [Cost](#cost). |
 | `FRONTEND_MIN_REPLICAS`   | no       | Lower bound on frontend replicas. Defaults to `1`, keeping the site always on. Accepts `0`–`10`; `0` scales to zero when idle, at the cost of a cold start. |
-| `FRONTEND_MAX_REPLICAS`   | no       | Upper bound on frontend replicas, and therefore on worst-case frontend compute spend. Defaults to `1`. Accepts `1`–`10`. |
-| `FRONTEND_CONCURRENT_REQUESTS` | no  | In-flight HTTP requests per frontend replica before another is added. Defaults to `100`, higher than the backend because this app only serves static assets. Accepts `1`–`1000`. |
+| `FRONTEND_MAX_REPLICAS`   | no       | Upper bound on frontend replicas, and therefore on worst-case frontend compute spend. Defaults to `1`. Accepts `1`–`10`; raised to match `FRONTEND_MIN_REPLICAS` if that is set higher. |
+| `FRONTEND_CONCURRENT_REQUESTS` | no  | In-flight HTTP requests per frontend replica before another is added. Defaults to `10`, matching the platform's implicit default. Accepts `1`–`1000`; the frontend renders server-side on the same 0.25 vCPU, so see [Cost](#cost) before raising it. |
 
 Set them with `azd env set`:
 
@@ -392,15 +392,19 @@ environment.
   implicit default. Raising it is tempting for a low-traffic service, but the
   backend runs on 0.25 vCPU, where CPU saturates well before ten simultaneous
   requests — a higher value risks a rule that never fires when a burst needs it.
-- `FRONTEND_CONCURRENT_REQUESTS` defaults to `100`, since the frontend serves
-  only static assets and does no per-request database work.
+- `FRONTEND_CONCURRENT_REQUESTS` also defaults to `10`. The frontend is not a
+  static site: it renders every page server-side and calls the backend per
+  request, so on the same 0.25 vCPU it saturates on CPU well before ten
+  in-flight requests. Neither threshold has been load-tested.
 - `BACKEND_MIN_REPLICAS` and `FRONTEND_MIN_REPLICAS` default to `1` to keep both
   services always on. The frontend previously scaled to zero, which was cheaper
   but made the first visitor after an idle period wait on a cold start.
 - `BACKEND_MAX_REPLICAS` and `FRONTEND_MAX_REPLICAS` default to `1`, down from a
   ceiling of 3. One replica served the observed load at about 95 ms with no
   latency regression. With both apps at 0.25 vCPU, that lowers the provisioned
-  ceiling from 1.5 vCPU to 0.5 vCPU.
+  ceiling from 1.5 vCPU to 0.5 vCPU. A minimum set above its maximum would be
+  an invalid scale block, so each template raises the maximum to match rather
+  than failing at deploy time.
 
 The backend resource reduction has not been load-verified. If the service shows
 memory pressure or latency regressions, revert the backend `resources` block

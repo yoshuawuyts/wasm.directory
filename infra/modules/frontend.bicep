@@ -25,7 +25,7 @@ param registryPassword string = ''
 @maxValue(10)
 param minReplicas int = 1
 
-@description('Upper bound on frontend replicas, and therefore on worst-case frontend compute spend.')
+@description('Upper bound on frontend replicas, and therefore on worst-case frontend compute spend. Raised to match the minimum if that is set higher.')
 @minValue(1)
 @maxValue(10)
 param maxReplicas int = 1
@@ -33,7 +33,7 @@ param maxReplicas int = 1
 @description('In-flight HTTP requests per frontend replica before another is added.')
 @minValue(1)
 @maxValue(1000)
-param concurrentRequests int = 100
+param concurrentRequests int = 10
 
 var useRegistry = !empty(registryServer)
 
@@ -80,12 +80,15 @@ resource frontendApp 'Microsoft.App/containerApps@2024-03-01' = {
         }
       ]
       // Declared explicitly so scaling is visible and tunable; with no `rules`
-      // entry the platform silently applies ~10 concurrent requests. Set higher
-      // here because this app serves only static assets. Defaults to one
-      // replica, always on. See Cost in docs/azure-deployment.md.
+      // entry the platform silently applies ~10 concurrent requests. Kept at
+      // that same 10: this app renders every page server-side and calls the
+      // backend per request, so 0.25 vCPU saturates well before ten in-flight
+      // requests. Defaults to one replica, always on; `max()` guards a
+      // deployment that raises only the minimum. See Cost in
+      // docs/azure-deployment.md.
       scale: {
         minReplicas: minReplicas
-        maxReplicas: maxReplicas
+        maxReplicas: max(minReplicas, maxReplicas)
         rules: [
           {
             name: 'http-scaling'
