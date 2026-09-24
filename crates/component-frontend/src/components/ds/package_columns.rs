@@ -144,12 +144,19 @@ pub(crate) struct Column<'a> {
 
 const HEADING_CLASS: &str = "text-[12px] mono uppercase tracking-wider text-ink-500";
 const LIST_CLASS: &str = "mt-4 border-t-[1.5px] border-lineSoft";
-const ROW_CLASS: &str = "group block py-3 no-underline";
-const NAME_CLASS: &str = "mono text-[14px] font-medium text-ink-900 truncate group-hover:underline decoration-1 underline-offset-4";
-const DETAIL_CLASS: &str = "mono text-[12px] text-ink-500 tabular-nums shrink-0";
-const META_CLASS: &str = "mt-0.5 flex items-baseline justify-between gap-4";
-const DESC_CLASS: &str = "min-w-0 text-[13px] text-ink-500 truncate";
-const TIME_CLASS: &str = "ml-auto mono text-[12px] text-ink-500 whitespace-nowrap shrink-0";
+// Each row is a two-line grid: name and description share a left column
+// that truncates, and labels (version / dependents / age) sit in a right
+// column the description can never run into. Every cell is one fixed-height
+// line and the description cell is always present, so all rows are the same
+// height whether or not they have a description.
+const ROW_GRID: &str = "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-0.5 py-3";
+const ROW_CLASS: &str = "group no-underline";
+const NAME_CLASS: &str = "h-5 leading-5 mono text-[14px] font-medium text-ink-900 truncate group-hover:underline decoration-1 underline-offset-4";
+const DETAIL_CLASS: &str =
+    "h-5 leading-5 max-w-[20ch] mono text-[12px] text-ink-500 tabular-nums text-right truncate";
+const DESC_CLASS: &str = "h-5 leading-5 text-[13px] text-ink-500 truncate";
+const TIME_CLASS: &str =
+    "h-5 leading-5 mono text-[12px] text-ink-500 tabular-nums text-right whitespace-nowrap";
 const NOTE_CLASS: &str = "mt-4 border-t-[1.5px] border-lineSoft pt-3 text-[13px] text-ink-500";
 
 /// Render the highlight columns as a full-width landing-page band.
@@ -201,25 +208,27 @@ fn render_row(row: &ColumnRow) -> String {
     let detail = escape_html_text(&row.detail);
     let meta = render_meta(row);
     let inner = format!(
-        r#"<span class="flex items-baseline justify-between gap-4"><span class="{NAME_CLASS}">{name}</span><span class="{DETAIL_CLASS}">{detail}</span></span>{meta}"#
+        r#"<span class="{NAME_CLASS}">{name}</span><span title="{detail}" class="{DETAIL_CLASS}">{detail}</span>{meta}"#
     );
     match &row.href {
         Some(href) => format!(
-            r#"<a href="{}" class="{ROW_CLASS}">{inner}</a>"#,
+            r#"<a href="{}" class="{ROW_GRID} {ROW_CLASS}">{inner}</a>"#,
             escape_html_attr(href)
         ),
-        None => format!(r#"<div class="block py-3">{inner}</div>"#),
+        None => format!(r#"<div class="{ROW_GRID}">{inner}</div>"#),
     }
 }
 
-/// Render the second line of a row: description and/or publish age.
+/// Render the second line of a row: the description (an empty placeholder
+/// when missing, to keep rows the same height) and the publish age.
 fn render_meta(row: &ColumnRow) -> String {
-    let description = row.description.as_deref().map_or_else(String::new, |d| {
-        format!(
+    let description = match row.description.as_deref() {
+        Some(d) => format!(
             r#"<span class="{DESC_CLASS}">{}</span>"#,
             escape_html_text(d)
-        )
-    });
+        ),
+        None => format!(r#"<span aria-hidden="true" class="{DESC_CLASS}"></span>"#),
+    };
     let released = row.released.as_ref().map_or_else(String::new, |r| {
         format!(
             r#"<time datetime="{}" title="{}" class="{TIME_CLASS}">{}</time>"#,
@@ -228,10 +237,7 @@ fn render_meta(row: &ColumnRow) -> String {
             escape_html_text(&r.age),
         )
     });
-    if description.is_empty() && released.is_empty() {
-        return String::new();
-    }
-    format!(r#"<span class="{META_CLASS}">{description}{released}</span>"#)
+    format!("{description}{released}")
 }
 
 #[cfg(test)]
@@ -319,6 +325,10 @@ mod tests {
         let html = sample();
         assert!(html.contains(r#"href="/wasi/http""#));
         assert!(html.contains(">0.2.0</span>"), "release shows its version");
+        assert!(
+            html.contains(r#"title="0.2.0""#),
+            "truncatable labels keep their full text"
+        );
         assert!(html.contains(">12 dependents</span>"));
         assert!(html.contains(">1 dependent</span>"));
         assert!(
@@ -326,10 +336,19 @@ mod tests {
             "description is escaped"
         );
         // Packages without a WIT identity render unlinked, and blank
-        // descriptions are dropped.
+        // descriptions are dropped but keep an empty line so rows stay the
+        // same height.
         assert!(html.contains(">x/y</span>"));
         assert!(!html.contains(r#"href="/x"#));
-        assert_eq!(html.matches(DESC_CLASS).count(), 2);
+        let rows = html.matches(ROW_GRID).count();
+        assert_eq!(html.matches(DESC_CLASS).count(), rows);
+        assert_eq!(
+            html.matches(&format!(
+                r#"aria-hidden="true" class="{DESC_CLASS}"></span>"#
+            ))
+            .count(),
+            rows - 2
+        );
     }
 
     #[test]
