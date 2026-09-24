@@ -19,8 +19,25 @@ expression: "crate::components::ds::pretty_html(&sample())"
                 0.2.0
               </span>
             </span>
-            <span class="mt-0.5 block text-[13px] text-ink-500 truncate">
-              HTTP &lt;types&gt;
+            <span class="mt-0.5 flex items-baseline justify-between gap-4">
+              <span class="min-w-0 text-[13px] text-ink-500 truncate">
+                HTTP &lt;types&gt;
+              </span>
+              <time datetime="2026-09-21T06:30:00Z" title="2026-09-21" class="ml-auto mono text-[12px] text-ink-500 whitespace-nowrap shrink-0">
+                3 days ago
+              </time>
+            </span>
+          </a>
+        </li>
+        <li class="border-b border-lineSoft">
+          <a href="/wasi/io" class="group block py-3 no-underline">
+            <span class="flex items-baseline justify-between gap-4">
+              <span class="mono text-[14px] font-medium text-ink-900 truncate group-hover:underline decoration-1 underline-offset-4">
+                wasi:io
+              </span>
+              <span class="mono text-[12px] text-ink-500 tabular-nums shrink-0">
+                0.2.0
+              </span>
             </span>
           </a>
         </li>
@@ -72,8 +89,10 @@ expression: "crate::components::ds::pretty_html(&sample())"
                 1 dependent
               </span>
             </span>
-            <span class="mt-0.5 block text-[13px] text-ink-500 truncate">
-              HTTP &lt;types&gt;
+            <span class="mt-0.5 flex items-baseline justify-between gap-4">
+              <span class="min-w-0 text-[13px] text-ink-500 truncate">
+                HTTP &lt;types&gt;
+              </span>
             </span>
           </a>
         </li>

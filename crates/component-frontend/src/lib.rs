@@ -17,6 +17,7 @@ mod footer;
 mod layout;
 mod markdown;
 mod pages;
+mod relative_time;
 mod reserved;
 mod wit_doc;
 

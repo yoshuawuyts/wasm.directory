@@ -14,7 +14,7 @@ use sea_orm::FromQueryResult;
 pub(super) const RELEASE_ROWS_SQL: &str = "\
     SELECT t.id AS tag_id, t.oci_repository_id AS repo_id, t.tag AS tag, \
            t.created_at AS tag_indexed_at, m.created_at AS manifest_indexed_at, \
-           m.oci_created AS oci_created, \
+           m.oci_created AS oci_created, m.config_created AS config_created, \
            r.registry AS registry, r.repository AS repository, \
            r.wit_namespace AS wit_namespace, r.wit_name AS wit_name \
     FROM oci_tag t \
@@ -33,6 +33,7 @@ pub(super) struct ReleaseRow {
     pub(super) tag_indexed_at: DateTime<Utc>,
     pub(super) manifest_indexed_at: Option<DateTime<Utc>>,
     pub(super) oci_created: Option<String>,
+    pub(super) config_created: Option<String>,
     pub(super) registry: String,
     pub(super) repository: String,
     pub(super) wit_namespace: Option<String>,
@@ -139,7 +140,10 @@ pub(super) fn package_timelines(rows: Vec<ReleaseRow>) -> Vec<PackageTimeline> {
             repo_id: row.repo_id,
             publisher: row.publisher(),
             tag_id: row.tag_id,
-            released_at: release_time(row.oci_created.as_deref(), row.indexed_at()),
+            released_at: release_time(
+                [row.oci_created.as_deref(), row.config_created.as_deref()],
+                row.indexed_at(),
+            ),
             tag: row.tag,
         };
         match by_package.entry(key) {
@@ -166,14 +170,21 @@ pub(super) fn cap_per_publisher(
     })
 }
 
-/// Prefer the publisher-supplied creation time; fall back to index time.
+/// Use the first valid publisher-supplied creation time (the
+/// `org.opencontainers.image.created` annotation, then the config blob's
+/// `created` field); fall back to index time.
 ///
 /// A release can't have been published after we indexed it, so a
-/// future-dated annotation is capped at the index time rather than pinning
+/// future-dated timestamp is capped at the index time rather than pinning
 /// the release to the top of the list.
-pub(super) fn release_time(oci_created: Option<&str>, indexed_at: DateTime<Utc>) -> DateTime<Utc> {
-    oci_created
-        .and_then(|s| DateTime::parse_from_rfc3339(s.trim()).ok())
+pub(super) fn release_time(
+    candidates: [Option<&str>; 2],
+    indexed_at: DateTime<Utc>,
+) -> DateTime<Utc> {
+    candidates
+        .into_iter()
+        .flatten()
+        .find_map(|s| DateTime::parse_from_rfc3339(s.trim()).ok())
         .map_or(indexed_at, |t| t.with_timezone(&Utc).min(indexed_at))
 }
 
@@ -197,6 +208,7 @@ mod tests {
             tag_indexed_at: at(tag_at),
             manifest_indexed_at: manifest_at.map(at),
             oci_created: None,
+            config_created: None,
             registry: "ghcr.io".to_owned(),
             repository: repository.to_owned(),
             wit_namespace: None,

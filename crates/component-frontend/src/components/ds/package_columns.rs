@@ -4,14 +4,17 @@
 //! Each column has a mono kicker heading, a heavy top rule, and a hairline
 //! between rows. A row shows the package name with a muted mono detail on the
 //! right (version or dependents count) and an optional one-line description.
+//! Release rows also show how long ago they were published.
 //! Columns stack on narrow viewports and sit side by side from `md` up.
 
 use std::fmt::Write as _;
 
+use chrono::{DateTime, SecondsFormat, Utc};
 use wasm_meta_registry_client::{KnownPackage, PackageRelease, PopularPackage};
 
 use super::package_row;
 use crate::escape::{escape_html_attr, escape_html_text};
+use crate::relative_time::relative_age;
 
 /// A single row in a highlight column.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,6 +27,35 @@ pub(crate) struct ColumnRow {
     pub detail: String,
     /// Optional one-line description.
     pub description: Option<String>,
+    /// When the row's release was published, if it is a release.
+    pub released: Option<Released>,
+}
+
+/// A publish time, rendered as a relative age with the exact date on hover.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Released {
+    /// Machine-readable timestamp for the `<time datetime>` attribute.
+    pub datetime: String,
+    /// Calendar date shown as a tooltip (e.g. `2026-07-08`).
+    pub date: String,
+    /// Relative age (e.g. `3 days ago`).
+    pub age: String,
+}
+
+impl Released {
+    /// Describe an RFC 3339 timestamp relative to `now`. Returns `None` when
+    /// the timestamp can't be parsed.
+    #[must_use]
+    pub(crate) fn parse(rfc3339: &str, now: DateTime<Utc>) -> Option<Self> {
+        let then = DateTime::parse_from_rfc3339(rfc3339)
+            .ok()?
+            .with_timezone(&Utc);
+        Some(Self {
+            datetime: then.to_rfc3339_opts(SecondsFormat::Secs, true),
+            date: then.format("%Y-%m-%d").to_string(),
+            age: relative_age(then, now),
+        })
+    }
 }
 
 impl ColumnRow {
@@ -34,10 +66,14 @@ impl ColumnRow {
         Self::with_detail(pkg, detail)
     }
 
-    /// Row for a single release, showing the released version.
+    /// Row for a single release, showing the released version and how long
+    /// before `now` it was published.
     #[must_use]
-    pub(crate) fn release(release: &PackageRelease) -> Self {
-        Self::with_detail(&release.package, release.version.clone())
+    pub(crate) fn release(release: &PackageRelease, now: DateTime<Utc>) -> Self {
+        Self {
+            released: Released::parse(&release.released_at, now),
+            ..Self::with_detail(&release.package, release.version.clone())
+        }
     }
 
     /// Row for a popular package, showing how many packages depend on it.
@@ -64,6 +100,7 @@ impl ColumnRow {
             href,
             detail,
             description,
+            released: None,
         }
     }
 }
@@ -86,7 +123,10 @@ impl Default for ColumnState {
 impl ColumnState {
     /// Build a column state from a fallible fetch, mapping each item to a row.
     #[must_use]
-    pub(crate) fn from_result<T, E>(result: Result<Vec<T>, E>, row: fn(&T) -> ColumnRow) -> Self {
+    pub(crate) fn from_result<T, E>(
+        result: Result<Vec<T>, E>,
+        row: impl Fn(&T) -> ColumnRow,
+    ) -> Self {
         match result {
             Ok(items) => Self::Rows(items.iter().map(row).collect()),
             Err(_) => Self::Unavailable,
@@ -107,7 +147,9 @@ const LIST_CLASS: &str = "mt-4 border-t-[1.5px] border-lineSoft";
 const ROW_CLASS: &str = "group block py-3 no-underline";
 const NAME_CLASS: &str = "mono text-[14px] font-medium text-ink-900 truncate group-hover:underline decoration-1 underline-offset-4";
 const DETAIL_CLASS: &str = "mono text-[12px] text-ink-500 tabular-nums shrink-0";
-const DESC_CLASS: &str = "mt-0.5 block text-[13px] text-ink-500 truncate";
+const META_CLASS: &str = "mt-0.5 flex items-baseline justify-between gap-4";
+const DESC_CLASS: &str = "min-w-0 text-[13px] text-ink-500 truncate";
+const TIME_CLASS: &str = "ml-auto mono text-[12px] text-ink-500 whitespace-nowrap shrink-0";
 const NOTE_CLASS: &str = "mt-4 border-t-[1.5px] border-lineSoft pt-3 text-[13px] text-ink-500";
 
 /// Render the highlight columns as a full-width landing-page band.
@@ -157,14 +199,9 @@ fn render_list(rows: &[ColumnRow]) -> String {
 fn render_row(row: &ColumnRow) -> String {
     let name = escape_html_text(&row.name);
     let detail = escape_html_text(&row.detail);
-    let description = row.description.as_deref().map_or_else(String::new, |d| {
-        format!(
-            r#"<span class="{DESC_CLASS}">{}</span>"#,
-            escape_html_text(d)
-        )
-    });
+    let meta = render_meta(row);
     let inner = format!(
-        r#"<span class="flex items-baseline justify-between gap-4"><span class="{NAME_CLASS}">{name}</span><span class="{DETAIL_CLASS}">{detail}</span></span>{description}"#
+        r#"<span class="flex items-baseline justify-between gap-4"><span class="{NAME_CLASS}">{name}</span><span class="{DETAIL_CLASS}">{detail}</span></span>{meta}"#
     );
     match &row.href {
         Some(href) => format!(
@@ -173,6 +210,28 @@ fn render_row(row: &ColumnRow) -> String {
         ),
         None => format!(r#"<div class="block py-3">{inner}</div>"#),
     }
+}
+
+/// Render the second line of a row: description and/or publish age.
+fn render_meta(row: &ColumnRow) -> String {
+    let description = row.description.as_deref().map_or_else(String::new, |d| {
+        format!(
+            r#"<span class="{DESC_CLASS}">{}</span>"#,
+            escape_html_text(d)
+        )
+    });
+    let released = row.released.as_ref().map_or_else(String::new, |r| {
+        format!(
+            r#"<time datetime="{}" title="{}" class="{TIME_CLASS}">{}</time>"#,
+            escape_html_attr(&r.datetime),
+            escape_html_attr(&r.date),
+            escape_html_text(&r.age),
+        )
+    });
+    if description.is_empty() && released.is_empty() {
+        return String::new();
+    }
+    format!(r#"<span class="{META_CLASS}">{description}{released}</span>"#)
 }
 
 #[cfg(test)]
@@ -196,6 +255,12 @@ mod tests {
         }
     }
 
+    fn now() -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339("2026-09-24T12:00:00Z")
+            .expect("valid timestamp")
+            .with_timezone(&Utc)
+    }
+
     fn sample() -> String {
         let http = pkg("wasi", "http", &["0.2.1", "0.2.0"], Some("HTTP <types>"));
         let io = pkg("wasi", "io", &["0.2.0"], None);
@@ -205,11 +270,24 @@ mod tests {
         render(&[
             Column {
                 title: "New releases",
-                state: &ColumnState::Rows(vec![ColumnRow::release(&PackageRelease {
-                    package: http.clone(),
-                    version: "0.2.0".into(),
-                    released_at: String::new(),
-                })]),
+                state: &ColumnState::Rows(vec![
+                    ColumnRow::release(
+                        &PackageRelease {
+                            package: http.clone(),
+                            version: "0.2.0".into(),
+                            released_at: "2026-09-21T08:30:00.123456+02:00".into(),
+                        },
+                        now(),
+                    ),
+                    ColumnRow::release(
+                        &PackageRelease {
+                            package: io.clone(),
+                            version: "0.2.0".into(),
+                            released_at: "not a date".into(),
+                        },
+                        now(),
+                    ),
+                ]),
             },
             Column {
                 title: "New packages",
@@ -252,6 +330,20 @@ mod tests {
         assert!(html.contains(">x/y</span>"));
         assert!(!html.contains(r#"href="/x"#));
         assert_eq!(html.matches(DESC_CLASS).count(), 2);
+    }
+
+    #[test]
+    fn releases_show_how_long_ago_they_were_published() {
+        let html = sample();
+        assert!(
+            html.contains(r#"<time datetime="2026-09-21T06:30:00Z" title="2026-09-21" class="#)
+        );
+        assert!(html.contains(">3 days ago</time>"));
+        assert_eq!(
+            html.matches("<time").count(),
+            1,
+            "unparseable timestamps and non-release rows show no age"
+        );
     }
 
     #[test]

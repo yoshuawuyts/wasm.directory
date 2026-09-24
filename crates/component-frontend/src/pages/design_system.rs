@@ -635,20 +635,30 @@ fn render_landing_components() -> String {
 
 /// Demo content for the package-columns component (C14).
 fn render_package_columns_demo() -> String {
-    use crate::components::ds::package_columns::{self, Column, ColumnRow, ColumnState};
+    use crate::components::ds::package_columns::{self, Column, ColumnRow, ColumnState, Released};
 
-    let row = |name: &str, detail: &str, description: &str| ColumnRow {
+    let row = |name: &str, detail: &str, description: &str, age: &str| ColumnRow {
         name: name.to_owned(),
         href: Some("#".to_owned()),
         detail: detail.to_owned(),
         description: Some(description.to_owned()),
+        released: Some(Released {
+            datetime: "2026-01-01T00:00:00Z".to_owned(),
+            date: "2026-01-01".to_owned(),
+            age: age.to_owned(),
+        }),
     };
     package_columns::render(&[
         Column {
             title: "New releases",
             state: &ColumnState::Rows(vec![
-                row("wasi:http", "0.2.4", "WASI standard for HTTP"),
-                row("wasi:cli", "0.2.4", "Command-line entry points"),
+                row("wasi:http", "0.2.4", "WASI standard for HTTP", "3 days ago"),
+                row(
+                    "wasi:cli",
+                    "0.2.4",
+                    "Command-line entry points",
+                    "2 weeks ago",
+                ),
             ]),
         },
         Column {

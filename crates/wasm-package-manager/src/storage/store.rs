@@ -43,6 +43,10 @@ use wasm_package_manager_migration::entities::{
 };
 
 mod highlights;
+mod manifest_config;
+
+pub use manifest_config::PendingConfig;
+pub(crate) use manifest_config::created_from_config;
 
 use super::config::StateInfo;
 use super::known_package::KnownPackageParams;
@@ -2313,6 +2317,12 @@ impl Store {
             &annotations,
         )
         .await?;
+
+        if !image.config.data.is_empty() {
+            let created = created_from_config(&image.config.data);
+            self.set_manifest_config_created(manifest_id, &created)
+                .await?;
+        }
 
         let result = if was_inserted {
             InsertResult::Inserted

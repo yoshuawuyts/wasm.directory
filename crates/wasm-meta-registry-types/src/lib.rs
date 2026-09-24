@@ -235,8 +235,9 @@ pub struct PackageRelease {
     /// The released version tag (e.g. `"1.0.0"`).
     pub version: String,
     /// When the release was published (RFC 3339): the manifest's
-    /// `org.opencontainers.image.created` annotation when present, otherwise
-    /// when the registry first indexed the tag.
+    /// `org.opencontainers.image.created` annotation or the config blob's
+    /// `created` field when present, otherwise when the registry first
+    /// indexed the release.
     pub released_at: String,
 }
 

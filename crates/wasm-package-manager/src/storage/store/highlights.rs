@@ -22,8 +22,8 @@ impl Store {
     /// List packages by when they were first published, newest first.
     ///
     /// A package's publish date is its earliest semver release, dated by the
-    /// publisher's `org.opencontainers.image.created` annotation (falling
-    /// back to when the release was first indexed). Each package appears
+    /// publisher's `org.opencontainers.image.created` annotation or config
+    /// `created` field (falling back to when the release was first indexed). Each package appears
     /// once, showing its latest tags, and each publisher (registry + owner)
     /// contributes at most [`MAX_PER_PUBLISHER`] packages. Packages without
     /// semver releases are skipped before pagination.
@@ -51,8 +51,9 @@ impl Store {
     /// List the most recent update of each package, newest first.
     ///
     /// A release's time is the publisher's `org.opencontainers.image.created`
-    /// manifest annotation when present and valid RFC 3339, falling back to
-    /// when this registry first indexed it. Only semver tags count. A
+    /// manifest annotation when present and valid RFC 3339, then the config
+    /// blob's `created` field, falling back to when this registry first
+    /// indexed it. Only semver tags count. A
     /// package's first release is its debut (see
     /// [`Self::list_new_known_packages`]), so packages with a single release
     /// are left out. Each package appears at most once (with its newest
@@ -245,14 +246,14 @@ mod tests {
     }
 
     /// Add `tag` to `repo_id` on its own manifest, optionally annotated with
-    /// a publisher creation time.
-    async fn seed_release(store: &Store, repo_id: i64, tag: &str, created: Option<&str>) {
+    /// a publisher creation time. Returns the manifest ID.
+    async fn seed_release(store: &Store, repo_id: i64, tag: &str, created: Option<&str>) -> i64 {
         let digest = format!("sha256:{repo_id}-{tag}");
         let annotations: HashMap<String, String> = created
             .map(|c| ("org.opencontainers.image.created".to_owned(), c.to_owned()))
             .into_iter()
             .collect();
-        upsert_oci_manifest(
+        let (manifest_id, _) = upsert_oci_manifest(
             &store.db,
             repo_id,
             &digest,
@@ -269,6 +270,35 @@ mod tests {
         upsert_oci_tag(&store.db, repo_id, tag, &digest)
             .await
             .expect("upsert tag");
+        manifest_id
+    }
+
+    #[tokio::test]
+    async fn recent_releases_fall_back_to_config_created_time() {
+        let store = Store::open_in_memory().await.expect("open store");
+        let (config_repo, _) = seed_repo(&store, "a", "config", &[]).await;
+        let (plain_repo, _) = seed_repo(&store, "b", "plain", &[]).await;
+        seed_release(&store, config_repo, "0.1.0", Some("1999-01-01T00:00:00Z")).await;
+        let manifest = seed_release(&store, config_repo, "0.2.0", None).await;
+        store
+            .set_manifest_config_created(manifest, "2001-02-03T04:05:06Z")
+            .await
+            .expect("set config created");
+        // Without either timestamp, the release is dated at index time (now).
+        seed_release(&store, plain_repo, "0.1.0", Some("1999-01-01T00:00:00Z")).await;
+        let unchecked = seed_release(&store, plain_repo, "0.2.0", None).await;
+        store
+            .set_manifest_config_created(unchecked, "")
+            .await
+            .expect("set config created");
+
+        let releases = store.list_recent_releases(10).await.expect("query");
+        let got: Vec<_> = releases
+            .iter()
+            .map(|r| (r.package.repository.as_str(), r.released_at.as_str()))
+            .collect();
+        assert_eq!(got[0].0, "b/plain");
+        assert_eq!(got[1], ("a/config", "2001-02-03T04:05:06+00:00"));
     }
 
     #[tokio::test]
@@ -404,11 +434,19 @@ mod tests {
         let indexed = DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
             .expect("valid")
             .with_timezone(&Utc);
-        let past = release_time(Some("2025-06-01T12:00:00+02:00"), indexed);
+        let past = release_time([Some("2025-06-01T12:00:00+02:00"), None], indexed);
         assert_eq!(past.to_rfc3339(), "2025-06-01T10:00:00+00:00");
-        assert_eq!(release_time(Some("2030-01-01T00:00:00Z"), indexed), indexed);
-        assert_eq!(release_time(Some("garbage"), indexed), indexed);
-        assert_eq!(release_time(None, indexed), indexed);
+        let future = release_time([Some("2030-01-01T00:00:00Z"), None], indexed);
+        assert_eq!(future, indexed);
+        assert_eq!(release_time([Some("garbage"), None], indexed), indexed);
+        assert_eq!(release_time([None, None], indexed), indexed);
+        // The config blob's `created` is used when the annotation is missing
+        // or invalid; an empty value means the config had none.
+        let config = release_time([None, Some("2025-03-01T00:00:00.5Z")], indexed);
+        assert_eq!(config.to_rfc3339(), "2025-03-01T00:00:00.500+00:00");
+        let bad_annotation = release_time([Some("x"), Some("2025-03-01T00:00:00Z")], indexed);
+        assert_eq!(bad_annotation.to_rfc3339(), "2025-03-01T00:00:00+00:00");
+        assert_eq!(release_time([None, Some("")], indexed), indexed);
     }
 
     #[tokio::test]

@@ -31,6 +31,9 @@ pub struct Model {
     pub oci_description: Option<String>,
     pub oci_base_digest: Option<String>,
     pub oci_base_name: Option<String>,
+    /// The `created` timestamp from the manifest's config blob, if any.
+    /// An empty string means the config was fetched and had none.
+    pub config_created: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

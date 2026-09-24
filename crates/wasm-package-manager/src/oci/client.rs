@@ -6,6 +6,7 @@ use oci_client::client::{ClientConfig, ClientProtocol, ImageData, PushResponse, 
 use oci_client::manifest::{OciDescriptor, OciImageIndex, OciImageManifest};
 use oci_client::secrets::RegistryAuth;
 use oci_wasm::{WasmClient, WasmConfig};
+use tokio_stream::StreamExt;
 
 use crate::config::Config;
 
@@ -79,6 +80,35 @@ impl Client {
             .pull_manifest_and_config(reference, &auth)
             .await?;
         Ok((manifest, digest))
+    }
+
+    /// Maximum size of a config blob we are willing to download.
+    const MAX_CONFIG_BYTES: usize = 1024 * 1024;
+
+    /// Fetches a (small) blob such as a manifest's config by digest.
+    ///
+    /// Blobs larger than 1 MiB are rejected: configs are metadata and never
+    /// legitimately that large.
+    pub(crate) async fn pull_config_blob(
+        &self,
+        reference: &Reference,
+        digest: &str,
+    ) -> anyhow::Result<Vec<u8>> {
+        let auth = resolve_auth(reference, &self.config)?;
+        self.inner
+            .store_auth_if_needed(reference.resolve_registry(), &auth)
+            .await;
+        let mut stream = self.inner.pull_blob_stream(reference, digest).await?;
+        let mut data = Vec::new();
+        while let Some(chunk) = stream.next().await {
+            data.extend_from_slice(&chunk?);
+            anyhow::ensure!(
+                data.len() <= Self::MAX_CONFIG_BYTES,
+                "config blob {digest} exceeds {} bytes",
+                Self::MAX_CONFIG_BYTES
+            );
+        }
+        Ok(data)
     }
 
     /// Streams a single layer from the registry.

@@ -12,6 +12,7 @@ pub use db_config::{Backend, DbConfig, redact_url};
 pub use indexer_lease::IndexerLease;
 pub use known_package::{KnownPackage, KnownPackageParams};
 pub use models::Migrations;
-pub use store::{FetchTask, FetchTaskKind};
+pub(crate) use store::created_from_config;
+pub use store::{FetchTask, FetchTaskKind, PendingConfig};
 pub(crate) use store::{KnownTags, Store};
 pub use wasm_meta_registry_types::PackageDependencyRef;

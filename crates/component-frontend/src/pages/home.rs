@@ -29,8 +29,9 @@ pub(crate) async fn render(client: &RegistryClient) -> String {
     )
         .join()
         .await;
+    let now = chrono::Utc::now();
     let highlights = Highlights {
-        releases: ColumnState::from_result(releases, ColumnRow::release),
+        releases: ColumnState::from_result(releases, |r| ColumnRow::release(r, now)),
         new_packages: ColumnState::from_result(new_packages, ColumnRow::package),
         popular: ColumnState::from_result(popular, ColumnRow::popular),
     };
