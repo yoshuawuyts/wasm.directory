@@ -2390,7 +2390,8 @@ impl Store {
     /// stored, from freshly downloaded layer bytes. Also rewrites the layers
     /// into the local cache, which may have been lost with an old replica.
     ///
-    /// Existing rows are only replaced once the new bytes have parsed, and a
+    /// Existing rows are only replaced once the new bytes have parsed into a
+    /// named WIT package (the only kind that gets stored), and a
     /// failure to write the replacement is returned so the task is retried
     /// rather than completed without metadata.
     async fn repair_layer_metadata(
@@ -2410,7 +2411,9 @@ impl Store {
                 continue;
             };
             cacache::write(&cache, &row.digest, &layer.data).await?;
-            if let Some(metadata) = extract_wit_metadata(&layer.data) {
+            if let Some(metadata) = extract_wit_metadata(&layer.data)
+                && metadata.package_name.is_some()
+            {
                 extracted.push((row.id, layer, metadata));
             }
         }
