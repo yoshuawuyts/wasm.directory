@@ -21,11 +21,6 @@ const SVG_SEARCH_SM: &str = concat!(
     include_str!("../../../../../vendor/lucide/search.svg"),
     "</svg>"
 );
-const SVG_MOON_SM: &str = concat!(
-    r#"<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">"#,
-    include_str!("../../../../../vendor/lucide/moon.svg"),
-    "</svg>"
-);
 const SVG_HAMBURGER: &str = concat!(
     r#"<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">"#,
     include_str!("../../../../../vendor/lucide/menu.svg"),
@@ -370,12 +365,7 @@ fn desktop() -> String {
                                                 .anchor(|a| a.href("#").class("inline-flex items-center h-7 px-2 rounded-md hover:bg-surfaceMuted hover:text-ink-900").text("Guides"))
                                                 .anchor(|a| a.href("#").class("inline-flex items-center h-7 px-2 rounded-md hover:bg-surfaceMuted hover:text-ink-900").text("Reference"))
                                                 .anchor(|a| a.href("#").class("inline-flex items-center h-7 px-2 rounded-md hover:bg-surfaceMuted hover:text-ink-900").text("Changelog"))
-                                                .button(|b| {
-                                                    b.type_("button")
-                                                        .aria_label("Toggle color theme")
-                                                        .class("inline-flex items-center justify-center h-7 w-7 rounded-md border border-line bg-surface text-ink-700 hover:bg-surfaceMuted hover:text-ink-900 transition-colors")
-                                                        .text(SVG_MOON_SM)
-                                                })
+                                                .text(theme_toggle())
                                         })
                                 })
                         })
@@ -407,12 +397,7 @@ fn tablet() -> String {
                                         .division(|right| {
                                             right.class("flex items-center gap-1 text-[12px] text-ink-500")
                                                 .anchor(|a| a.href("#").class("inline-flex items-center h-7 px-2 rounded-md hover:bg-surfaceMuted hover:text-ink-900").text("Reference"))
-                                                .button(|b| {
-                                                    b.type_("button")
-                                                        .aria_label("Toggle color theme")
-                                                        .class("inline-flex items-center justify-center h-7 w-7 rounded-md border border-line bg-surface text-ink-700 hover:bg-surfaceMuted hover:text-ink-900")
-                                                        .text(SVG_MOON_SM)
-                                                })
+                                                .text(theme_toggle())
                                         })
                                 })
                         })

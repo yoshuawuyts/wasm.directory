@@ -1,5 +1,6 @@
 ---
 source: crates/component-frontend/src/components/ds/navbar.rs
+assertion_line: 676
 expression: "crate::components::ds::pretty_html(&render(\"c-navbar\", \"C06\", \"Navbar\",\n\"Sticky page chrome: brand mark, command palette trigger, primary nav, theme toggle. Sits above all content with a translucent <code class=\\\"mono text-[12px]\\\">bg-canvas/90</code> + <code class=\\\"mono text-[12px]\\\">backdrop-blur</code> so scrolling content reads through without losing legibility.\",\nDRAWER_LINKS, ANATOMY_ITEMS,))"
 ---
 <section class="pt-12 md:pt-16" id="c-navbar">
@@ -72,10 +73,20 @@ expression: "crate::components::ds::pretty_html(&render(\"c-navbar\", \"C06\", \
                   <a href="#" class="inline-flex items-center h-7 px-2 rounded-md hover:bg-surfaceMuted hover:text-ink-900">
                     Changelog
                   </a>
-                  <button type="button" aria-label="Toggle color theme" class="inline-flex items-center justify-center h-7 w-7 rounded-md border border-line bg-surface text-ink-700 hover:bg-surfaceMuted hover:text-ink-900 transition-colors">
-                    <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                    </svg>
+                  <button type="button" class="theme-toggle relative inline-flex h-6 w-10 items-center rounded-full border border-line bg-surface text-ink-500 hover:bg-surfaceMuted hover:text-ink-900 transition-colors" aria-label="Toggle color theme" aria-pressed="false" title="Toggle color theme">
+                    <span class="theme-toggle-knob inline-flex h-4 w-4 translate-x-[2px] items-center justify-center rounded-full bg-ink-900 text-canvas transition-transform">
+                      <span class="theme-icon theme-icon-light" style="display:none">
+                        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                          <circle cx="12" cy="12" r="5"/>
+                          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+                        </svg>
+                      </span>
+                      <span class="theme-icon theme-icon-dark" style="display:none">
+                        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                        </svg>
+                      </span>
+                    </span>
                   </button>
                 </div>
               </div>
@@ -137,10 +148,20 @@ expression: "crate::components::ds::pretty_html(&render(\"c-navbar\", \"C06\", \
                   <a href="#" class="inline-flex items-center h-7 px-2 rounded-md hover:bg-surfaceMuted hover:text-ink-900">
                     Reference
                   </a>
-                  <button type="button" aria-label="Toggle color theme" class="inline-flex items-center justify-center h-7 w-7 rounded-md border border-line bg-surface text-ink-700 hover:bg-surfaceMuted hover:text-ink-900">
-                    <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                    </svg>
+                  <button type="button" class="theme-toggle relative inline-flex h-6 w-10 items-center rounded-full border border-line bg-surface text-ink-500 hover:bg-surfaceMuted hover:text-ink-900 transition-colors" aria-label="Toggle color theme" aria-pressed="false" title="Toggle color theme">
+                    <span class="theme-toggle-knob inline-flex h-4 w-4 translate-x-[2px] items-center justify-center rounded-full bg-ink-900 text-canvas transition-transform">
+                      <span class="theme-icon theme-icon-light" style="display:none">
+                        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                          <circle cx="12" cy="12" r="5"/>
+                          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+                        </svg>
+                      </span>
+                      <span class="theme-icon theme-icon-dark" style="display:none">
+                        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                        </svg>
+                      </span>
+                    </span>
                   </button>
                 </div>
               </div>
