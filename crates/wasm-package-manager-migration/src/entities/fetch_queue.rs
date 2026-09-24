@@ -41,6 +41,8 @@ pub struct Model {
     pub attempts: i32,
     pub max_attempts: i32,
     pub last_error: Option<String>,
+    /// Bumped on every dequeue; fences stale workers.
+    pub claim: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

@@ -367,7 +367,7 @@ mod tests {
             .await
             .unwrap();
         let done = store.dequeue_next().await.unwrap().unwrap();
-        store.complete_task(done.id).await.unwrap();
+        store.complete_task(&done).await.unwrap();
 
         let all = tags(&["1.0.0", "2.0.0"]);
         let semver: Vec<&String> = all.iter().collect();

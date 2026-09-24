@@ -1187,7 +1187,7 @@ impl Manager {
 
         match result {
             Ok(()) => {
-                self.store.complete_task(task.id).await?;
+                self.store.complete_task(&task).await?;
                 Ok(TaskOutcome::Succeeded)
             }
             Err(e) => {
@@ -1198,7 +1198,7 @@ impl Manager {
                     error = %e,
                     "Fetch task failed"
                 );
-                self.store.fail_task(task.id, &e.to_string()).await?;
+                self.store.fail_task(&task, &e.to_string()).await?;
                 Ok(TaskOutcome::Failed)
             }
         }

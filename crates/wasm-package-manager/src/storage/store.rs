@@ -27,9 +27,9 @@ use oci_client::{Reference, client::ImageData, manifest::OciImageManifest};
 #[cfg(test)]
 use sea_orm::ConnectOptions;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, Database, DatabaseConnection, DbBackend,
-    EntityTrait, FromQueryResult, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set,
-    Statement, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, Database, DatabaseConnection,
+    DbBackend, EntityTrait, FromQueryResult, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    Set, Statement, TransactionTrait,
     sea_query::{Expr, LockBehavior, LockType, OnConflict, SimpleExpr},
 };
 use tracing::warn;
@@ -99,6 +99,9 @@ pub struct FetchTask {
     pub kind: FetchTaskKind,
     /// How many times this task has been attempted so far.
     pub attempts: i64,
+    /// Claim number taken when this task was dequeued. Completing or
+    /// failing the task only takes effect while the row still carries it.
+    pub claim: i64,
 }
 
 /// Tags of a single repository that the indexer has already seen.
@@ -1888,6 +1891,15 @@ async fn upsert_oci_repository_full(
     Ok(row.id)
 }
 
+/// Matches the `fetch_queue` row of `task` only while it is still the
+/// in-progress claim that `task` was dequeued with.
+fn still_claimed(task: &FetchTask) -> Condition {
+    Condition::all()
+        .add(fetch_queue::Column::Id.eq(task.id))
+        .add(fetch_queue::Column::Status.eq(fetch_queue::FetchStatus::InProgress))
+        .add(fetch_queue::Column::Claim.eq(task.claim))
+}
+
 /// Convert a `fetch_queue` row into the public `QueueTask` shape.
 fn into_queue_task(row: fetch_queue::Model) -> wasm_meta_registry_types::QueueTask {
     let task_str = match row.task {
@@ -2801,7 +2813,7 @@ impl Store {
         let pat = format!("%{query}%");
         let rows = oci_repository::Entity::find()
             .filter(
-                sea_orm::Condition::any()
+                Condition::any()
                     .add(oci_repository::Column::Registry.like(&pat))
                     .add(oci_repository::Column::Repository.like(&pat))
                     .add(oci_repository::Column::WitNamespace.like(&pat))
@@ -3305,15 +3317,22 @@ impl Store {
             tag: row.tag.clone(),
             kind: FetchTaskKind::from(row.task),
             attempts: i64::from(row.attempts),
+            claim: row.claim + 1,
         };
         let mut am: fetch_queue::ActiveModel = row.into();
         am.status = Set(fetch_queue::FetchStatus::InProgress);
+        am.claim = Set(task.claim);
         am.update(&txn).await?;
         txn.commit().await?;
         Ok(Some(task))
     }
 
-    pub(crate) async fn complete_task(&self, task_id: i64) -> anyhow::Result<()> {
+    /// Mark a claimed task as completed.
+    ///
+    /// Does nothing if the task was recovered and claimed again (or reset
+    /// by a refetch) since `task` was dequeued, so a stale worker can't
+    /// overwrite a newer result.
+    pub(crate) async fn complete_task(&self, task: &FetchTask) -> anyhow::Result<()> {
         fetch_queue::Entity::update_many()
             .col_expr(
                 fetch_queue::Column::Status,
@@ -3323,18 +3342,26 @@ impl Store {
                 fetch_queue::Column::LastError,
                 SimpleExpr::Value(sea_orm::Value::String(None)),
             )
-            .filter(fetch_queue::Column::Id.eq(task_id))
+            .filter(still_claimed(task))
             .exec(&self.db)
             .await?;
         Ok(())
     }
 
-    pub(crate) async fn fail_task(&self, task_id: i64, error: &str) -> anyhow::Result<()> {
+    /// Record a failed attempt of a claimed task, requeueing it until it
+    /// runs out of attempts. Like [`Store::complete_task`], this does
+    /// nothing if the task has been claimed again since.
+    pub(crate) async fn fail_task(&self, task: &FetchTask, error: &str) -> anyhow::Result<()> {
         // Read-modify-write inside a transaction: SeaORM's update builder
         // doesn't ergonomically express `attempts = attempts + 1` together
         // with a CASE-derived status, so we fetch the row first.
         let txn = self.db.begin().await?;
-        if let Some(row) = fetch_queue::Entity::find_by_id(task_id).one(&txn).await? {
+        let row = fetch_queue::Entity::find()
+            .filter(still_claimed(task))
+            .lock(LockType::Update)
+            .one(&txn)
+            .await?;
+        if let Some(row) = row {
             let new_attempts = row.attempts + 1;
             let new_status = if new_attempts >= row.max_attempts {
                 fetch_queue::FetchStatus::Failed
@@ -4043,7 +4070,7 @@ mod smoke_tests {
             .expect("task should dequeue");
         assert_eq!(task.tag, "1.0.0");
         assert_eq!(store.pending_count().await.unwrap(), 0);
-        store.complete_task(task.id).await.unwrap();
+        store.complete_task(&task).await.unwrap();
         let status = store.get_queue_status().await.unwrap();
         assert_eq!(status.completed, 1);
     }
@@ -4056,7 +4083,7 @@ mod smoke_tests {
             .await
             .unwrap();
         let task = store.dequeue_next().await.unwrap().unwrap();
-        store.fail_task(task.id, "oops").await.unwrap();
+        store.fail_task(&task, "oops").await.unwrap();
         assert_eq!(store.pending_count().await.unwrap(), 1);
     }
 
@@ -4120,7 +4147,7 @@ mod smoke_tests {
             store.dequeue_next().await.unwrap().unwrap()
         };
         for _ in 0..3 {
-            store.fail_task(failed.id, "boom").await.unwrap();
+            store.fail_task(&failed, "boom").await.unwrap();
         }
         // Reindex rows and other repositories are ignored.
         store
@@ -4150,7 +4177,7 @@ mod smoke_tests {
                 .unwrap();
         }
         let done = store.dequeue_next().await.unwrap().unwrap();
-        store.complete_task(done.id).await.unwrap();
+        store.complete_task(&done).await.unwrap();
         let orphan = store.dequeue_next().await.unwrap().unwrap();
         let _live = store.dequeue_next().await.unwrap().unwrap();
         // Backdate the orphan as if its worker died long ago. Changing
@@ -4170,6 +4197,48 @@ mod smoke_tests {
         let status = store.get_queue_status().await.unwrap();
         assert_eq!(status.in_progress, 1, "the live task is left alone");
         assert_eq!(status.completed, 1);
+    }
+
+    #[tokio::test]
+    async fn stale_worker_cannot_overwrite_reclaimed_task() {
+        let store = Store::open_in_memory().await.unwrap();
+        store
+            .enqueue_pull("ghcr.io", "user/repo", "1.0.0", 0)
+            .await
+            .unwrap();
+        let stale = store.dequeue_next().await.unwrap().unwrap();
+        store
+            .db()
+            .execute_unprepared(&format!(
+                "UPDATE fetch_queue SET updated_at = '2000-01-01 00:00:00' WHERE id = {}",
+                stale.id
+            ))
+            .await
+            .unwrap();
+        assert_eq!(store.reset_stale_in_progress_tasks(900).await.unwrap(), 1);
+        let fresh = store.dequeue_next().await.unwrap().unwrap();
+        assert_eq!(fresh.id, stale.id);
+        assert_ne!(fresh.claim, stale.claim);
+
+        store.complete_task(&fresh).await.unwrap();
+        // The stale worker's late failure must not undo the newer result.
+        store.fail_task(&stale, "late failure").await.unwrap();
+        let status = store.get_queue_status().await.unwrap();
+        assert_eq!(status.completed, 1);
+        assert_eq!(status.pending, 0);
+
+        // Nor may a stale completion finish a task someone else now holds.
+        store
+            .enqueue_refetch("ghcr.io", "user/repo", "1.0.0", 0)
+            .await
+            .unwrap();
+        let newer = store.dequeue_next().await.unwrap().unwrap();
+        store.complete_task(&fresh).await.unwrap();
+        let status = store.get_queue_status().await.unwrap();
+        assert_eq!(status.in_progress, 1, "newer claim is untouched");
+        store.fail_task(&newer, "real failure").await.unwrap();
+        let status = store.get_queue_status().await.unwrap();
+        assert_eq!(status.pending, 1, "the current claim can still fail");
     }
 
     #[tokio::test]
@@ -4434,7 +4503,7 @@ mod smoke_tests {
             .expect("reset in-progress on Postgres");
         let task = store.dequeue_next().await.unwrap().expect("requeued task");
         assert_eq!(task.tag, "1.0.0");
-        store.complete_task(task.id).await.unwrap();
+        store.complete_task(&task).await.unwrap();
     }
 
     #[test]
