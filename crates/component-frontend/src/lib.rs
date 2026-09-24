@@ -216,11 +216,20 @@ async fn namespace_page(headers: HeaderMap, Path(namespace): Path<String>) -> Re
 // r[impl frontend.pages.package-redirect]
 // r[impl frontend.routing.reserved-namespaces]
 /// Redirect `/<namespace>/<name>` to `/<namespace>/<name>/<latest-version>`.
-async fn package_redirect(
+async fn package_redirect(path: Path<(String, String)>) -> Response {
+    match resolve_package_redirect(path).await {
+        Ok(redirect) => redirect.into_response(),
+        Err(response) => *response,
+    }
+}
+
+/// Resolve the latest-version redirect for a package, or the error response
+/// to send instead.
+async fn resolve_package_redirect(
     Path((namespace, name)): Path<(String, String)>,
-) -> Result<Redirect, Response> {
+) -> Result<Redirect, Box<Response>> {
     if is_reserved(&namespace) {
-        return Err(not_found_response());
+        return Err(Box::new(not_found_response()));
     }
 
     let client = RegistryClient::from_env();
@@ -234,16 +243,16 @@ async fn package_redirect(
                 eprintln!(
                     "component-frontend: package has no redirectable tags: {namespace}/{name}"
                 );
-                Err(not_found_response())
+                Err(Box::new(not_found_response()))
             }
         }
         Ok(None) => {
             eprintln!("component-frontend: package not found: {namespace}/{name}");
-            Err(not_found_response())
+            Err(Box::new(not_found_response()))
         }
         Err(e) => {
             eprintln!("component-frontend: API error looking up {namespace}/{name}: {e}");
-            Err(error_response(&e.to_string()))
+            Err(Box::new(error_response(&e.to_string())))
         }
     }
 }
@@ -259,7 +268,7 @@ async fn package_detail(
     let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
     let version_detail = client
         .fetch_package_version(&pkg.registry, &pkg.repository, &version)
@@ -308,7 +317,7 @@ async fn interface_detail(
     let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
     let Some((doc, version_detail)) = fetch_wit_doc(&client, &pkg, &version).await else {
         return not_found_response();
@@ -335,7 +344,7 @@ async fn item_detail(
     let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
     let Some((doc, version_detail)) = fetch_wit_doc(&client, &pkg, &version).await else {
         return not_found_response();
@@ -376,7 +385,7 @@ async fn world_detail(
     let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
     let Some((doc, version_detail)) = fetch_wit_doc(&client, &pkg, &version).await else {
         return not_found_response();
@@ -410,7 +419,7 @@ async fn world_function_detail(
     let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
     let Some((doc, version_detail)) = fetch_wit_doc(&client, &pkg, &version).await else {
         return not_found_response();
@@ -456,7 +465,7 @@ async fn package_function_detail(
     let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
     let Some((doc, version_detail)) = fetch_wit_doc(&client, &pkg, &version).await else {
         return not_found_response();
@@ -547,7 +556,7 @@ async fn module_detail(
     let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
     let version_detail = client
         .fetch_package_version(&pkg.registry, &pkg.repository, &version)
@@ -599,7 +608,7 @@ async fn child_component_detail(
     let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
     let version_detail = client
         .fetch_package_version(&pkg.registry, &pkg.repository, &version)
@@ -634,7 +643,7 @@ async fn child_component_detail(
 /// Fetch a package by WIT namespace/name, validating the version exists.
 ///
 /// Returns `Ok(None)` (and logs) if the namespace is reserved, the package is
-/// not found, or the version tag doesn't exist. Returns `Err(Response)` with
+/// not found, or the version tag doesn't exist. Returns `Err(Box<Response>)` with
 /// a `502 Bad Gateway` response when the upstream API call fails, so that
 /// registry outages are surfaced correctly instead of being masked as 404s.
 async fn fetch_package_or_404(
@@ -642,7 +651,7 @@ async fn fetch_package_or_404(
     namespace: &str,
     name: &str,
     version: &str,
-) -> Result<Option<KnownPackage>, Response> {
+) -> Result<Option<KnownPackage>, Box<Response>> {
     if is_reserved(namespace) {
         return Ok(None);
     }
@@ -663,7 +672,7 @@ async fn fetch_package_or_404(
         }
         Err(e) => {
             eprintln!("component-frontend: API error looking up {namespace}/{name}@{version}: {e}");
-            Err(error_response(&e.to_string()))
+            Err(Box::new(error_response(&e.to_string())))
         }
     }
 }
@@ -820,7 +829,7 @@ mod tests {
     // r[verify frontend.routing.reserved-namespaces]
     #[tokio::test]
     async fn package_redirect_reserved_namespace_returns_not_found() {
-        let response = package_redirect(Path(("all".to_string(), "demo".to_string())))
+        let response = resolve_package_redirect(Path(("all".to_string(), "demo".to_string())))
             .await
             .expect_err("reserved namespace should not redirect");
 
@@ -1116,7 +1125,8 @@ mod tests {
     /// return bad-gateway when the registry API is unreachable.
     #[tokio::test]
     async fn package_redirect_handles_trailing_slash_path() {
-        let result = package_redirect(Path(("wasi".to_string(), "random".to_string()))).await;
+        let result =
+            resolve_package_redirect(Path(("wasi".to_string(), "random".to_string()))).await;
         match result {
             Ok(redirect) => {
                 let resp = redirect.into_response();
