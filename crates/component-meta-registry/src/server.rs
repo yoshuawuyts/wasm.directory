@@ -154,6 +154,7 @@ pub fn router(state: AppState) -> Router {
 
     Router::new()
         .route("/v1/health", get(health))
+        .route("/v1/stats", get(get_stats))
         .route("/v1/search", get(search))
         .route("/v1/search/by-import", get(search_by_import))
         .route("/v1/search/by-export", get(search_by_export))
@@ -179,6 +180,13 @@ pub fn router(state: AppState) -> Router {
 /// Health check endpoint.
 async fn health() -> impl IntoResponse {
     Json(serde_json::json!({ "status": "ok" }))
+}
+
+/// Aggregate counts over the whole package index.
+async fn get_stats(State(manager): State<AppState>) -> Result<impl IntoResponse, AppError> {
+    let manager = manager.read().await;
+    let stats = manager.registry_stats().await?;
+    Ok(Json(stats))
 }
 
 /// Fetch queue status.
@@ -545,6 +553,31 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::ACCEPTED);
         let outcome: NotifyOutcome = resp.json().await.expect("invalid json");
         assert_eq!(outcome, NotifyOutcome::Enqueued);
+
+        server.abort();
+    }
+
+    /// The stats endpoint returns index-wide counts as JSON.
+    #[tokio::test]
+    async fn stats_endpoint_returns_counts() {
+        let (_data_dir, manager) = isolated_manager().await;
+        let state = Arc::new(tokio::sync::RwLock::new(manager));
+        let app = router(state);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("failed to bind listener");
+        let addr = listener.local_addr().expect("failed to get local addr");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("server error");
+        });
+
+        let url = format!("http://{addr}/v1/stats");
+        let resp = reqwest::get(&url).await.expect("request failed");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let stats: wasm_meta_registry_types::RegistryStats =
+            resp.json().await.expect("invalid json");
+        assert_eq!(stats, wasm_meta_registry_types::RegistryStats::default());
 
         server.abort();
     }

@@ -2,7 +2,7 @@
 
 // r[impl frontend.pages.home]
 
-use wasm_meta_registry_client::{ApiError, KnownPackage, RegistryClient};
+use wasm_meta_registry_client::{ApiError, RegistryClient, RegistryStats};
 
 use crate::components::ds::{
     cta_strip::{self, CtaStrip},
@@ -14,17 +14,17 @@ use crate::components::ds::{
 };
 use crate::layout;
 
-/// Fetch recent packages and render the home page.
+/// Fetch index-wide stats and render the home page.
 pub(crate) async fn render(client: &RegistryClient) -> String {
-    match client.fetch_recent_packages(1000).await {
-        Ok(packages) => render_packages(&packages),
+    match client.fetch_stats().await {
+        Ok(stats) => render_stats(&stats),
         Err(err) => render_error(&err),
     }
 }
 
-/// Render the home page with a list of packages.
-fn render_packages(packages: &[KnownPackage]) -> String {
-    let body = compose_body(&Stats::from_packages(packages), None);
+/// Render the home page with live registry stats.
+fn render_stats(stats: &RegistryStats) -> String {
+    let body = compose_body(stats, None);
     layout::document_landing("Home", &body)
 }
 
@@ -35,54 +35,13 @@ fn render_error(err: &ApiError) -> String {
         r#"<div class="mx-auto max-w-[1280px] w-full px-4 md:px-8 pt-4"><div role="status" class="flex items-start gap-2 rounded-md border border-line bg-surfaceMuted px-3 py-2 text-[12px] text-ink-700"><span class="mono uppercase tracking-wider text-ink-500">Registry offline</span><span>Live package data is temporarily unavailable, so search may return nothing right now. The <code class="px-1 py-0.5 rounded-sm bg-surface text-ink-900 mono text-[0.875em]">component</code> CLI still works locally without the registry. See the <a href="/docs" class="text-ink-900 hover:underline">docs</a> to get started. ({err})</span></div></div>"#,
         err = html_escape(&err.to_string()),
     );
-    let body = compose_body(&Stats::default(), Some(&notice));
+    let body = compose_body(&RegistryStats::default(), Some(&notice));
     layout::document_landing("Home", &body)
 }
 
 /// Minimal HTML escape for inline error text.
 fn html_escape(s: &str) -> String {
     crate::escape::escape_html_text(s)
-}
-
-/// Aggregated landing-page statistics derived from the registry index.
-#[derive(Default)]
-struct Stats {
-    /// Total number of indexed packages.
-    packages: usize,
-    /// Number of distinct WIT namespaces (or repository owners as fallback).
-    namespaces: usize,
-    /// Sum of release tag counts across all packages.
-    versions: usize,
-}
-
-impl Stats {
-    fn from_packages(packages: &[KnownPackage]) -> Self {
-        use std::collections::BTreeSet;
-
-        let package_count = packages.len();
-        let version_count: usize = packages.iter().map(|p| p.tags.len()).sum();
-
-        // Count distinct WIT namespaces (preferred) or fall back to the first
-        // segment of the repository path.
-        let mut ns_set: BTreeSet<String> = BTreeSet::new();
-        for pkg in packages {
-            let ns = pkg
-                .wit_namespace
-                .clone()
-                .or_else(|| pkg.repository.split('/').next().map(str::to_owned))
-                .unwrap_or_default();
-            if ns.is_empty() {
-                continue;
-            }
-            ns_set.insert(ns);
-        }
-
-        Self {
-            packages: package_count,
-            namespaces: ns_set.len(),
-            versions: version_count,
-        }
-    }
 }
 
 /// Persistent call-out marking the registry as alpha. Slotted into the hero's
@@ -101,7 +60,7 @@ fn alpha_notice() -> String {
 /// Compose the full landing page body. The alpha call-out lives inside the
 /// hero (below the lede); `notice_html` is rendered above the hero when
 /// present (for example, a registry-offline banner).
-fn compose_body(stats: &Stats, notice_html: Option<&str>) -> String {
+fn compose_body(stats: &RegistryStats, notice_html: Option<&str>) -> String {
     let pkg_count = format_count(stats.packages);
     let ns_count = format_count(stats.namespaces);
     let version_count = format_count(stats.versions);
@@ -226,7 +185,7 @@ fn compose_body(stats: &Stats, notice_html: Option<&str>) -> String {
 
 /// Format a count with a thin space as the thousands separator (e.g.
 /// `1248 -> "1 248"`), matching the visual style in `landing.html`.
-fn format_count(n: usize) -> String {
+fn format_count(n: u64) -> String {
     let s = n.to_string();
     let mut out = String::with_capacity(s.len() + s.len() / 3);
     for (i, c) in s.chars().rev().enumerate() {
@@ -251,8 +210,21 @@ mod tests {
     }
 
     #[test]
+    fn body_renders_index_wide_stats() {
+        let stats = RegistryStats {
+            packages: 1248,
+            namespaces: 73,
+            versions: 4902,
+        };
+        let body = compose_body(&stats, None);
+        assert!(body.contains(
+            "Browse 1\u{2009}248 packages \u{00b7} 73 namespaces \u{00b7} 4\u{2009}902 versions"
+        ));
+    }
+
+    #[test]
     fn body_includes_alpha_notice() {
-        let body = compose_body(&Stats::default(), None);
+        let body = compose_body(&RegistryStats::default(), None);
         assert!(
             body.contains(r#"role="note""#),
             "alpha call-out should render as a note landmark"
@@ -287,7 +259,7 @@ mod tests {
 
     #[test]
     fn quick_start_sits_between_search_and_publish() {
-        let body = compose_body(&Stats::default(), None);
+        let body = compose_body(&RegistryStats::default(), None);
         assert!(
             body.contains("data-quickstart"),
             "quick start should render"
@@ -308,7 +280,7 @@ mod tests {
 
     #[test]
     fn quick_start_folds_in_install_and_all_commands() {
-        let body = compose_body(&Stats::default(), None);
+        let body = compose_body(&RegistryStats::default(), None);
         // Step one is the install widget: a platform dropdown with the real
         // install command for each supported OS.
         assert!(
@@ -341,35 +313,5 @@ mod tests {
             install_at < init_at,
             "install should be the first quick-start step"
         );
-    }
-
-    fn pkg(ns: &str, name: &str, tags: &[&str], description: Option<&str>) -> KnownPackage {
-        KnownPackage {
-            registry: "ghcr.io".into(),
-            repository: format!("{ns}/{name}"),
-            kind: None,
-            description: description.map(str::to_owned),
-            tags: tags.iter().map(|s| (*s).to_owned()).collect(),
-            signature_tags: vec![],
-            attestation_tags: vec![],
-            last_seen_at: String::new(),
-            created_at: String::new(),
-            wit_namespace: Some(ns.into()),
-            wit_name: Some(name.into()),
-            dependencies: vec![],
-        }
-    }
-
-    #[test]
-    fn stats_aggregate_counts_and_authors() {
-        let packages = vec![
-            pkg("wasi", "http", &["0.1.0", "0.2.0", "0.2.1"], Some("HTTP")),
-            pkg("wasi", "io", &["0.2.0"], None),
-            pkg("ba", "sqlite", &["0.1.0", "0.2.0"], Some("SQLite")),
-        ];
-        let stats = Stats::from_packages(&packages);
-        assert_eq!(stats.packages, 3);
-        assert_eq!(stats.namespaces, 2);
-        assert_eq!(stats.versions, 6);
     }
 }

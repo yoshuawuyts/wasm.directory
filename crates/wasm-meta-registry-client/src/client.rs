@@ -9,7 +9,9 @@
 use std::fmt;
 
 use crate::KnownPackage;
-use wasm_meta_registry_types::{NotifyOutcome, PackageDetail, PackageVersion, QueueStatus};
+use wasm_meta_registry_types::{
+    NotifyOutcome, PackageDetail, PackageVersion, QueueStatus, RegistryStats,
+};
 
 /// Default API base URL when no environment variable is set.
 const DEFAULT_API_BASE_URL: &str = "http://localhost:8081";
@@ -161,6 +163,18 @@ impl RegistryClient {
     pub async fn fetch_recent_packages(&self, limit: u32) -> Result<Vec<KnownPackage>, ApiError> {
         let url = format!("{}/v1/packages/recent?limit={limit}", self.base_url);
         self.fetch_packages_from(&url).await
+    }
+
+    /// Fetch aggregate package, namespace, and version counts for the
+    /// whole index.
+    pub async fn fetch_stats(&self) -> Result<RegistryStats, ApiError> {
+        let url = format!("{}/v1/stats", self.base_url);
+        let bytes = self.get(&url).await?;
+        serde_json::from_slice(&bytes).map_err(|e| {
+            ApiError::new(format!(
+                "received an unexpected response from the registry: {e}"
+            ))
+        })
     }
 
     /// Search packages by query string.

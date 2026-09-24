@@ -2880,6 +2880,57 @@ impl Store {
         }
     }
 
+    /// Compute aggregate counts over the whole index.
+    ///
+    /// Mirrors the listing endpoints: a package only counts when it has at
+    /// least one semver tag, and only semver tags count as versions.
+    pub(crate) async fn registry_stats(
+        &self,
+    ) -> anyhow::Result<wasm_meta_registry_types::RegistryStats> {
+        use std::collections::BTreeSet;
+
+        let tags: Vec<(i64, String)> = oci_tag::Entity::find()
+            .select_only()
+            .column(oci_tag::Column::OciRepositoryId)
+            .column(oci_tag::Column::Tag)
+            .into_tuple()
+            .all(&self.db)
+            .await?;
+        let mut versions_per_repo: HashMap<i64, u64> = HashMap::new();
+        for (repo_id, tag) in tags {
+            if crate::manager::parse_tag_as_semver(&tag).is_some() {
+                *versions_per_repo.entry(repo_id).or_default() += 1;
+            }
+        }
+
+        let repos: Vec<(i64, String, Option<String>)> = oci_repository::Entity::find()
+            .select_only()
+            .column(oci_repository::Column::Id)
+            .column(oci_repository::Column::Repository)
+            .column(oci_repository::Column::WitNamespace)
+            .into_tuple()
+            .all(&self.db)
+            .await?;
+
+        let mut stats = wasm_meta_registry_types::RegistryStats::default();
+        let mut namespaces: BTreeSet<String> = BTreeSet::new();
+        for (id, repository, wit_namespace) in repos {
+            let Some(&versions) = versions_per_repo.get(&id) else {
+                continue;
+            };
+            stats.packages += 1;
+            stats.versions += versions;
+            let ns = wit_namespace
+                .or_else(|| repository.split('/').next().map(str::to_owned))
+                .unwrap_or_default();
+            if !ns.is_empty() {
+                namespaces.insert(ns);
+            }
+        }
+        stats.namespaces = namespaces.len() as u64;
+        Ok(stats)
+    }
+
     pub(crate) async fn add_known_package(
         &self,
         registry: &str,
@@ -3860,6 +3911,67 @@ mod smoke_tests {
             .await
             .unwrap();
         assert!(pkg.is_some());
+    }
+
+    /// Insert a repository with one manifest and the given tags.
+    async fn seed_repo(
+        store: &Store,
+        repository: &str,
+        wit_namespace: Option<&str>,
+        tags: &[&str],
+    ) {
+        let repo_id =
+            upsert_oci_repository_full(&store.db, "ghcr.io", repository, wit_namespace, None, None)
+                .await
+                .unwrap();
+        let digest = format!("sha256:{repo_id:064x}");
+        upsert_oci_manifest(
+            &store.db,
+            repo_id,
+            &digest,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
+        for tag in tags {
+            upsert_oci_tag(&store.db, repo_id, tag, &digest)
+                .await
+                .unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn registry_stats_counts_whole_index() {
+        let store = Store::open_in_memory().await.unwrap();
+        assert_eq!(
+            store.registry_stats().await.unwrap(),
+            wasm_meta_registry_types::RegistryStats::default()
+        );
+
+        // More packages than any single paginated listing can return.
+        for i in 0..150 {
+            let repository = format!("bulk/pkg-{i}");
+            seed_repo(&store, &repository, None, &["0.1.0"]).await;
+        }
+        let wasi_tags = ["0.2.0", "0.2.1", "latest"];
+        seed_repo(&store, "wasi/http", Some("wasi"), &wasi_tags).await;
+        // Repos without any semver tag are not counted.
+        seed_repo(&store, "other/untagged", None, &["latest"]).await;
+        store
+            .add_known_package("ghcr.io", "other/empty", None, None)
+            .await
+            .unwrap();
+
+        let stats = store.registry_stats().await.unwrap();
+        assert_eq!(stats.packages, 151);
+        assert_eq!(stats.versions, 152);
+        assert_eq!(stats.namespaces, 2);
     }
 
     #[tokio::test]
