@@ -626,7 +626,7 @@ fn render_landing_components() -> String {
         "c-package-columns",
         "C14",
         "Package Columns",
-        "Three-up package highlights used below the landing hero: new releases, new packages, and popular packages. Each column has a mono kicker, a heavy top rule, and rows with a mono name, a muted detail, and an optional one-line description. Empty and unavailable columns show a short note.",
+        "Three-up package highlights used below the landing hero: new releases, new packages, and popular packages. Each column is a standalone card (the landing card shell: hairline border, surface, card elevation) with a header strip carrying the mono column title, and hairline-divided rows. Rows are a fixed two-line grid: a mono name and a truncated one-line description on the left, a muted detail (version or dependents) and release age on the right. Rows are the same height with or without a description. Empty and unavailable columns show a short note.",
         &render_package_columns_demo(),
     ));
 

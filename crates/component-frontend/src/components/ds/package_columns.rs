@@ -1,11 +1,13 @@
 //! Three-column package highlights for the landing page: new releases, new
 //! packages, and popular packages.
 //!
-//! Each column has a mono kicker heading, a heavy top rule, and a hairline
-//! between rows. A row shows the package name with a muted mono detail on the
+//! Each column is a standalone card using the landing page's card shell
+//! (hairline border on `surface`, card elevation — as the hero search card
+//! and install card): a header strip with the mono column title, then rows
+//! divided by `lineSoft` hairlines. A row shows the package name with a muted mono detail on the
 //! right (version or dependents count) and an optional one-line description.
 //! Release rows also show how long ago they were published.
-//! Columns stack on narrow viewports and sit side by side from `md` up.
+//! Cards stack on narrow viewports and sit side by side from `md` up.
 
 use std::fmt::Write as _;
 
@@ -142,22 +144,26 @@ pub(crate) struct Column<'a> {
     pub state: &'a ColumnState,
 }
 
+const CARD_CLASS: &str =
+    "min-w-0 flex flex-col rounded-lg border border-line bg-surface shadow-card overflow-hidden";
+const HEADER_CLASS: &str = "flex items-center h-10 px-4 border-b border-lineSoft";
 const HEADING_CLASS: &str = "text-[12px] mono uppercase tracking-wider text-ink-500";
-const LIST_CLASS: &str = "mt-4 border-t-[1.5px] border-lineSoft";
+const LIST_CLASS: &str = "divide-y divide-lineSoft";
 // Each row is a two-line grid: name and description share a left column
 // that truncates, and labels (version / dependents / age) sit in a right
 // column the description can never run into. Every cell is one fixed-height
 // line and the description cell is always present, so all rows are the same
 // height whether or not they have a description.
-const ROW_GRID: &str = "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-0.5 py-3";
-const ROW_CLASS: &str = "group no-underline";
-const NAME_CLASS: &str = "h-5 leading-5 mono text-[14px] font-medium text-ink-900 truncate group-hover:underline decoration-1 underline-offset-4";
+const ROW_GRID: &str =
+    "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-0.5 px-4 py-3";
+const ROW_CLASS: &str = "no-underline hover:bg-surfaceMuted focus-visible:bg-surfaceMuted";
+const NAME_CLASS: &str = "h-5 leading-5 mono text-[14px] font-medium text-ink-900 truncate";
 const DETAIL_CLASS: &str =
     "h-5 leading-5 max-w-[20ch] mono text-[12px] text-ink-500 tabular-nums text-right truncate";
 const DESC_CLASS: &str = "h-5 leading-5 text-[13px] text-ink-500 truncate";
 const TIME_CLASS: &str =
     "h-5 leading-5 mono text-[12px] text-ink-500 tabular-nums text-right whitespace-nowrap";
-const NOTE_CLASS: &str = "mt-4 border-t-[1.5px] border-lineSoft pt-3 text-[13px] text-ink-500";
+const NOTE_CLASS: &str = "px-4 py-3 text-[13px] text-ink-500";
 
 /// Render the highlight columns as a full-width landing-page band.
 #[must_use]
@@ -167,7 +173,7 @@ pub(crate) fn render(columns: &[Column<'_>]) -> String {
         push_column(&mut cols, column);
     }
     format!(
-        r#"<section aria-label="Package highlights" data-package-columns class="mx-auto max-w-[1280px] w-full px-4 md:px-8 mt-12 md:mt-16"><div class="grid grid-cols-1 md:grid-cols-3 gap-10 md:gap-8">{cols}</div></section>"#
+        r#"<section aria-label="Package highlights" data-package-columns class="mx-auto max-w-[1280px] w-full px-4 md:px-8 mt-12 md:mt-16"><div class="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">{cols}</div></section>"#
     )
 }
 
@@ -185,7 +191,7 @@ fn push_column(out: &mut String, column: &Column<'_>) {
     };
     let _ = write!(
         out,
-        r#"<div class="min-w-0"><h2 class="{HEADING_CLASS}">{title}</h2>{body}</div>"#
+        r#"<div class="{CARD_CLASS}"><div class="{HEADER_CLASS}"><h2 class="{HEADING_CLASS}">{title}</h2></div>{body}</div>"#
     );
 }
 
@@ -193,11 +199,7 @@ fn push_column(out: &mut String, column: &Column<'_>) {
 fn render_list(rows: &[ColumnRow]) -> String {
     let mut items = String::new();
     for row in rows {
-        let _ = write!(
-            items,
-            r#"<li class="border-b border-lineSoft">{}</li>"#,
-            render_row(row)
-        );
+        let _ = write!(items, "<li>{}</li>", render_row(row));
     }
     format!(r#"<ol class="{LIST_CLASS}">{items}</ol>"#)
 }
@@ -377,6 +379,11 @@ mod tests {
                 state: &ColumnState::from_result::<PopularPackage, ()>(Err(()), ColumnRow::popular),
             },
         ]);
+        assert_eq!(
+            html.matches(CARD_CLASS).count(),
+            2,
+            "each column renders as its own card, even when empty"
+        );
         assert!(html.contains("Nothing here yet."));
         assert!(html.contains(r#"role="status""#) && html.contains("Unavailable right now."));
         assert!(!html.contains("<ol"));
