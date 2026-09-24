@@ -2077,12 +2077,34 @@ impl Store {
         let Some(metadata) = extract_wit_metadata(wasm_bytes) else {
             return;
         };
+        if let Err(e) = self
+            .store_wit_metadata(manifest_id, layer_id, wasm_bytes, &metadata)
+            .await
+        {
+            warn!(
+                "Failed to insert WIT package for manifest {}: {}",
+                manifest_id, e
+            );
+        }
+    }
+
+    /// Persist already-extracted WIT metadata for a layer.
+    ///
+    /// Fails only if the `wit_package` row itself can't be written; the
+    /// worlds, dependencies and component rows below it stay best-effort.
+    async fn store_wit_metadata(
+        &self,
+        manifest_id: i64,
+        layer_id: Option<i64>,
+        wasm_bytes: &[u8],
+        metadata: &WitMetadata,
+    ) -> anyhow::Result<()> {
         let Some(raw_name) = metadata.package_name.as_deref() else {
-            return;
+            return Ok(());
         };
         let (package_name, version) = split_package_version(raw_name);
 
-        let wit_package_id = match upsert_wit_package(
+        let wit_package_id = upsert_wit_package(
             &self.db,
             package_name,
             version,
@@ -2091,17 +2113,7 @@ impl Store {
             Some(manifest_id),
             layer_id,
         )
-        .await
-        {
-            Ok(id) => id,
-            Err(e) => {
-                warn!(
-                    "Failed to insert WIT package for manifest {}: {}",
-                    manifest_id, e
-                );
-                return;
-            }
-        };
+        .await?;
 
         let mut world_ids: HashMap<String, i64> = HashMap::new();
         for world in &metadata.worlds {
@@ -2168,7 +2180,7 @@ impl Store {
                 package_name,
                 version,
                 &world_ids,
-                &metadata,
+                metadata,
             )
             .await;
         }
@@ -2178,6 +2190,7 @@ impl Store {
         let _ = resolve_export_foreign_keys(&self.db, wit_package_id).await;
         let _ = resolve_dependency_foreign_keys(&self.db, wit_package_id).await;
         let _ = resolve_component_target_foreign_keys(&self.db, manifest_id).await;
+        Ok(())
     }
 
     /// Extract and persist a `wasm_component` row plus its `component_target`
@@ -2376,6 +2389,10 @@ impl Store {
     /// Re-derive WIT metadata for a manifest whose layers are already
     /// stored, from freshly downloaded layer bytes. Also rewrites the layers
     /// into the local cache, which may have been lost with an old replica.
+    ///
+    /// Existing rows are only replaced once the new bytes have parsed, and a
+    /// failure to write the replacement is returned so the task is retried
+    /// rather than completed without metadata.
     async fn repair_layer_metadata(
         &self,
         manifest_id: i64,
@@ -2385,16 +2402,25 @@ impl Store {
             .filter(oci_layer::Column::OciManifestId.eq(manifest_id))
             .all(&self.db)
             .await?;
-        self.clear_wit_for_manifest(manifest_id).await?;
         let cache = self.state_info.store_dir();
+        let mut extracted = Vec::new();
         for (idx, layer) in layers.iter().enumerate() {
             let position = i64::from(crate::convert::index_to_i32(idx)?);
             let Some(row) = stored.iter().find(|l| l.position == position) else {
                 continue;
             };
             cacache::write(&cache, &row.digest, &layer.data).await?;
-            self.try_extract_wit_package(manifest_id, Some(row.id), &layer.data)
-                .await;
+            if let Some(metadata) = extract_wit_metadata(&layer.data) {
+                extracted.push((row.id, layer, metadata));
+            }
+        }
+        if extracted.is_empty() {
+            return Ok(());
+        }
+        self.clear_wit_for_manifest(manifest_id).await?;
+        for (layer_id, layer, metadata) in &extracted {
+            self.store_wit_metadata(manifest_id, Some(*layer_id), &layer.data, metadata)
+                .await?;
         }
         Ok(())
     }
@@ -4331,6 +4357,15 @@ mod smoke_tests {
 
         store.insert(&reference, image(), true).await.unwrap();
         assert_eq!(wit_rows(&store).await, 1, "repair doesn't duplicate WIT");
+
+        let mut garbage = image();
+        garbage.layers[0].data = b"not wasm".to_vec().into();
+        store.insert(&reference, garbage, true).await.unwrap();
+        assert_eq!(
+            wit_rows(&store).await,
+            1,
+            "unparsable bytes don't erase existing WIT"
+        );
     }
 
     #[tokio::test]

@@ -223,9 +223,12 @@ impl Indexer {
     /// Tasks abandoned by a worker that died are re-queued first. Stops
     /// early if this replica loses the indexer lease.
     async fn process_queue(&mut self) {
-        if !self.is_leader {
+        // Discovery may have taken a while, so confirm the lease before
+        // touching the queue and start the re-check timer from here.
+        if !self.check_leadership().await {
             return;
         }
+        let mut last_lease_check = Instant::now();
         match self.manager.recover_in_progress_tasks().await {
             Ok(0) => {}
             Ok(n) => info!(count = n, "Re-queued tasks abandoned by a previous worker"),
@@ -233,7 +236,6 @@ impl Indexer {
         }
 
         let mut processed = 0u64;
-        let mut last_lease_check = Instant::now();
         // Only counts queue-level errors (network/DB failures from
         // `process_next_task` itself). Individual task failures (a single
         // bad pull or reindex) do NOT count — those are isolated and the
@@ -318,6 +320,7 @@ impl Indexer {
                 Ok(lease) => self.lease = Some(lease),
                 Err(e) => {
                     error!(error = %e, "Failed to open indexer lease");
+                    self.is_leader = false;
                     return false;
                 }
             }
