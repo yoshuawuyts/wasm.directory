@@ -2232,10 +2232,17 @@ impl Store {
         }
     }
 
+    /// Store a pulled image: manifest, tag, layers, and WIT metadata.
+    ///
+    /// With `repair`, an image whose layers are already stored has its WIT
+    /// metadata re-derived from the freshly downloaded bytes. Retried pulls
+    /// use this, since the previous attempt may have stopped between storing
+    /// the layers and extracting from them.
     pub(crate) async fn insert(
         &self,
         reference: &Reference,
         image: ImageData,
+        repair: bool,
     ) -> anyhow::Result<(
         InsertResult,
         Option<String>,
@@ -2354,13 +2361,58 @@ impl Store {
                 self.try_extract_wit_package(manifest_id, Some(layer_id), data)
                     .await;
             }
+        } else if repair {
+            self.repair_layer_metadata(manifest_id, &image.layers)
+                .await?;
         }
-        let manifest_id_opt = if result == InsertResult::Inserted {
+        let manifest_id_opt = if result == InsertResult::Inserted || repair {
             Some(manifest_id)
         } else {
             None
         };
         Ok((result, digest, manifest, manifest_id_opt))
+    }
+
+    /// Re-derive WIT metadata for a manifest whose layers are already
+    /// stored, from freshly downloaded layer bytes. Also rewrites the layers
+    /// into the local cache, which may have been lost with an old replica.
+    async fn repair_layer_metadata(
+        &self,
+        manifest_id: i64,
+        layers: &[oci_client::client::ImageLayer],
+    ) -> anyhow::Result<()> {
+        let stored = oci_layer::Entity::find()
+            .filter(oci_layer::Column::OciManifestId.eq(manifest_id))
+            .all(&self.db)
+            .await?;
+        self.clear_wit_for_manifest(manifest_id).await?;
+        let cache = self.state_info.store_dir();
+        for (idx, layer) in layers.iter().enumerate() {
+            let position = i64::from(crate::convert::index_to_i32(idx)?);
+            let Some(row) = stored.iter().find(|l| l.position == position) else {
+                continue;
+            };
+            cacache::write(&cache, &row.digest, &layer.data).await?;
+            self.try_extract_wit_package(manifest_id, Some(row.id), &layer.data)
+                .await;
+        }
+        Ok(())
+    }
+
+    /// Delete the WIT package and component rows derived from a manifest,
+    /// ahead of extracting them again.
+    async fn clear_wit_for_manifest(&self, manifest_id: i64) -> anyhow::Result<()> {
+        let txn = self.db.begin().await?;
+        wit_package::Entity::delete_many()
+            .filter(wit_package::Column::OciManifestId.eq(manifest_id))
+            .exec(&txn)
+            .await?;
+        wasm_component::Entity::delete_many()
+            .filter(wasm_component::Column::OciManifestId.eq(manifest_id))
+            .exec(&txn)
+            .await?;
+        txn.commit().await?;
+        Ok(())
     }
 
     pub(crate) async fn insert_metadata(
@@ -3496,22 +3548,9 @@ impl Store {
         let store_dir = self.state_info.store_dir().to_path_buf();
         let bytes = cacache::read(&store_dir, &layer.digest).await?;
 
-        // Wrap the delete + re-extract in a transaction so a mid-flight
-        // failure leaves the previously-indexed WIT data intact.
-        let txn = self.db.begin().await?;
-        wit_package::Entity::delete_many()
-            .filter(wit_package::Column::OciManifestId.eq(manifest_id))
-            .exec(&txn)
-            .await?;
-        wasm_component::Entity::delete_many()
-            .filter(wasm_component::Column::OciManifestId.eq(manifest_id))
-            .exec(&txn)
-            .await?;
-        // Note: we extract via `self` (the outer connection), not the txn,
-        // so the helper's own writes still need to be folded into this txn.
-        // For simplicity we commit the deletes first; a follow-up could push
-        // the extraction into the same transaction.
-        txn.commit().await?;
+        // The deletes commit before extraction runs on the outer connection;
+        // a follow-up could fold both into one transaction.
+        self.clear_wit_for_manifest(manifest_id).await?;
         self.try_extract_wit_package(manifest_id, Some(layer.id), &bytes)
             .await;
         Ok(())
@@ -4239,6 +4278,59 @@ mod smoke_tests {
         store.fail_task(&newer, "real failure").await.unwrap();
         let status = store.get_queue_status().await.unwrap();
         assert_eq!(status.pending, 1, "the current claim can still fail");
+    }
+
+    #[tokio::test]
+    async fn repair_restores_wit_lost_by_interrupted_pull() {
+        let store = Store::open_in_memory().await.unwrap();
+        let reference: Reference = "ghcr.io/user/repair:1.0.0".parse().unwrap();
+        let image = || {
+            let mut resolve = wit_parser::Resolve::default();
+            let pkg = resolve
+                .push_str("repair.wit", "package test:repair@1.0.0;\nworld hello {}\n")
+                .unwrap();
+            let bytes = wit_component::encode(&resolve, pkg).unwrap();
+            let media_type = "application/wasm".to_string();
+            let layer_desc = oci_client::manifest::OciDescriptor {
+                media_type: media_type.clone(),
+                digest: "sha256:repairlayer".into(),
+                size: i64::try_from(bytes.len()).unwrap(),
+                ..Default::default()
+            };
+            ImageData {
+                layers: vec![oci_client::client::ImageLayer::new(bytes, media_type, None)],
+                digest: Some("sha256:repairmanifest".into()),
+                config: oci_client::client::Config::new(Vec::new(), String::new(), None),
+                manifest: Some(OciImageManifest {
+                    layers: vec![layer_desc],
+                    ..Default::default()
+                }),
+            }
+        };
+        let wit_rows = |store: &Store| {
+            let db = store.db().clone();
+            async move { wit_package::Entity::find().count(&db).await.unwrap() }
+        };
+
+        store.insert(&reference, image(), false).await.unwrap();
+        assert_eq!(wit_rows(&store).await, 1);
+
+        // Simulate a worker that died after storing layers, before WIT.
+        wit_package::Entity::delete_many()
+            .exec(store.db())
+            .await
+            .unwrap();
+
+        store.insert(&reference, image(), false).await.unwrap();
+        assert_eq!(wit_rows(&store).await, 0, "a plain cache hit skips WIT");
+
+        let (result, _, _, manifest_id) = store.insert(&reference, image(), true).await.unwrap();
+        assert_eq!(result, InsertResult::AlreadyExists);
+        assert!(manifest_id.is_some(), "repair reports the manifest");
+        assert_eq!(wit_rows(&store).await, 1, "repair re-extracts WIT");
+
+        store.insert(&reference, image(), true).await.unwrap();
+        assert_eq!(wit_rows(&store).await, 1, "repair doesn't duplicate WIT");
     }
 
     #[tokio::test]

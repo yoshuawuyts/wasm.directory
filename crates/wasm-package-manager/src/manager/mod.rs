@@ -193,6 +193,12 @@ impl Manager {
     ///
     /// Returns an error if offline mode is enabled.
     pub async fn pull(&self, reference: Reference) -> anyhow::Result<PullResult> {
+        self.pull_inner(reference, false).await
+    }
+
+    /// Pull an image, optionally repairing derived data for a version that
+    /// is already stored. See [`Manager::execute_pull_task`].
+    async fn pull_inner(&self, reference: Reference, repair: bool) -> anyhow::Result<PullResult> {
         if self.offline {
             return Err(ManagerError::OfflinePull.into());
         }
@@ -207,7 +213,8 @@ impl Manager {
             crate::oci::validate_single_wasm_layer(&manifest.layers)?;
         }
 
-        let (result, digest, manifest, manifest_id) = self.store.insert(&reference, image).await?;
+        let (result, digest, manifest, manifest_id) =
+            self.store.insert(&reference, image, repair).await?;
 
         // Add to known packages when pulling (with tag if present)
         self.store
@@ -220,9 +227,10 @@ impl Manager {
             .await?;
 
         // Enrichment (tag listing + referrer discovery) hits the network and
-        // only matters when we stored a new manifest. Skip it on cache hits so
+        // only matters when we stored a new manifest, or when repairing one a
+        // previous attempt may not have finished. Skip it on cache hits so
         // re-pulling an already-present version stays local.
-        if result == InsertResult::Inserted {
+        if result == InsertResult::Inserted || repair {
             self.store_related_tags(&reference).await?;
 
             // Best-effort: discover and store referrers (signatures, SBOMs, etc.)
@@ -1205,11 +1213,17 @@ impl Manager {
     }
 
     /// Execute a pull task: download the OCI image for a specific tag.
+    ///
+    /// A task claimed before (a retry after a failure, a recovered task
+    /// whose worker died, or a refetch) may have stopped part-way through,
+    /// after storing the manifest and layers but before extracting WIT or
+    /// fetching referrers. Those pulls repair the stored version instead of
+    /// treating it as a cache hit.
     async fn execute_pull_task(&self, task: &crate::storage::FetchTask) -> anyhow::Result<()> {
         let tag_ref: Reference = format!("{}/{}:{}", task.registry, task.repository, task.tag)
             .parse()
             .map_err(|e| anyhow::anyhow!("invalid reference: {e}"))?;
-        self.pull(tag_ref).await?;
+        self.pull_inner(tag_ref, task.claim > 1).await?;
         Ok(())
     }
 
