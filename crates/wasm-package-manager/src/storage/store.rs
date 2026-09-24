@@ -2889,10 +2889,15 @@ impl Store {
     ) -> anyhow::Result<wasm_meta_registry_types::RegistryStats> {
         use std::collections::BTreeSet;
 
+        // Pre-filter the common non-release tags (`latest`, and the
+        // `sha256-*` signature/attestation tags) in the database; the exact
+        // semver check below still runs in Rust.
         let tags: Vec<(i64, String)> = oci_tag::Entity::find()
             .select_only()
             .column(oci_tag::Column::OciRepositoryId)
             .column(oci_tag::Column::Tag)
+            .filter(oci_tag::Column::Tag.ne("latest"))
+            .filter(oci_tag::Column::Tag.not_like("sha256-%"))
             .into_tuple()
             .all(&self.db)
             .await?;
@@ -3962,7 +3967,13 @@ mod smoke_tests {
         let wasi_tags = ["0.2.0", "0.2.1", "latest"];
         seed_repo(&store, "wasi/http", Some("wasi"), &wasi_tags).await;
         // Repos without any semver tag are not counted.
-        seed_repo(&store, "other/untagged", None, &["latest"]).await;
+        seed_repo(
+            &store,
+            "other/untagged",
+            None,
+            &["latest", "sha256-abc.sig"],
+        )
+        .await;
         store
             .add_known_package("ghcr.io", "other/empty", None, None)
             .await

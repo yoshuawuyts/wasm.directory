@@ -14,6 +14,8 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use wasm_package_manager::manager::Manager;
 
+use crate::stats_cache::{STATS_TTL, StatsCache};
+
 /// Shared application state wrapping a `Manager` in a `tokio::sync::RwLock`.
 ///
 /// All `Manager` query/mutation methods take `&self` and `Manager` performs
@@ -152,9 +154,14 @@ pub fn router(state: AppState) -> Router {
         get(get_package_versions_nested),
     );
 
+    let stats_cache = StatsCache::new(STATS_TTL);
+
     Router::new()
         .route("/v1/health", get(health))
-        .route("/v1/stats", get(get_stats))
+        .route(
+            "/v1/stats",
+            get(move |state: State<AppState>| get_stats(state, stats_cache.clone())),
+        )
         .route("/v1/search", get(search))
         .route("/v1/search/by-import", get(search_by_import))
         .route("/v1/search/by-export", get(search_by_export))
@@ -182,10 +189,17 @@ async fn health() -> impl IntoResponse {
     Json(serde_json::json!({ "status": "ok" }))
 }
 
-/// Aggregate counts over the whole package index.
-async fn get_stats(State(manager): State<AppState>) -> Result<impl IntoResponse, AppError> {
-    let manager = manager.read().await;
-    let stats = manager.registry_stats().await?;
+/// Aggregate counts over the whole package index, cached for [`STATS_TTL`].
+async fn get_stats(
+    State(manager): State<AppState>,
+    cache: StatsCache,
+) -> Result<impl IntoResponse, AppError> {
+    let stats = cache
+        .get_or_compute(|| async {
+            let manager = manager.read().await;
+            manager.registry_stats().await
+        })
+        .await?;
     Ok(Json(stats))
 }
 

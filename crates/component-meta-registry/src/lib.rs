@@ -62,6 +62,7 @@ pub mod config;
 pub mod indexer;
 pub mod registry_file;
 pub mod server;
+pub mod stats_cache;
 
 pub use config::Config;
 pub use indexer::Indexer;
