@@ -5,7 +5,8 @@
 //! (hairline border on `surface`, card elevation — as the hero search card
 //! and install card): a header strip with the mono column title, then rows
 //! divided by `lineSoft` hairlines. A row shows the package name with a muted mono detail on the
-//! right (version or dependents count) and an optional one-line description.
+//! right (version or dependents count) and an optional description of up to
+//! two lines.
 //! Release rows also show how long ago they were published, and new-package
 //! rows how long ago the registry first indexed them.
 //! Cards stack on narrow viewports and sit side by side from `md` up.
@@ -28,7 +29,7 @@ pub(crate) struct ColumnRow {
     pub href: Option<String>,
     /// Muted detail shown on the right (version, dependents count).
     pub detail: String,
-    /// Optional one-line description.
+    /// Optional description, clamped to two lines.
     pub description: Option<String>,
     /// How long ago the row's event happened (a release was published, or
     /// a package was first indexed), when the column tracks one.
@@ -156,20 +157,20 @@ const CARD_CLASS: &str =
 const HEADER_CLASS: &str = "flex items-center h-10 px-4 border-b border-lineSoft";
 const HEADING_CLASS: &str = "text-[12px] mono uppercase tracking-wider text-ink-500";
 const LIST_CLASS: &str = "divide-y divide-lineSoft";
-// Each row is a two-line grid: name and description share a left column
-// that truncates, and labels (version / dependents / age) sit in a right
-// column the description can never run into. Every cell is one fixed-height
-// line and the description cell is always present, so all rows are the same
-// height whether or not they have a description.
+// Each row is a three-line grid: the name (one line) and description (two
+// lines, clamped) share a left column, and labels (version / dependents /
+// age) sit in a right column the description can never run into. Every
+// cell has a fixed height and the description cell is always present, so
+// all rows are the same height however long their description is, or
+// whether they have one at all.
 const ROW_GRID: &str =
     "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-0.5 px-4 py-3";
 const ROW_CLASS: &str = "no-underline hover:bg-surfaceMuted focus-visible:bg-surfaceMuted";
 const NAME_CLASS: &str = "h-5 leading-5 mono text-[14px] font-medium text-ink-900 truncate";
 const DETAIL_CLASS: &str =
     "h-5 leading-5 max-w-[20ch] mono text-[12px] text-ink-500 tabular-nums text-right truncate";
-const DESC_CLASS: &str = "h-5 leading-5 text-[13px] text-ink-500 truncate";
-const TIME_CLASS: &str =
-    "h-5 leading-5 mono text-[12px] text-ink-500 tabular-nums text-right whitespace-nowrap";
+const DESC_CLASS: &str = "col-start-1 row-start-2 row-span-2 self-start h-10 leading-5 text-[13px] text-ink-500 line-clamp-2 break-words";
+const TIME_CLASS: &str = "col-start-2 row-start-2 h-5 leading-5 mono text-[12px] text-ink-500 tabular-nums text-right whitespace-nowrap";
 const NOTE_CLASS: &str = "px-4 py-3 text-[13px] text-ink-500";
 
 /// Render the highlight columns as a full-width landing-page band.
