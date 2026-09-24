@@ -50,6 +50,9 @@ The homepage selects the command using browser platform information, and the
 shell installer detects the OS and architecture locally. The routes do not choose
 scripts based on User-Agent, and there is no generic `/install` endpoint.
 
+Shell examples retain `--proto '=https'` so redirects cannot downgrade script
+retrieval to HTTP; the old TLS-version flag is omitted.
+
 ## Tailwind
 
 Every document loads the unchanged Tailwind **3.4.17** browser runtime from

@@ -167,12 +167,12 @@ fn compose_body(
         InstallOption {
             id: "linux",
             label: "Linux",
-            command: "curl -fsSL https://wasm.directory/install/linux | sh",
+            command: "curl --proto '=https' -fsSL https://wasm.directory/install/linux | sh",
         },
         InstallOption {
             id: "macos",
             label: "macOS",
-            command: "curl -fsSL https://wasm.directory/install/macos | sh",
+            command: "curl --proto '=https' -fsSL https://wasm.directory/install/macos | sh",
         },
         InstallOption {
             id: "windows",
@@ -404,12 +404,12 @@ mod tests {
             (
                 "linux",
                 "Linux",
-                "curl -fsSL https://wasm.directory/install/linux | sh",
+                "curl --proto '=https' -fsSL https://wasm.directory/install/linux | sh",
             ),
             (
                 "macos",
                 "macOS",
-                "curl -fsSL https://wasm.directory/install/macos | sh",
+                "curl --proto '=https' -fsSL https://wasm.directory/install/macos | sh",
             ),
             (
                 "windows",
@@ -417,6 +417,7 @@ mod tests {
                 "irm https://wasm.directory/install/windows | iex",
             ),
         ] {
+            let command = crate::escape::escape_html_attr(command);
             assert!(
                 body.contains(&format!(
                     r#"data-ig-option="{id}" data-label="{label}" data-value="{command}""#
@@ -424,9 +425,12 @@ mod tests {
                 "install step should offer the matching {id} command"
             );
         }
-        assert!(body.contains(
-            r#"data-ig-field readonly value="curl -fsSL https://wasm.directory/install/linux | sh""#
-        ));
+        let linux_command = crate::escape::escape_html_attr(
+            "curl --proto '=https' -fsSL https://wasm.directory/install/linux | sh",
+        );
+        assert!(body.contains(&format!(
+            r#"data-ig-field readonly value="{linux_command}""#
+        )));
         // The remaining steps render their copyable commands.
         for cmd in [
             "component init",

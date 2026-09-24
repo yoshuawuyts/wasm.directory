@@ -7,13 +7,13 @@ This guide covers basic usage patterns for `wasm(1)`, a unified developer tool f
 ### Shell (Linux)
 
 ```bash
-curl -fsSL https://wasm.directory/install/linux | sh
+curl --proto '=https' -fsSL https://wasm.directory/install/linux | sh
 ```
 
 ### Shell (macOS)
 
 ```bash
-curl -fsSL https://wasm.directory/install/macos | sh
+curl --proto '=https' -fsSL https://wasm.directory/install/macos | sh
 ```
 
 ### PowerShell (Windows)

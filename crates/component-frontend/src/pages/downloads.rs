@@ -29,11 +29,11 @@ pub(crate) fn render() -> String {
             d.class("space-y-4")
                 .push(install_command(
                     "Linux:",
-                    "curl -fsSL https://wasm.directory/install/linux | sh",
+                    "curl --proto '=https' -fsSL https://wasm.directory/install/linux | sh",
                 ))
                 .push(install_command(
                     "macOS:",
-                    "curl -fsSL https://wasm.directory/install/macos | sh",
+                    "curl --proto '=https' -fsSL https://wasm.directory/install/macos | sh",
                 ))
                 .push(install_command(
                     "Windows (PowerShell):",
@@ -77,11 +77,11 @@ mod tests {
         for (label, command) in [
             (
                 "Linux:",
-                "curl -fsSL https://wasm.directory/install/linux | sh",
+                "curl --proto '=https' -fsSL https://wasm.directory/install/linux | sh",
             ),
             (
                 "macOS:",
-                "curl -fsSL https://wasm.directory/install/macos | sh",
+                "curl --proto '=https' -fsSL https://wasm.directory/install/macos | sh",
             ),
             (
                 "Windows (PowerShell):",

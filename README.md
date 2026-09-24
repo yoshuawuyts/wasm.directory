@@ -70,13 +70,13 @@ Global Options:
 ### Shell (Linux)
 
 ```sh
-curl -fsSL https://wasm.directory/install/linux | sh
+curl --proto '=https' -fsSL https://wasm.directory/install/linux | sh
 ```
 
 ### Shell (macOS)
 
 ```sh
-curl -fsSL https://wasm.directory/install/macos | sh
+curl --proto '=https' -fsSL https://wasm.directory/install/macos | sh
 ```
 
 ### PowerShell (Windows)
