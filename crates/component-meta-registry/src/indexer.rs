@@ -136,6 +136,13 @@ impl Indexer {
             self.discover_package(source).await;
         }
 
+        // The last packages may have run after the lease was lost, so
+        // re-confirm it before marking the pass complete.
+        if !self.check_leadership().await {
+            warn!("Not recording discovery: indexer lease lost");
+            return;
+        }
+
         // Only refetch on the first cycle.
         self.refetch = false;
 
