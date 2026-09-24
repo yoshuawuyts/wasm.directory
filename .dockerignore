@@ -1,4 +1,6 @@
 target/
 .git/
-scripts/
+scripts/*
+!scripts/install.sh
+!scripts/install.ps1
 .env

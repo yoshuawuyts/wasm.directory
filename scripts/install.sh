@@ -1,8 +1,11 @@
 #!/bin/sh
 # install.sh — Download and install the wasm(1) CLI tool.
 #
-# Usage:
-#   curl --proto '=https' --tlsv1.2 -LsSf https://github.com/yoshuawuyts/wasm.directory/releases/latest/download/install.sh | sh
+# Usage (Linux):
+#   curl -fsSL https://wasm.directory/install/linux | sh
+#
+# Usage (macOS):
+#   curl -fsSL https://wasm.directory/install/macos | sh
 #
 # Options:
 #   --version <VERSION>   Install a specific version (e.g. 0.3.0)

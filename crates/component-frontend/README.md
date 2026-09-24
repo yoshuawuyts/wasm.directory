@@ -32,6 +32,24 @@ Then visit <http://localhost:8080> in your browser.
 - **Data**: Fetched from the `component-meta-registry` API via
   `wstd::http::Client`
 
+## Installers
+
+The `/install/linux` and `/install/macos` routes serve the shared
+`scripts/install.sh`; `/install/windows` serves `scripts/install.ps1`. The
+canonical files are embedded into the component, so rebuild the frontend when
+either script changes. The Docker build includes only these two files from
+`scripts/`; no runtime script directory or registry API is needed.
+
+Each URL serves the exact script as browser-readable plain text, with GET/HEAD
+support and one-hour public caching. GET includes the script's `Content-Length`.
+The shared HTTP adapter omits this optional header from HEAD responses: WASI
+otherwise checks the empty transmitted body against the GET length and rejects
+the response. HEAD keeps the remaining metadata and sends no body.
+
+The homepage selects the command using browser platform information, and the
+shell installer detects the OS and architecture locally. The routes do not choose
+scripts based on User-Agent, and there is no generic `/install` endpoint.
+
 ## Favicon
 
 Every page uses the shared document head's `/favicon.svg`, with `/favicon.ico`

@@ -238,6 +238,18 @@ mod tests {
     }
 
     #[test]
+    fn usage_guide_uses_platform_installer_urls() {
+        let html = render_page("usage").expect("usage guide should be available");
+        for command in [
+            "curl -fsSL https://wasm.directory/install/linux | sh",
+            "curl -fsSL https://wasm.directory/install/macos | sh",
+            "irm https://wasm.directory/install/windows | iex",
+        ] {
+            assert!(html.contains(command), "missing install command {command}");
+        }
+    }
+
+    #[test]
     fn render_page_returns_none_for_unknown_slug() {
         assert!(render_page("does-not-exist").is_none());
     }
