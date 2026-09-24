@@ -9,17 +9,24 @@ use sea_orm::{EntityTrait, FromQueryResult, Statement};
 use wasm_meta_registry_types::{KnownPackage, PackageRelease, PopularPackage};
 use wasm_package_manager_migration::entities::oci_repository;
 
-use self::timeline::{PackageTimeline, RELEASE_ROWS_SQL, ReleaseRow, package_timelines};
+use self::timeline::{
+    PackageTimeline, RELEASE_ROWS_SQL, ReleaseRow, cap_per_publisher, package_timelines,
+};
 use super::{Store, bind_placeholders, known_package_from_repo};
+
+/// Most entries one publisher may occupy in the new-packages and
+/// recent-releases lists, so a bulk publish doesn't drown out everyone else.
+const MAX_PER_PUBLISHER: usize = 2;
 
 impl Store {
     /// List packages by when they were first published, newest first.
     ///
     /// A package's publish date is its earliest semver release, dated by the
     /// publisher's `org.opencontainers.image.created` annotation (falling
-    /// back to when the tag was indexed). Each package appears once, showing
-    /// its latest tags; packages without semver releases are skipped before
-    /// pagination.
+    /// back to when the release was first indexed). Each package appears
+    /// once, showing its latest tags, and each publisher (registry + owner)
+    /// contributes at most [`MAX_PER_PUBLISHER`] packages. Packages without
+    /// semver releases are skipped before pagination.
     pub(crate) async fn list_new_known_packages(
         &self,
         offset: u32,
@@ -30,7 +37,10 @@ impl Store {
         let offset = usize::try_from(offset).unwrap_or(usize::MAX);
         let limit = usize::try_from(limit).unwrap_or(usize::MAX);
         let mut out = Vec::new();
-        for timeline in timelines.into_iter().skip(offset).take(limit) {
+        let page = cap_per_publisher(timelines, MAX_PER_PUBLISHER)
+            .skip(offset)
+            .take(limit);
+        for timeline in page {
             if let Some(package) = self.load_known_package(timeline.latest.repo_id).await? {
                 out.push(package);
             }
@@ -38,22 +48,27 @@ impl Store {
         Ok(out)
     }
 
-    /// List the most recent release of each package, newest first.
+    /// List the most recent update of each package, newest first.
     ///
     /// A release's time is the publisher's `org.opencontainers.image.created`
     /// manifest annotation when present and valid RFC 3339, falling back to
-    /// when this registry first indexed the tag. Only semver tags count, and
-    /// each package appears at most once (with its newest release), so a
-    /// burst of tags from one package can't crowd out everything else.
+    /// when this registry first indexed it. Only semver tags count. A
+    /// package's first release is its debut (see
+    /// [`Self::list_new_known_packages`]), so packages with a single release
+    /// are left out. Each package appears at most once (with its newest
+    /// release) and each publisher at most [`MAX_PER_PUBLISHER`] times, so
+    /// bursts can't crowd out everything else.
     pub(crate) async fn list_recent_releases(
         &self,
         limit: u32,
     ) -> anyhow::Result<Vec<PackageRelease>> {
         let mut timelines = self.package_timelines().await?;
+        timelines.retain(PackageTimeline::has_update);
         timelines.sort_by_key(|t| Reverse(t.latest.sort_key()));
         let limit = usize::try_from(limit).unwrap_or(usize::MAX);
         let mut out = Vec::new();
-        for PackageTimeline { latest, .. } in timelines.into_iter().take(limit) {
+        let page = cap_per_publisher(timelines, MAX_PER_PUBLISHER).take(limit);
+        for PackageTimeline { latest, .. } in page {
             if let Some(package) = self.load_known_package(latest.repo_id).await? {
                 out.push(PackageRelease {
                     package,
@@ -257,17 +272,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn recent_releases_show_each_package_once_newest_first() {
+    async fn recent_releases_skip_debuts_and_show_each_package_once() {
         let store = Store::open_in_memory().await.expect("open store");
         seed_repo(&store, "a", "one", &["1.0.0", "latest", "1.1.0"]).await;
-        seed_repo(&store, "b", "two", &["0.1.0"]).await;
+        seed_repo(&store, "b", "two", &["0.1.0", "0.2.0"]).await;
+        // A package's only release is its debut, covered by new packages.
+        seed_repo(&store, "c", "debut", &["0.1.0"]).await;
 
         let releases = store.list_recent_releases(10).await.expect("query");
         let got: Vec<_> = releases
             .iter()
             .map(|r| (r.package.repository.as_str(), r.version.as_str()))
             .collect();
-        assert_eq!(got, [("b/two", "0.1.0"), ("a/one", "1.1.0")]);
+        assert_eq!(got, [("b/two", "0.2.0"), ("a/one", "1.1.0")]);
 
         let limited = store.list_recent_releases(1).await.expect("query");
         assert_eq!(limited.len(), 1);
@@ -284,9 +301,11 @@ mod tests {
         // published earlier but indexed afterwards.
         seed_release(&store, new_repo, "1.0.0", Some("2001-01-01T00:00:00Z")).await;
         seed_release(&store, new_repo, "0.9.0", Some("1999-01-01T00:00:00Z")).await;
+        seed_release(&store, old_repo, "0.9.0", Some("1998-01-01T00:00:00Z")).await;
         seed_release(&store, old_repo, "1.0.0", Some("2000-01-01T00:00:00Z")).await;
         // Unparseable annotations fall back to index time (now): newest.
-        seed_release(&store, plain_repo, "0.1.0", Some("not a date")).await;
+        seed_release(&store, plain_repo, "0.1.0", Some("1990-01-01T00:00:00Z")).await;
+        seed_release(&store, plain_repo, "0.2.0", Some("not a date")).await;
 
         let releases = store.list_recent_releases(10).await.expect("query");
         let got: Vec<_> = releases
@@ -295,9 +314,31 @@ mod tests {
             .collect();
         assert_eq!(
             got,
-            [("c/plain", "0.1.0"), ("b/new", "1.0.0"), ("a/old", "1.0.0")]
+            [("c/plain", "0.2.0"), ("b/new", "1.0.0"), ("a/old", "1.0.0")]
         );
         assert_eq!(releases[1].released_at, "2001-01-01T00:00:00+00:00");
+    }
+
+    #[tokio::test]
+    async fn highlights_cap_entries_per_publisher() {
+        let store = Store::open_in_memory().await.expect("open store");
+        seed_repo(&store, "solo", "x", &["0.1.0", "0.2.0"]).await;
+        for name in ["a", "b", "c"] {
+            seed_repo(&store, "bulk", name, &["0.1.0", "0.2.0"]).await;
+        }
+
+        let pkgs = store.list_new_known_packages(0, 10).await.expect("query");
+        let names: Vec<_> = pkgs.iter().map(|p| p.repository.as_str()).collect();
+        assert_eq!(names, ["bulk/c", "bulk/b", "solo/x"]);
+        let second = store.list_new_known_packages(2, 1).await.expect("query");
+        assert_eq!(second[0].repository, "solo/x", "offset counts capped list");
+
+        let releases = store.list_recent_releases(10).await.expect("query");
+        let names: Vec<_> = releases
+            .iter()
+            .map(|r| r.package.repository.as_str())
+            .collect();
+        assert_eq!(names, ["bulk/c", "bulk/b", "solo/x"]);
     }
 
     #[tokio::test]

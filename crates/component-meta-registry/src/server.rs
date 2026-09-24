@@ -276,7 +276,7 @@ async fn list_popular_packages(
     Ok(Json(packages))
 }
 
-/// List the latest release of each package, most recently published first.
+/// List the latest update of each package, most recently published first.
 async fn list_recent_releases(
     State(manager): State<AppState>,
     Query(params): Query<ListParams>,

@@ -1006,7 +1006,8 @@ impl Manager {
     }
 
     /// Get known packages ordered by when they were first published (their
-    /// earliest semver release), newest first, one entry per package.
+    /// earliest semver release), newest first, one entry per package and at
+    /// most two per publisher.
     ///
     /// Uses pagination with `offset` and `limit` parameters. The
     /// `dependencies` field of the returned packages is left empty.
@@ -1018,11 +1019,12 @@ impl Manager {
         self.store.list_new_known_packages(offset, limit).await
     }
 
-    /// Get the latest semver release of each package, newest first.
+    /// Get the latest update of each package, newest first.
     ///
     /// Releases are ordered by publish time (the manifest's
     /// `org.opencontainers.image.created` annotation), falling back to when
-    /// the tag was first indexed.
+    /// the release was first indexed. Packages with only their debut release
+    /// are left out, and each publisher appears at most twice.
     ///
     /// The `dependencies` field of the embedded packages is left empty.
     pub async fn list_recent_releases(

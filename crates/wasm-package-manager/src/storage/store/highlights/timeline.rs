@@ -13,7 +13,8 @@ use sea_orm::FromQueryResult;
 /// publisher's creation-time annotation.
 pub(super) const RELEASE_ROWS_SQL: &str = "\
     SELECT t.id AS tag_id, t.oci_repository_id AS repo_id, t.tag AS tag, \
-           t.created_at AS indexed_at, m.oci_created AS oci_created, \
+           t.created_at AS tag_indexed_at, m.created_at AS manifest_indexed_at, \
+           m.oci_created AS oci_created, \
            r.registry AS registry, r.repository AS repository, \
            r.wit_namespace AS wit_namespace, r.wit_name AS wit_name \
     FROM oci_tag t \
@@ -29,7 +30,8 @@ pub(super) struct ReleaseRow {
     pub(super) tag_id: i64,
     pub(super) repo_id: i64,
     pub(super) tag: String,
-    pub(super) indexed_at: DateTime<Utc>,
+    pub(super) tag_indexed_at: DateTime<Utc>,
+    pub(super) manifest_indexed_at: Option<DateTime<Utc>>,
     pub(super) oci_created: Option<String>,
     pub(super) registry: String,
     pub(super) repository: String,
@@ -37,10 +39,31 @@ pub(super) struct ReleaseRow {
     pub(super) wit_name: Option<String>,
 }
 
+impl ReleaseRow {
+    /// When this registry first saw the release's content. Tag rows can be
+    /// recreated (resetting their timestamp), so the manifest's index time
+    /// is preferred when it is earlier.
+    fn indexed_at(&self) -> DateTime<Utc> {
+        self.manifest_indexed_at
+            .map_or(self.tag_indexed_at, |m| m.min(self.tag_indexed_at))
+    }
+
+    /// Who published the release: the registry plus the repository's
+    /// first path segment (e.g. `ghcr.io/bytecodealliance`).
+    fn publisher(&self) -> String {
+        let owner = self
+            .repository
+            .split_once('/')
+            .map_or(self.repository.as_str(), |(owner, _)| owner);
+        format!("{}/{owner}", self.registry)
+    }
+}
+
 /// A single semver release, placed in time.
 #[derive(Clone)]
 pub(super) struct Release {
     pub(super) repo_id: i64,
+    pub(super) publisher: String,
     pub(super) tag_id: i64,
     pub(super) tag: String,
     pub(super) released_at: DateTime<Utc>,
@@ -63,6 +86,12 @@ pub(super) struct PackageTimeline {
 }
 
 impl PackageTimeline {
+    /// Whether the latest release is an update rather than the package's
+    /// debut.
+    pub(super) fn has_update(&self) -> bool {
+        self.latest.tag_id != self.first.tag_id
+    }
+
     fn new(release: Release) -> Self {
         Self {
             first: release.clone(),
@@ -108,8 +137,9 @@ pub(super) fn package_timelines(rows: Vec<ReleaseRow>) -> Vec<PackageTimeline> {
         let key = PackageKey::of(&row);
         let release = Release {
             repo_id: row.repo_id,
+            publisher: row.publisher(),
             tag_id: row.tag_id,
-            released_at: release_time(row.oci_created.as_deref(), row.indexed_at),
+            released_at: release_time(row.oci_created.as_deref(), row.indexed_at()),
             tag: row.tag,
         };
         match by_package.entry(key) {
@@ -122,6 +152,20 @@ pub(super) fn package_timelines(rows: Vec<ReleaseRow>) -> Vec<PackageTimeline> {
     by_package.into_values().collect()
 }
 
+/// Keep at most `max` timelines per publisher (of their latest release),
+/// preserving order, so one bulk publisher can't fill a whole column.
+pub(super) fn cap_per_publisher(
+    timelines: impl IntoIterator<Item = PackageTimeline>,
+    max: usize,
+) -> impl Iterator<Item = PackageTimeline> {
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    timelines.into_iter().filter(move |t| {
+        let count = seen.entry(t.latest.publisher.clone()).or_default();
+        *count += 1;
+        *count <= max
+    })
+}
+
 /// Prefer the publisher-supplied creation time; fall back to index time.
 ///
 /// A release can't have been published after we indexed it, so a
@@ -131,4 +175,50 @@ pub(super) fn release_time(oci_created: Option<&str>, indexed_at: DateTime<Utc>)
     oci_created
         .and_then(|s| DateTime::parse_from_rfc3339(s.trim()).ok())
         .map_or(indexed_at, |t| t.with_timezone(&Utc).min(indexed_at))
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{DateTime, Utc};
+
+    use super::ReleaseRow;
+
+    fn at(s: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(s)
+            .expect("valid timestamp")
+            .with_timezone(&Utc)
+    }
+
+    fn row(repository: &str, tag_at: &str, manifest_at: Option<&str>) -> ReleaseRow {
+        ReleaseRow {
+            tag_id: 1,
+            repo_id: 1,
+            tag: "1.0.0".to_owned(),
+            tag_indexed_at: at(tag_at),
+            manifest_indexed_at: manifest_at.map(at),
+            oci_created: None,
+            registry: "ghcr.io".to_owned(),
+            repository: repository.to_owned(),
+            wit_namespace: None,
+            wit_name: None,
+        }
+    }
+
+    #[test]
+    fn indexed_at_prefers_earliest_sighting() {
+        let recreated_tag = row("a/b", "2026-09-24T00:00:00Z", Some("2026-05-12T00:00:00Z"));
+        assert_eq!(recreated_tag.indexed_at(), at("2026-05-12T00:00:00Z"));
+        let no_manifest = row("a/b", "2026-09-24T00:00:00Z", None);
+        assert_eq!(no_manifest.indexed_at(), at("2026-09-24T00:00:00Z"));
+    }
+
+    #[test]
+    fn publisher_is_registry_and_owner() {
+        let t = "2026-01-01T00:00:00Z";
+        assert_eq!(
+            row("componentized/valkey/cli", t, None).publisher(),
+            "ghcr.io/componentized"
+        );
+        assert_eq!(row("standalone", t, None).publisher(), "ghcr.io/standalone");
+    }
 }
