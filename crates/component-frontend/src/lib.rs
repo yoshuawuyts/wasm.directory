@@ -20,6 +20,7 @@ mod markdown;
 mod pages;
 mod relative_time;
 mod reserved;
+mod tailwind;
 mod wit_doc;
 
 use axum::body::Body;
@@ -49,6 +50,8 @@ fn app() -> Router {
         .route("/robots.txt", get(robots))
         .route("/favicon.svg", get(favicon::svg))
         .route("/favicon.ico", get(favicon::ico))
+        .route(tailwind::PATH, get(tailwind::script))
+        .route(tailwind::LICENSE_PATH, get(tailwind::license))
         .route("/{namespace}/{name}", get(package_redirect))
         .route("/{namespace}/{name}/", get(package_redirect))
         .route("/{namespace}", get(namespace_page))
