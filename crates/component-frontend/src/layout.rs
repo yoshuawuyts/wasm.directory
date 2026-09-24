@@ -16,8 +16,8 @@ pub(crate) const ACCENT_COLOR: &str = "#18181B";
 
 /// Render a complete HTML document with the given title and body content.
 ///
-/// Includes the shared navigation bar, Tailwind CSS via CDN, custom accent
-/// color CSS variables, and footer.
+/// Includes the shared navigation bar, the vendored Tailwind runtime, custom
+/// accent color CSS variables, and footer.
 #[allow(dead_code)]
 #[must_use]
 pub(crate) fn document(title: &str, body_content: &str) -> String {
@@ -137,7 +137,7 @@ fn render_document(title: &str, body_class: &str, body_children: &str) -> String
   <title>{escaped_title} — Wasm Directory</title>
   <link rel="icon" href="/favicon.ico" type="image/vnd.microsoft.icon" sizes="16x16 32x32 48x48">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any">
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="{tailwind_path}"></script>
   <script>
     /* Early theme init — prevent flash of wrong theme */
     (function() {{
@@ -1030,6 +1030,7 @@ fn render_document(title: &str, body_class: &str, body_children: &str) -> String
 </body>
 </html>"#,
         escaped_title = escaped_title,
+        tailwind_path = crate::tailwind::PATH,
         body_class = body_class,
         body_children = body_children,
         search_modal = crate::components::ds::navbar::render_search_modal(),
@@ -1046,7 +1047,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_document_layout_includes_favicons_in_its_head() {
+    fn every_document_layout_includes_local_assets_in_its_head() {
         let documents = [
             document("Basic", "<p>Body</p>"),
             document_with_nav("Navigation", "<p>Body</p>"),
@@ -1056,6 +1057,7 @@ mod tests {
             crate::pages::not_found::render(),
             crate::pages::error::render("Registry unavailable"),
         ];
+        let script = format!(r#"<script src="{}"></script>"#, crate::tailwind::PATH);
         for document in documents {
             let head = document
                 .split_once("<head>")
@@ -1064,6 +1066,20 @@ mod tests {
                 .split_once("</head>")
                 .expect("document head should close")
                 .0;
+            assert_eq!(head.matches(script.as_str()).count(), 1);
+            assert_eq!(document.matches(crate::tailwind::PATH).count(), 1);
+            assert!(!head.contains("cdn.tailwindcss.com"));
+            let script_start = head
+                .find(script.as_str())
+                .expect("Tailwind script should be in the head");
+            let theme_start = head
+                .find("localStorage.getItem('ds-theme')")
+                .expect("early theme initialization should be in the head");
+            let config_start = head
+                .find("tailwind.config =")
+                .expect("Tailwind configuration should be in the head");
+            assert!(script_start < theme_start);
+            assert!(theme_start < config_start);
             for link in [
                 r#"<link rel="icon" href="/favicon.ico" type="image/vnd.microsoft.icon" sizes="16x16 32x32 48x48">"#,
                 r#"<link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any">"#,
@@ -1083,7 +1099,7 @@ mod tests {
     fn document_includes_expected_rendering_and_styling_primitives() {
         let html = document("Home", "<p>Body</p>");
         assert!(html.contains("<html lang=\"en\""));
-        assert!(html.contains("https://cdn.tailwindcss.com"));
+        assert!(html.contains(crate::tailwind::PATH));
         assert!(html.contains(ACCENT_COLOR));
         assert!(html.contains("<meta name=\"viewport\""));
         assert!(html.contains("bg-canvas text-ink-900"));
