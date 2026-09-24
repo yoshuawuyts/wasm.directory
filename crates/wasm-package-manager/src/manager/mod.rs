@@ -1188,10 +1188,19 @@ impl Manager {
             "Processing fetch task"
         );
 
-        let result = match task.kind {
-            FetchTaskKind::Pull => self.execute_pull_task(&task).await,
-            FetchTaskKind::Reindex => self.execute_reindex_task(&task).await,
+        // The timeout guarantees this worker stops touching the task before
+        // `recover_in_progress_tasks` could hand it to another worker. A pull
+        // cut short is repaired when the task is retried.
+        let work = async {
+            match task.kind {
+                FetchTaskKind::Pull => self.execute_pull_task(&task).await,
+                FetchTaskKind::Reindex => self.execute_reindex_task(&task).await,
+            }
         };
+        let timeout = std::time::Duration::from_secs(index::TASK_TIMEOUT_SECS);
+        let result = tokio::time::timeout(timeout, work)
+            .await
+            .unwrap_or_else(|_| Err(anyhow::anyhow!("task timed out after {timeout:?}")));
 
         match result {
             Ok(()) => {

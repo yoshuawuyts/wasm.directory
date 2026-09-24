@@ -14,6 +14,15 @@ const LAST_DISCOVERY_KEY: &str = "indexer_last_discovery_at";
 /// abandoned by a worker that died.
 const STALE_TASK_SECS: u64 = 15 * 60;
 
+/// Longest a worker may spend on a single fetch task before giving up.
+///
+/// Kept well below [`STALE_TASK_SECS`] so a live worker has always
+/// abandoned a task (and stopped writing for it) before anyone else can
+/// recover and claim it again.
+pub(super) const TASK_TIMEOUT_SECS: u64 = 10 * 60;
+
+const _: () = assert!(TASK_TIMEOUT_SECS < STALE_TASK_SECS);
+
 impl Manager {
     /// Discover a package's tags and enqueue every version not seen before.
     ///
@@ -76,8 +85,9 @@ impl Manager {
     /// the `pending` state. Returns the number of tasks recovered.
     ///
     /// A task counts as abandoned once it has been `in_progress` for longer
-    /// than [`STALE_TASK_SECS`], which is far longer than any single pull,
-    /// so a task another live worker is running is left alone.
+    /// than [`STALE_TASK_SECS`]. Workers time out after
+    /// [`TASK_TIMEOUT_SECS`], so a task another live worker is running is
+    /// left alone.
     ///
     /// # Errors
     ///
