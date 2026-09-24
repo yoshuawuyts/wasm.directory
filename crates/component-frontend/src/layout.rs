@@ -139,16 +139,7 @@ fn render_document(title: &str, body_class: &str, body_children: &str) -> String
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
-    /* Early theme init — prevent flash of wrong theme */
-    (function() {{
-      var t = localStorage.getItem('ds-theme');
-      if (t === 'dark' || t === 'light') {{
-        document.documentElement.setAttribute('data-theme', t);
-        document.documentElement.style.background = t === 'dark' ? '#1C1C20' : '#F4F4F5';
-      }} else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {{
-        document.documentElement.style.background = '#1C1C20';
-      }}
-    }})();
+    {theme_init}
   </script>
   <script>
     tailwind.config = {{
@@ -412,7 +403,7 @@ fn render_document(title: &str, body_class: &str, body_children: &str) -> String
       ::view-transition-new(root) {{
         animation: none;
       }}
-      .theme-toggle-knob {{
+      .theme-toggle {{
         transition: none !important;
       }}
     }}
@@ -956,76 +947,7 @@ fn render_document(title: &str, body_class: &str, body_children: &str) -> String
     }})();
   </script>
   <script>
-    /* Theme toggle */
-    (function() {{
-      var triggers = Array.prototype.slice.call(document.querySelectorAll('.theme-toggle'));
-      if (triggers.length === 0) return;
-      var root = document.documentElement;
-      var mq = window.matchMedia('(prefers-color-scheme: dark)');
-      var stored = localStorage.getItem('ds-theme');
-      var explicit = (stored === 'dark' || stored === 'light') ? stored : null;
-
-      function systemMode() {{
-        return mq.matches ? 'dark' : 'light';
-      }}
-
-      function effectiveMode() {{
-        return explicit || systemMode();
-      }}
-
-      function updateControls() {{
-        var mode = effectiveMode();
-        document.querySelectorAll('.theme-icon').forEach(function(el) {{ el.style.display = 'none'; }});
-        document.querySelectorAll('.theme-icon-' + mode).forEach(function(el) {{ el.style.display = ''; }});
-        triggers.forEach(function(trigger) {{
-          var next = mode === 'dark' ? 'light' : 'dark';
-          var label = explicit
-            ? 'Use system color theme'
-            : 'Use ' + next + ' color theme';
-          var knob = trigger.querySelector('.theme-toggle-knob');
-          trigger.setAttribute('aria-label', label);
-          trigger.setAttribute('aria-pressed', explicit ? 'true' : 'false');
-          trigger.setAttribute('title', label);
-          trigger.style.borderColor = explicit ? 'var(--c-ink-900)' : '';
-          trigger.style.backgroundColor = explicit ? 'var(--c-surface-muted)' : '';
-          if (knob) {{
-            knob.style.transform = mode === 'dark' ? 'translateX(22px)' : 'translateX(2px)';
-          }}
-        }});
-      }}
-
-      function apply(mode) {{
-        explicit = mode;
-        if (explicit) {{
-          root.setAttribute('data-theme', explicit);
-          root.style.background = explicit === 'dark' ? '#1C1C20' : '#F4F4F5';
-          localStorage.setItem('ds-theme', explicit);
-        }} else {{
-          root.removeAttribute('data-theme');
-          root.style.background = mq.matches ? '#1C1C20' : '#F4F4F5';
-          localStorage.removeItem('ds-theme');
-        }}
-        updateControls();
-      }}
-
-      updateControls();
-      triggers.forEach(function(trigger) {{
-        trigger.addEventListener('click', function() {{
-          if (explicit) {{
-            apply(null);
-          }} else {{
-            apply(effectiveMode() === 'dark' ? 'light' : 'dark');
-          }}
-        }});
-      }});
-
-      mq.addEventListener('change', function() {{
-        if (!explicit) {{
-          root.style.background = mq.matches ? '#1C1C20' : '#F4F4F5';
-          updateControls();
-        }}
-      }});
-    }})();
+    {theme_controls}
   </script>
 </body>
 </html>"#,
@@ -1033,6 +955,8 @@ fn render_document(title: &str, body_class: &str, body_children: &str) -> String
         body_class = body_class,
         body_children = body_children,
         search_modal = crate::components::ds::navbar::render_search_modal(),
+        theme_init = include_str!("theme/init.js"),
+        theme_controls = include_str!("theme/controls.js"),
     )
 }
 
@@ -1044,6 +968,31 @@ fn escape_html_text(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_theme_scripts_run_in_head_and_after_controls() {
+        let html = crate::pages::design_system::render();
+        let (head, body) = html
+            .split_once("</head>")
+            .expect("document head should close");
+        let init = include_str!("theme/init.js");
+        let controls = include_str!("theme/controls.js");
+        assert_eq!(head.matches(init).count(), 1);
+        assert!(!head.contains(controls));
+        assert_eq!(body.matches(controls).count(), 1);
+        assert!(!body.contains(init));
+        let button = crate::components::ds::navbar::theme_toggle();
+        assert_eq!(body.matches(&button).count(), 4);
+        assert!(
+            body.rfind(&button)
+                .expect("page should contain theme buttons")
+                < body
+                    .find(controls)
+                    .expect("page should contain theme script")
+        );
+        assert!(head.contains(".theme-toggle {\n        transition: none !important;"));
+        assert!(!html.contains("theme-toggle-knob"));
+    }
 
     #[test]
     fn every_document_layout_includes_favicons_in_its_head() {
@@ -1094,7 +1043,8 @@ mod tests {
         assert!(html.contains("prefers-color-scheme: dark"));
         assert!(html.contains("data-theme"));
         assert!(html.contains("document.querySelectorAll('.theme-toggle')"));
-        assert!(html.contains("localStorage.removeItem('ds-theme')"));
+        assert!(html.contains("localStorage.setItem('ds-theme', explicit)"));
+        assert!(!html.contains("localStorage.removeItem('ds-theme')"));
         assert!(!html.contains("theme-menu"));
     }
 }

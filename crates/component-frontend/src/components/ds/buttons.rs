@@ -28,7 +28,8 @@ const SVG_UPLOAD: &str = concat!(
     "</svg>"
 );
 
-const ICON_BTN: &str =
+/// Shared compact icon-button styling.
+pub(super) const ICON_BUTTON_CLASS: &str =
     "h-8 w-8 grid place-items-center rounded-md hover:bg-surfaceMuted text-ink-700";
 
 #[allow(dead_code)]
@@ -103,9 +104,9 @@ pub(crate) fn render(section_id: &str, num: &str, title: &str, desc: &str) -> St
             d.heading_3(|h| h.class("text-[13px] mono uppercase tracking-wider text-ink-500 mb-3").text("Icon"))
                 .division(|g| {
                     g.class("flex items-center gap-1")
-                        .button(|b| b.class(ICON_BTN).text(SVG_FILTER))
-                        .button(|b| b.class(ICON_BTN).text(SVG_SAVE))
-                        .button(|b| b.class(ICON_BTN).text(SVG_UPLOAD))
+                        .button(|b| b.class(ICON_BUTTON_CLASS).text(SVG_FILTER))
+                        .button(|b| b.class(ICON_BUTTON_CLASS).text(SVG_SAVE))
+                        .button(|b| b.class(ICON_BUTTON_CLASS).text(SVG_UPLOAD))
                 })
         })
         .build()
