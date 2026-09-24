@@ -21,7 +21,14 @@ mod tests {
 
     #[tokio::test]
     async fn head_preserves_get_metadata_except_optional_content_length() {
-        for path in ["/favicon.svg", "/favicon.ico", "/robots.txt", "/downloads"] {
+        for path in [
+            "/favicon.svg",
+            "/favicon.ico",
+            "/robots.txt",
+            "/downloads",
+            crate::tailwind::PATH,
+            crate::tailwind::LICENSE_PATH,
+        ] {
             let get = Request::builder()
                 .uri(path)
                 .body(Body::empty())

@@ -22,6 +22,7 @@ mod pages;
 mod relative_time;
 mod reserved;
 mod server;
+mod tailwind;
 mod wit_doc;
 
 use axum::body::Body;
@@ -54,6 +55,8 @@ fn app() -> Router {
         .route("/install/linux", get(install::shell))
         .route("/install/macos", get(install::shell))
         .route("/install/windows", get(install::windows))
+        .route(tailwind::PATH, get(tailwind::script))
+        .route(tailwind::LICENSE_PATH, get(tailwind::license))
         .route("/{namespace}/{name}", get(package_redirect))
         .route("/{namespace}/{name}/", get(package_redirect))
         .route("/{namespace}", get(namespace_page))

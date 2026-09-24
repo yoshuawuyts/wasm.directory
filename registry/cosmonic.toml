@@ -1,0 +1,8 @@
+[namespace]
+name = "cosmonic"
+registry = "ghcr.io/cosmonic-labs"
+
+# cosmonic-labs/librdkafka
+[[interface]]
+name = "kafka"
+repository = "cosmonic/kafka"
