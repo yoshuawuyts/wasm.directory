@@ -167,9 +167,16 @@ impl RegistryClient {
 
     /// Fetch aggregate package, namespace, and version counts for the
     /// whole index.
+    ///
+    /// Returns an error for non-success HTTP responses, even when their
+    /// bodies contain valid stats.
     pub async fn fetch_stats(&self) -> Result<RegistryStats, ApiError> {
         let url = format!("{}/v1/stats", self.base_url);
-        let bytes = self.get(&url).await?;
+        let bytes = self.get_with_status(&url).await?.ok_or_else(|| {
+            ApiError::new(format!(
+                "registry API returned unexpected status 404 Not Found for {url}"
+            ))
+        })?;
         serde_json::from_slice(&bytes).map_err(|e| {
             ApiError::new(format!(
                 "received an unexpected response from the registry: {e}"
@@ -827,6 +834,48 @@ mod tests {
             msg.contains("boom"),
             "error should include response body for debugging"
         );
+    }
+
+    #[cfg(not(all(target_os = "wasi", target_env = "p2")))]
+    #[tokio::test]
+    async fn fetch_stats_rejects_non_success_responses_with_valid_stats() {
+        let body = r#"{"packages":245,"namespaces":2,"versions":1000}"#;
+        for status in [
+            "302 Found",
+            "400 Bad Request",
+            "404 Not Found",
+            "500 Internal Server Error",
+            "503 Service Unavailable",
+        ] {
+            let base = spawn_single_response_server(status, body, "application/json");
+            let client = RegistryClient::new(base);
+            let err = client
+                .fetch_stats()
+                .await
+                .expect_err("failed HTTP responses must not supply registry stats");
+            assert!(err.to_string().contains(status));
+        }
+    }
+
+    #[cfg(not(all(target_os = "wasi", target_env = "p2")))]
+    #[tokio::test]
+    async fn fetch_stats_accepts_success_responses_with_valid_stats() {
+        let body = r#"{"packages":245,"namespaces":2,"versions":1000}"#;
+        for status in ["200 OK", "202 Accepted"] {
+            let base = spawn_single_response_server(status, body, "application/json");
+            let stats = RegistryClient::new(base)
+                .fetch_stats()
+                .await
+                .expect("successful HTTP responses should supply registry stats");
+            assert_eq!(
+                stats,
+                RegistryStats {
+                    packages: 245,
+                    namespaces: 2,
+                    versions: 1000,
+                }
+            );
+        }
     }
 
     /// An unreachable registry must fail fast rather than burning through the

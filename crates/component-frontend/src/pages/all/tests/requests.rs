@@ -67,6 +67,10 @@ async fn failed_or_malformed_stats_do_not_hide_packages() {
             "503 Service Unavailable",
             r#"{"error":"stats unavailable"}"#.to_owned(),
         ),
+        (
+            "503 Service Unavailable",
+            r#"{"packages":245,"namespaces":2,"versions":1000}"#.to_owned(),
+        ),
         ("200 OK", "not valid stats JSON".to_owned()),
     ] {
         let (html, requests) = render_with_responses(vec![package_response(), response]).await;
