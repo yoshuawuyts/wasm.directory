@@ -410,6 +410,9 @@ fn render_document(title: &str, body_class: &str, body_children: &str) -> String
       ::view-transition-new(root) {{
         animation: none;
       }}
+      .theme-toggle-knob {{
+        transition: none !important;
+      }}
     }}
     /* Card hover — pop out with scale, shadow, and strong border */
     .card-lift {{
