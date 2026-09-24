@@ -54,13 +54,6 @@ fn render_packages(
             })
         });
     } else {
-        body.division(|div| {
-            div.class(package_row::HEADER_CLASS)
-                .span(|s| s.class("w-48 shrink-0").text("Package"))
-                .span(|s| s.class("w-20 shrink-0").text("Version"))
-                .span(|s| s.text("Description"))
-        });
-
         let mut list = Division::builder();
         list.class("divide-y divide-lineSoft");
         for pkg in packages {
@@ -70,4 +63,21 @@ fn render_packages(
     }
 
     layout::document_with_nav(namespace, &body.build().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn renders_flowing_rows_without_column_headings() {
+        let packages: Vec<_> = package_row::tests::packages()
+            .into_iter()
+            .filter(|pkg| pkg.wit_namespace.as_deref() == Some("example"))
+            .collect();
+        let refs: Vec<_> = packages.iter().collect();
+        let html = render_packages("example", &refs);
+        package_row::tests::assert_listing(&html, &packages);
+        assert!(html.contains("3 packages"));
+    }
 }

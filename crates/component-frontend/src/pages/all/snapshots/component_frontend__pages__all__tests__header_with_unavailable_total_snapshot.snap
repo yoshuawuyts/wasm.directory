@@ -1,0 +1,5 @@
+---
+source: crates/component-frontend/src/pages/all/tests.rs
+expression: "render_header(100, None).to_string()"
+---
+<div class="pt-8 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2 pb-6 border-b-[1.5px] border-rule mb-6"><h1 class="text-[28px] leading-[1.15] font-semibold tracking-tight">All Packages</h1><span class="text-[13px] text-ink-500 mt-2">showing 100 results (total unavailable)</span></div>

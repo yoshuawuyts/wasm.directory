@@ -64,14 +64,6 @@ fn render_results(query: &str, packages: &[KnownPackage]) -> String {
                 })
         });
     } else {
-        // Table-style header
-        body.division(|div| {
-            div.class(package_row::HEADER_CLASS)
-                .span(|s| s.class("w-48 shrink-0").text("Name"))
-                .span(|s| s.class("w-20 shrink-0").text("Version"))
-                .span(|s| s.text("Description"))
-        });
-
         let mut list = Division::builder();
         list.class("divide-y divide-lineSoft");
         for pkg in packages {
@@ -121,27 +113,12 @@ fn render_search_form(query: &str) -> Division {
 mod tests {
     use super::*;
 
-    fn package_without_wit() -> KnownPackage {
-        KnownPackage {
-            registry: "ghcr.io".to_string(),
-            repository: "example/no-wit".to_string(),
-            kind: None,
-            description: Some("demo".to_string()),
-            tags: vec!["1.0.0".to_string()],
-            signature_tags: vec![],
-            attestation_tags: vec![],
-            last_seen_at: "2026-01-01T00:00:00Z".to_string(),
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-            wit_namespace: None,
-            wit_name: None,
-            dependencies: vec![],
-        }
-    }
-
     #[test]
-    fn non_wit_rows_render_as_non_links() {
-        let html = package_row::render(&package_without_wit()).to_string();
-        assert!(!html.contains("href=\"#\""));
-        assert!(!html.contains("<a "));
+    fn renders_flowing_rows_without_column_headings() {
+        let packages = package_row::tests::packages();
+        let html = render_results("example", &packages);
+        package_row::tests::assert_listing(&html, &packages);
+        assert!(html.contains("4 results found"));
+        assert!(html.contains("value=\"example\""));
     }
 }

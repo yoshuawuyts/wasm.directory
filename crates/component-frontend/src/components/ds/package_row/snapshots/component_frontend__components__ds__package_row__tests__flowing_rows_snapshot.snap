@@ -1,0 +1,86 @@
+---
+source: crates/component-frontend/src/components/ds/package_row/tests.rs
+expression: "crate::components::ds::pretty_html(&rows.build().to_string())"
+---
+<div class="divide-y divide-lineSoft">
+  <div>
+    <a href="/example/http" class="flex flex-wrap items-center gap-x-3 gap-y-1 py-3 -mx-2 px-2 hover:bg-surfaceMuted transition-colors motion-reduce:transition-none">
+      <span class="min-w-0 max-w-full font-medium text-ink-900 truncate">
+        example:http
+      </span>
+      <span class="shrink-0">
+        <span class="inline-flex items-center gap-1.5 px-2 h-6 rounded-pill text-[11px] font-medium bg-cat-blue text-cat-blueInk">
+          <span class="h-1.5 w-1.5 rounded-full bg-cat-blueInk">
+          </span>
+          Interface
+        </span>
+      </span>
+      <span class="min-w-0 max-w-full text-[12px] sm:text-[13px] text-ink-400 [overflow-wrap:anywhere]">
+        0.2.0
+      </span>
+      <span class="min-w-0 max-w-full text-[13px] text-ink-500 truncate">
+        HTTP
+        <strong>
+          interfaces
+        </strong>
+      </span>
+    </a>
+  </div>
+  <div>
+    <a href="/example/atlassian" class="flex flex-wrap items-center gap-x-3 gap-y-1 py-3 -mx-2 px-2 hover:bg-surfaceMuted transition-colors motion-reduce:transition-none">
+      <span class="min-w-0 max-w-full font-medium text-ink-900 truncate">
+        example:atlassian
+      </span>
+      <span class="shrink-0">
+        <span class="inline-flex items-center gap-1.5 px-2 h-6 rounded-pill text-[11px] font-medium bg-cat-green text-cat-greenInk">
+          <span class="h-1.5 w-1.5 rounded-full bg-cat-greenInk">
+          </span>
+          Component
+        </span>
+      </span>
+      <span class="min-w-0 max-w-full text-[12px] sm:text-[13px] text-ink-400 [overflow-wrap:anywhere]">
+        0.5.0_atlassian-1001.0.0-SNAPSHOT
+      </span>
+      <span class="min-w-0 max-w-full text-[13px] text-ink-500 truncate">
+        WebAssembly component bindings for the atlassian API, generated from an OpenAPI document.
+      </span>
+    </a>
+  </div>
+  <div class="flex flex-wrap items-center gap-x-3 gap-y-1 py-3 -mx-2 px-2">
+    <span class="min-w-0 max-w-full font-medium text-ink-900 truncate">
+      example/long-repository-name-long-repository-name-long-repository-name-long-repository-name-long-repository-name-long-repository-name-long-repository-name-long-repository-name-
+    </span>
+    <span class="shrink-0">
+      <span class="inline-flex items-center gap-1.5 px-2 h-6 rounded-pill text-[11px] font-medium bg-cat-slate text-cat-slateInk">
+        <span class="h-1.5 w-1.5 rounded-full bg-cat-slateInk">
+        </span>
+        Package
+      </span>
+    </span>
+    <span class="min-w-0 max-w-full text-[12px] sm:text-[13px] text-ink-400 [overflow-wrap:anywhere]">
+      1.0.0-rc.1+abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh
+    </span>
+    <span class="min-w-0 max-w-full text-[13px] text-ink-500 truncate">
+      UnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescription
+    </span>
+  </div>
+  <div>
+    <a href="/example/empty" class="flex flex-wrap items-center gap-x-3 gap-y-1 py-3 -mx-2 px-2 hover:bg-surfaceMuted transition-colors motion-reduce:transition-none">
+      <span class="min-w-0 max-w-full font-medium text-ink-900 truncate">
+        example:empty
+      </span>
+      <span class="shrink-0">
+        <span class="inline-flex items-center gap-1.5 px-2 h-6 rounded-pill text-[11px] font-medium bg-cat-slate text-cat-slateInk">
+          <span class="h-1.5 w-1.5 rounded-full bg-cat-slateInk">
+          </span>
+          Package
+        </span>
+      </span>
+      <span class="min-w-0 max-w-full text-[12px] sm:text-[13px] text-ink-400 [overflow-wrap:anywhere]">
+        —
+      </span>
+      <span class="min-w-0 max-w-full text-[13px] text-ink-500 truncate">
+      </span>
+    </a>
+  </div>
+</div>

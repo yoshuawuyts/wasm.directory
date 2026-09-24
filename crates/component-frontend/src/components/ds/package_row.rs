@@ -1,13 +1,16 @@
 //! Package row component.
 //!
-//! List-style row for search results and all-packages pages. Shows name,
-//! version, and description in a responsive flex layout.
+//! List-style row for search results, namespaces, and all-packages pages.
+//! Fields flow inline and wrap at every viewport width; versions remain
+//! fully visible even when a tag is wider than the row.
 
 use html::inline_text::Span;
 use html::text_content::Division;
 use wasm_meta_registry_client::{KnownPackage, PackageKind};
 
 use super::badges;
+
+const ROW_CLASS: &str = "flex flex-wrap items-center gap-x-3 gap-y-1 py-3 -mx-2 px-2";
 
 /// Render a package as a list row (name · version · description).
 pub(crate) fn render(pkg: &KnownPackage) -> Division {
@@ -20,26 +23,30 @@ pub(crate) fn render(pkg: &KnownPackage) -> Division {
         spans(&display_name, version, description, name_color);
     let kind_span = kind_badge(pkg.kind);
 
-    if let Some(href) = href {
-        let mut row = Division::builder();
-        row.anchor(|a| {
-            a.href(href)
-                .class("flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-1 py-3 hover:bg-surfaceMuted -mx-2 px-2 transition-colors")
+    let mut row = Division::builder();
+    match href {
+        Some(href) => {
+            let class = format!(
+                "{ROW_CLASS} hover:bg-surfaceMuted transition-colors motion-reduce:transition-none"
+            );
+            row.anchor(|a| {
+                a.href(href)
+                    .class(class)
+                    .push(name_span)
+                    .push(kind_span)
+                    .push(version_span)
+                    .push(description_span)
+            });
+        }
+        None => {
+            row.class(ROW_CLASS)
                 .push(name_span)
                 .push(kind_span)
                 .push(version_span)
-                .push(description_span)
-        });
-        row.build()
-    } else {
-        let mut row = Division::builder();
-        row.class("flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-1 py-3 -mx-2 px-2")
-            .push(name_span)
-            .push(kind_span)
-            .push(version_span)
-            .push(description_span);
-        row.build()
+                .push(description_span);
+        }
     }
+    row.build()
 }
 
 /// Extract display name and optional href from a package.
@@ -50,7 +57,7 @@ fn identity(pkg: &KnownPackage) -> (String, Option<String>) {
     }
 }
 
-/// Build the three column spans for a package row.
+/// Build the text spans for a package row.
 fn spans(
     display_name: &str,
     version: &str,
@@ -60,16 +67,16 @@ fn spans(
     [
         Span::builder()
             .class(format!(
-                "sm:w-96 sm:shrink-0 font-medium {name_color_class} truncate"
+                "min-w-0 max-w-full font-medium {name_color_class} truncate"
             ))
             .text(display_name.to_owned())
             .build(),
         Span::builder()
-            .class("text-[12px] sm:text-[13px] text-ink-400 sm:w-20 sm:shrink-0")
+            .class("min-w-0 max-w-full text-[12px] sm:text-[13px] text-ink-400 [overflow-wrap:anywhere]")
             .text(version.to_owned())
             .build(),
         Span::builder()
-            .class("text-[13px] text-ink-500 truncate")
+            .class("min-w-0 max-w-full text-[13px] text-ink-500 truncate")
             .text(crate::markdown::render_inline(description))
             .build(),
     ]
@@ -95,12 +102,8 @@ fn kind_badge(kind: Option<PackageKind>) -> Span {
         ),
     };
     let badge = badges::status_badge(badge_class, dot_class, label);
-    Span::builder()
-        .class("sm:w-28 sm:shrink-0")
-        .push(badge)
-        .build()
+    Span::builder().class("shrink-0").push(badge).build()
 }
 
-/// Class string for the table header row above package rows.
-pub(crate) const HEADER_CLASS: &str =
-    "hidden sm:flex items-center gap-3 px-2 pb-2 text-[13px] text-ink-400";
+#[cfg(test)]
+pub(crate) mod tests;

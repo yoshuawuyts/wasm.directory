@@ -9,31 +9,71 @@ use crate::components::ds::package_row;
 use crate::layout;
 use wasm_meta_registry_client::{ApiError, RegistryClient};
 
-/// Fetch all packages and render a paginated list.
+/// Fetch a package page and the index-wide total, then render the list.
 pub(crate) async fn render(client: &RegistryClient, offset: u32, limit: u32) -> String {
     match client.fetch_all_packages(offset, limit).await {
-        Ok(packages) => render_packages(&packages, offset, limit),
+        Ok(packages) => {
+            let total = fetch_total(client).await;
+            render_packages(&packages, total, offset, limit)
+        }
         Err(err) => render_error(&err, offset, limit),
     }
 }
 
-/// Render the package listing page.
-fn render_packages(packages: &[KnownPackage], offset: u32, limit: u32) -> String {
+/// A stats failure must not hide a successfully fetched package page.
+async fn fetch_total(client: &RegistryClient) -> Option<u64> {
+    match client.fetch_stats().await {
+        Ok(stats) => Some(stats.packages),
+        Err(err) => {
+            eprintln!("component-frontend: all packages total unavailable: {err}");
+            None
+        }
+    }
+}
+
+/// Render a page count without inventing a total when stats are unavailable.
+fn result_summary(page_count: usize, total: Option<u64>) -> String {
+    let page_count = u64::try_from(page_count).expect("package page count should fit in u64");
+    let total = match total {
+        Some(total) if total < page_count => {
+            eprintln!(
+                "component-frontend: all packages total {total} is smaller than page count {page_count}"
+            );
+            None
+        }
+        total => total,
+    };
+    match total {
+        Some(1) => format!("showing {page_count} of 1 result"),
+        Some(total) => format!("showing {page_count} of {total} results"),
+        None if page_count == 1 => "showing 1 result (total unavailable)".to_owned(),
+        None => format!("showing {page_count} results (total unavailable)"),
+    }
+}
+
+fn render_header(page_count: usize, total: Option<u64>) -> Division {
+    Division::builder()
+        .class("pt-8 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2 pb-6 border-b-[1.5px] border-rule mb-6")
+        .heading_1(|h1| {
+            h1.class(crate::components::ds::typography::H1_CLASS)
+                .text("All Packages")
+        })
+        .span(|s| {
+            s.class(crate::components::ds::typography::SUBTITLE_CLASS)
+                .text(result_summary(page_count, total))
+        })
+        .build()
+}
+
+/// Render the package listing page with an optional index-wide total.
+fn render_packages(
+    packages: &[KnownPackage],
+    total: Option<u64>,
+    offset: u32,
+    limit: u32,
+) -> String {
     let mut body = Division::builder();
-
-    // Page header with count
-    body.division(|div| {
-        div.class("pt-8 flex items-baseline justify-between pb-6 border-b-[1.5px] border-rule mb-6")
-            .heading_1(|h1| {
-                h1.class(crate::components::ds::typography::H1_CLASS)
-                    .text("All Packages")
-            })
-            .span(|s| {
-                s.class(crate::components::ds::typography::SUBTITLE_CLASS)
-                    .text(format!("showing {} packages", packages.len()))
-            })
-    });
-
+    body.push(render_header(packages.len(), total));
     if packages.is_empty() {
         body.division(|div| {
             div.class("py-16 text-center").paragraph(|p| {
@@ -42,15 +82,6 @@ fn render_packages(packages: &[KnownPackage], offset: u32, limit: u32) -> String
             })
         });
     } else {
-        // Table-style header
-        body.division(|div| {
-            div.class(package_row::HEADER_CLASS)
-                .span(|s| s.class("w-96 shrink-0").text("Package"))
-                .span(|s| s.class("w-28 shrink-0").text("Kind"))
-                .span(|s| s.class("w-20 shrink-0").text("Version"))
-                .span(|s| s.text("Description"))
-        });
-
         let mut list = Division::builder();
         list.class("divide-y divide-lineSoft");
         for pkg in packages {
@@ -181,20 +212,4 @@ fn render_pagination_controls(state: &PaginationState) -> Division {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    // r[verify frontend.pages.all]
-    #[test]
-    fn pagination_state_calculates_prev_and_next_offsets() {
-        const PAGE_SIZE: u32 = 100;
-        const SECOND_PAGE_OFFSET: u32 = 100;
-        let state = PaginationState::new(100, SECOND_PAGE_OFFSET, PAGE_SIZE);
-        assert_eq!(state.prev_offset, 0);
-        assert_eq!(state.next_offset, 200);
-        assert!(state.has_prev);
-        assert!(state.has_next);
-        assert_eq!(state.start, 101);
-        assert_eq!(state.end, 200);
-    }
-}
+mod tests;
