@@ -1216,6 +1216,7 @@ version = "0.3.0"
 dependencies = [
  "anyhow",
  "axum",
+ "chrono",
  "clap",
  "dirs 6.0.0",
  "reqwest 0.13.4",

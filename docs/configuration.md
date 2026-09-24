@@ -160,7 +160,9 @@ support both SQLite and PostgreSQL.
   opening the database.
 - **PostgreSQL**: migrations are also applied automatically when
   opening the database. The migration step is serialized with a
-  Postgres advisory lock so concurrent replicas can boot safely.
+  Postgres advisory lock so concurrent replicas can boot safely. A
+  second advisory lock elects a single replica to run the
+  meta-registry's background indexer.
 
 ## Environment Variables
 

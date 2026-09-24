@@ -264,7 +264,11 @@ exposes a search API. It consists of:
 
 - **`config.rs`** — per-namespace TOML registry file parsing and configuration.
 - **`indexer.rs`** — background thread that periodically syncs package metadata
-  using `wasm-package-manager::Manager`.
+  using `wasm-package-manager::Manager`. Each discovery pass enqueues only tags
+  that have never been queued or pulled; semver tags are treated as immutable.
+  When several replicas share a Postgres database, only the replica holding
+  the indexer advisory lock runs the indexer. The last discovery time is
+  stored in the database, so restarts don't trigger an early full pass.
 - **`server.rs`** — [axum] HTTP router with search endpoints.
 
 [axum]: https://docs.rs/axum

@@ -4,6 +4,7 @@ use std::path::Path;
 use tokio_stream::StreamExt;
 
 mod errors;
+mod index;
 /// Install helpers — core logic for resolving inputs, managing lockfiles,
 /// and unpacking WIT files.
 pub mod install;
@@ -16,7 +17,6 @@ use crate::progress::ProgressEvent;
 use crate::publish::oci_tag;
 use crate::storage::{FetchTaskKind, KnownPackage, KnownPackageParams, StateInfo, Store};
 use crate::types::WitPackage;
-use wasm_meta_registry_types::PackageKind;
 
 pub use errors::ManagerError;
 pub(crate) use logic::parse_tag_as_semver;
@@ -38,9 +38,9 @@ pub enum TaskOutcome {
     Empty,
 }
 
-/// How long (in seconds) to skip re-pulling a tag during background indexing
-/// when its layers are already present in the local store.  Set to one hour
-/// so server restarts don't trigger a full re-fetch of every known version.
+/// How long (in seconds) after a tag was pulled to ignore
+/// [`Manager::notify_new_version`] requests for it. This rate-limits external
+/// notifications; background indexing never re-pulls known tags.
 const PULL_COOLDOWN_SECS: u64 = 3600;
 
 /// A cache on disk
@@ -1125,8 +1125,8 @@ impl Manager {
     ///
     /// To prevent abuse and avoid hammering upstream registries, the request
     /// is rejected when the tag was already pulled within
-    /// `PULL_COOLDOWN_SECS` (the same freshness window used by the periodic
-    /// sync). The caller MUST treat this as a hint, not a guarantee.
+    /// `PULL_COOLDOWN_SECS`. The caller MUST treat this as a hint, not a
+    /// guarantee.
     ///
     /// Enqueued tasks are given high priority (priority `-1`) so they jump
     /// ahead of the routine sync backlog.
@@ -1157,228 +1157,6 @@ impl Manager {
             .enqueue_refetch(registry, repository, tag, -1)
             .await?;
         Ok(NotifyOutcome::Enqueued)
-    }
-
-    /// Fetches the manifest and config to extract metadata (description from
-    /// OCI annotations), lists all tags, and upserts into the known packages
-    /// table. Also pulls the wasm layer for the most recent tag to extract
-    /// WIT dependency information and store it in the local database.
-    ///
-    /// When `wit_namespace` / `wit_name` are provided, the WIT namespace
-    /// mapping is stored alongside the OCI coordinates so that WIT-style
-    /// lookups (e.g. `ba:sample-wasi-http-rust`) can resolve to the correct
-    /// OCI repository.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if offline mode is enabled or if network operations fail.
-    pub async fn index_package(
-        &self,
-        reference: &Reference,
-        wit_namespace: Option<&str>,
-        wit_name: Option<&str>,
-        kind: Option<PackageKind>,
-    ) -> anyhow::Result<KnownPackage> {
-        self.index_package_inner(reference, wit_namespace, wit_name, kind, false)
-            .await
-    }
-
-    /// Index a package, optionally bypassing the pull cooldown.
-    ///
-    /// When `skip_cooldown` is `true`, every version tag is re-pulled
-    /// from the registry regardless of when it was last fetched.
-    pub async fn index_package_refetch(
-        &self,
-        reference: &Reference,
-        wit_namespace: Option<&str>,
-        wit_name: Option<&str>,
-        kind: Option<PackageKind>,
-    ) -> anyhow::Result<KnownPackage> {
-        self.index_package_inner(reference, wit_namespace, wit_name, kind, true)
-            .await
-    }
-
-    async fn index_package_inner(
-        &self,
-        reference: &Reference,
-        wit_namespace: Option<&str>,
-        wit_name: Option<&str>,
-        kind: Option<PackageKind>,
-        skip_cooldown: bool,
-    ) -> anyhow::Result<KnownPackage> {
-        if self.offline {
-            return Err(ManagerError::OfflineIndex.into());
-        }
-
-        tracing::debug!(
-            registry = %reference.registry(),
-            repository = %reference.repository(),
-            "Discovering package tags"
-        );
-
-        // Discover available tags first — the reference may not carry a valid
-        // tag (e.g. the default "latest" might not exist).
-        let tags = self.client.list_tags(reference).await?;
-        if tags.is_empty() {
-            return Err(ManagerError::NoTagsFound {
-                registry: reference.registry().to_string(),
-                repository: reference.repository().to_string(),
-            }
-            .into());
-        }
-
-        // Pick the tag to use for pulling metadata: prefer the tag on the
-        // reference if it exists in the remote, otherwise fall back to the
-        // first available tag.
-        let meta_tag = reference
-            .tag()
-            .filter(|t| tags.iter().any(|remote| remote == *t))
-            .unwrap_or_else(|| tags.first().expect("tags verified non-empty"));
-
-        // Build a reference with the chosen tag so we can pull its manifest.
-        let meta_ref: Reference = format!(
-            "{}/{}:{}",
-            reference.registry(),
-            reference.repository(),
-            meta_tag
-        )
-        .parse()?;
-
-        // Fetch manifest to extract metadata (e.g. description).
-        let (manifest, _digest) = self.client.pull_manifest(&meta_ref).await?;
-        let description = manifest
-            .annotations
-            .as_ref()
-            .and_then(|a| a.get("org.opencontainers.image.description").cloned());
-
-        // Filter to tags that parse as semver (e.g. `1.2.3`). Tags like
-        // `latest`, `nightly`, or `sha256-...` are excluded here: they cannot be
-        // resolved by the version solver and cause garbled rendering in the
-        // frontend. If no tags are valid, skip indexing this package entirely
-        // so it does not pollute search results.
-        let valid_tags: Vec<&String> = tags
-            .iter()
-            .filter(|t| parse_tag_as_semver(t).is_some())
-            .collect();
-        if valid_tags.is_empty() {
-            tracing::debug!(
-                registry = %reference.registry(),
-                repository = %reference.repository(),
-                discovered = tags.len(),
-                "Skipping package — no tags parse as strict semver"
-            );
-            return Err(ManagerError::NoSemverTags {
-                registry: reference.registry().to_string(),
-                repository: reference.repository().to_string(),
-            }
-            .into());
-        }
-
-        // Store every valid tag.
-        for tag in &valid_tags {
-            self.store
-                .add_known_package_with_params(&KnownPackageParams {
-                    registry: reference.registry(),
-                    repository: reference.repository(),
-                    tag: Some(tag),
-                    description: description.as_deref(),
-                    wit_namespace,
-                    wit_name,
-                    kind,
-                })
-                .await?;
-        }
-
-        // Enqueue every semver-tagged version for pulling.  Tags that are
-        // not valid semver (e.g. `latest`, hash-based signatures like
-        // `sha256-...`, or arbitrary strings such as `dev`/`nightly`) are
-        // skipped — they typically duplicate a semver tag and cannot be
-        // reasoned about by the resolver.
-        //
-        // The semver tags are sorted in ascending order so that the highest
-        // stable version is enqueued last (and thus processed last), keeping
-        // the most recent stable version's dependencies at the top of the
-        // `get_package_dependencies` query.
-        //
-        // Tags that were already pulled recently (within `PULL_COOLDOWN_SECS`
-        // seconds) are skipped unless `skip_cooldown` is set (--refetch).
-        // r[impl server.index.dependencies]
-        let mut semver_tags: Vec<(&String, semver::Version)> = Vec::with_capacity(tags.len());
-        for tag in &tags {
-            match parse_tag_as_semver(tag) {
-                Some(v) => semver_tags.push((tag, v)),
-                None => {
-                    tracing::debug!(
-                        registry = %reference.registry(),
-                        repository = %reference.repository(),
-                        tag = %tag,
-                        "Skipping enqueue — tag is not a valid semver version"
-                    );
-                }
-            }
-        }
-        // Sort ascending: pre-releases first, then stable versions in order.
-        semver_tags.sort_by(|(_, a), (_, b)| a.cmp(b));
-
-        for (tag, _version) in &semver_tags {
-            if skip_cooldown {
-                self.store
-                    .enqueue_refetch(
-                        reference.registry(),
-                        reference.repository(),
-                        tag,
-                        -1, // high priority for explicit refetch
-                    )
-                    .await?;
-            } else if !self
-                .store
-                .is_tag_fresh(
-                    reference.registry(),
-                    reference.repository(),
-                    tag,
-                    PULL_COOLDOWN_SECS,
-                )
-                .await
-            {
-                self.store
-                    .enqueue_pull(
-                        reference.registry(),
-                        reference.repository(),
-                        tag,
-                        0, // normal priority
-                    )
-                    .await?;
-            } else {
-                // Tag is fresh — record it as completed so it appears
-                // in the queue history for visibility.
-                self.store
-                    .record_completed(reference.registry(), reference.repository(), tag)
-                    .await?;
-            }
-        }
-
-        if let Ok(pending) = self.store.pending_count().await
-            && pending > 0
-        {
-            tracing::info!(
-                registry = %reference.registry(),
-                repository = %reference.repository(),
-                pending,
-                "Enqueued versions for pulling"
-            );
-        }
-
-        // Return the indexed package with its now-populated dependencies.
-        let mut pkg = self
-            .store
-            .get_known_package(reference.registry(), reference.repository())
-            .await?
-            .ok_or(ManagerError::IndexRetrievalFailed)?;
-        pkg.dependencies = self
-            .store
-            .get_package_dependencies(reference.registry(), reference.repository())
-            .await?;
-        Ok(pkg)
     }
 
     /// Process the next pending task from the fetch queue.

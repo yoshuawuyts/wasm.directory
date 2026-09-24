@@ -17,7 +17,7 @@
 #![allow(clippy::items_after_statements)]
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::Context;
@@ -30,7 +30,7 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, Database, DatabaseConnection, DbBackend,
     EntityTrait, FromQueryResult, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set,
     Statement, TransactionTrait,
-    sea_query::{Expr, OnConflict, SimpleExpr},
+    sea_query::{Expr, LockBehavior, LockType, OnConflict, SimpleExpr},
 };
 use tracing::warn;
 
@@ -101,6 +101,17 @@ pub struct FetchTask {
     pub attempts: i64,
 }
 
+/// Tags of a single repository that the indexer has already seen.
+///
+/// Returned by [`Store::known_tags`].
+#[derive(Debug, Default)]
+pub(crate) struct KnownTags {
+    /// Tags with a `pull` row in the fetch queue, in any status.
+    pub(crate) queued: HashSet<String>,
+    /// Tags whose manifest has at least one stored layer.
+    pub(crate) cached: HashSet<String>,
+}
+
 // -- Internal helpers ----------------------------------------------------
 
 /// Calculate the total size of a directory recursively.
@@ -147,7 +158,7 @@ async fn apply_sqlite_pragmas(db: &DatabaseConnection) -> anyhow::Result<()> {
 /// This value was generated once from the ASCII bytes `b"cmpmigr!"` interpreted
 /// as a big-endian signed 64-bit integer. It is intentionally hardcoded and
 /// MUST NOT change, or different binaries could contend on different lock keys.
-const POSTGRES_MIGRATION_ADVISORY_LOCK_KEY: i64 = 7_164_506_197_438_460_449;
+pub(super) const POSTGRES_MIGRATION_ADVISORY_LOCK_KEY: i64 = 7_164_506_197_438_460_449;
 
 const POSTGRES_MIGRATION_SET_TIMEOUT_SQL: &str =
     "SET lock_timeout = '60s'; SET statement_timeout = '60s';";
@@ -1911,6 +1922,10 @@ fn into_queue_task(row: fetch_queue::Model) -> wasm_meta_registry_types::QueueTa
 pub(crate) struct Store {
     pub(crate) state_info: StateInfo,
     db: DatabaseConnection,
+    /// Connection settings, kept so auxiliary connections (e.g. the indexer
+    /// lease) can be opened against the same database. `None` for the
+    /// in-memory test store.
+    db_config: Option<super::db_config::DbConfig>,
 }
 
 impl Store {
@@ -1996,7 +2011,11 @@ impl Store {
             metadata_size,
         );
 
-        Ok(Self { state_info, db })
+        Ok(Self {
+            state_info,
+            db,
+            db_config: Some(cfg),
+        })
     }
 
     /// Build a Store backed by an in-memory SQLite database with all
@@ -2013,7 +2032,11 @@ impl Store {
         let migration_info = Migrations::snapshot(&db).await;
         let state_info =
             StateInfo::new_at(tmp.clone(), tmp.join("config.toml"), &migration_info, 0, 0);
-        Ok(Self { state_info, db })
+        Ok(Self {
+            state_info,
+            db,
+            db_config: None,
+        })
     }
 
     /// Test-only accessor for the underlying SeaORM database connection.
@@ -2724,7 +2747,7 @@ impl Store {
             return Ok(false);
         }
 
-        let mut layer_digests: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut layer_digests: HashSet<String> = HashSet::new();
         let mut manifest_ids: Vec<i64> = Vec::new();
         for manifest in &manifests_to_delete {
             manifest_ids.push(manifest.id);
@@ -2743,8 +2766,7 @@ impl Store {
             .filter(oci_manifest::Column::OciRepositoryId.eq(repo_id))
             .all(&self.db)
             .await?;
-        let mut retained_digests: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
+        let mut retained_digests: HashSet<String> = HashSet::new();
         for other in &all_manifests {
             if manifest_ids.contains(&other.id) {
                 continue;
@@ -2998,6 +3020,95 @@ impl Store {
 
     // ---- Fetch queue --------------------------------------------------
 
+    /// Open a handle for electing the background indexer leader.
+    pub(crate) async fn indexer_lease(&self) -> anyhow::Result<super::IndexerLease> {
+        super::IndexerLease::connect(self.db_config.as_ref()).await
+    }
+
+    /// Return the tags of a repository that the indexer already knows about,
+    /// so discovery can skip them without per-tag round-trips.
+    ///
+    /// * `queued`: tags that have a `pull` row in `fetch_queue` (any status).
+    ///   Enqueueing these again would be a no-op, because `enqueue_pull`
+    ///   uses `ON CONFLICT DO NOTHING`.
+    /// * `cached`: tags that point at a manifest with at least one stored
+    ///   layer, i.e. tags that were pulled at some point.
+    pub(crate) async fn known_tags(
+        &self,
+        registry: &str,
+        repository: &str,
+    ) -> anyhow::Result<KnownTags> {
+        #[derive(FromQueryResult)]
+        struct TagRow {
+            tag: String,
+        }
+        let backend = self.db.get_database_backend();
+
+        let queued = fetch_queue::Entity::find()
+            .select_only()
+            .column(fetch_queue::Column::Tag)
+            .filter(fetch_queue::Column::Registry.eq(registry))
+            .filter(fetch_queue::Column::Repository.eq(repository))
+            .filter(fetch_queue::Column::Task.eq(fetch_queue::FetchTask::Pull))
+            .into_model::<TagRow>()
+            .all(&self.db)
+            .await?
+            .into_iter()
+            .map(|r| r.tag)
+            .collect();
+
+        let sql = "\
+            SELECT DISTINCT t.tag AS tag FROM oci_tag t \
+            JOIN oci_repository r ON r.id = t.oci_repository_id \
+            JOIN oci_manifest m ON m.oci_repository_id = r.id \
+                                AND m.digest = t.manifest_digest \
+            JOIN oci_layer l ON l.oci_manifest_id = m.id \
+            WHERE r.registry = ? AND r.repository = ?";
+        let cached = TagRow::find_by_statement(Statement::from_sql_and_values(
+            backend,
+            bind_placeholders(backend, sql),
+            [registry.into(), repository.into()],
+        ))
+        .all(&self.db)
+        .await?
+        .into_iter()
+        .map(|r| r.tag)
+        .collect();
+
+        Ok(KnownTags { queued, cached })
+    }
+
+    /// Reset tasks stuck in `in_progress` back to `pending`.
+    ///
+    /// A task stays `in_progress` forever if the worker processing it was
+    /// killed (e.g. a replica restart). Only rows not touched for at least
+    /// `stale_after_secs` are reset, so a task a live worker is still
+    /// running isn't handed out twice. The cutoff uses the database clock,
+    /// which is also what stamps `updated_at`. Returns the number of rows
+    /// reset.
+    pub(crate) async fn reset_stale_in_progress_tasks(
+        &self,
+        stale_after_secs: u64,
+    ) -> anyhow::Result<u64> {
+        // `stale_after_secs` is an integer, so interpolating it is safe.
+        let cutoff = match self.db.get_database_backend() {
+            DbBackend::Postgres => {
+                format!("updated_at < now() - interval '{stale_after_secs} seconds'")
+            }
+            _ => format!("updated_at < datetime('now', '-{stale_after_secs} seconds')"),
+        };
+        let result = fetch_queue::Entity::update_many()
+            .col_expr(
+                fetch_queue::Column::Status,
+                Expr::value(fetch_queue::FetchStatus::Pending),
+            )
+            .filter(fetch_queue::Column::Status.eq(fetch_queue::FetchStatus::InProgress))
+            .filter(Expr::cust(cutoff))
+            .exec(&self.db)
+            .await?;
+        Ok(result.rows_affected)
+    }
+
     pub(crate) async fn enqueue_pull(
         &self,
         registry: &str,
@@ -3172,15 +3283,15 @@ impl Store {
 
     pub(crate) async fn dequeue_next(&self) -> anyhow::Result<Option<FetchTask>> {
         // Atomic claim: SELECT one pending row, mark it in_progress, return it.
-        // Wrap in a transaction so concurrent dequeues don't double-claim.
-        // SQLite serializes writes anyway; on Postgres this would benefit from
-        // FOR UPDATE SKIP LOCKED, which we can add later if multi-worker
-        // contention becomes an issue.
+        // On Postgres, `FOR UPDATE SKIP LOCKED` keeps concurrent workers (e.g.
+        // two replicas during a leader hand-over) from claiming the same row.
+        // SQLite serializes writes and ignores the lock clause.
         let txn = self.db.begin().await?;
         let candidate = fetch_queue::Entity::find()
             .filter(fetch_queue::Column::Status.eq(fetch_queue::FetchStatus::Pending))
             .order_by_asc(fetch_queue::Column::Priority)
             .order_by_asc(fetch_queue::Column::CreatedAt)
+            .lock_with_behavior(LockType::Update, LockBehavior::SkipLocked)
             .one(&txn)
             .await?;
         let Some(row) = candidate else {
@@ -3240,6 +3351,7 @@ impl Store {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) async fn pending_count(&self) -> anyhow::Result<u64> {
         let n = fetch_queue::Entity::find()
             .filter(fetch_queue::Column::Status.eq(fetch_queue::FetchStatus::Pending))
@@ -3627,7 +3739,7 @@ impl Store {
             .order_by_desc(wit_package::Column::Id)
             .all(&self.db)
             .await?;
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = HashSet::new();
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
             if let Some(v) = r.version
@@ -3949,6 +4061,155 @@ mod smoke_tests {
     }
 
     #[tokio::test]
+    async fn known_tags_reports_queued_and_cached_tags() {
+        let store = Store::open_in_memory().await.unwrap();
+        let (registry, repository) = ("ghcr.io", "user/repo");
+        let digest = "sha256:cached";
+        let repo_id =
+            upsert_oci_repository_full(store.db(), registry, repository, None, None, None)
+                .await
+                .unwrap();
+        let (manifest_id, _) = upsert_oci_manifest(
+            store.db(),
+            repo_id,
+            digest,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
+        insert_oci_layer(store.db(), manifest_id, "sha256:layer", None, Some(1), 0)
+            .await
+            .unwrap();
+        upsert_oci_tag(store.db(), repo_id, "1.0.0", digest)
+            .await
+            .unwrap();
+        // A tag whose manifest has no layers doesn't count as cached.
+        let (_, _) = upsert_oci_manifest(
+            store.db(),
+            repo_id,
+            "sha256:empty",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
+        upsert_oci_tag(store.db(), repo_id, "1.1.0", "sha256:empty")
+            .await
+            .unwrap();
+
+        store
+            .enqueue_pull(registry, repository, "2.0.0", 0)
+            .await
+            .unwrap();
+        let failed = {
+            store
+                .enqueue_pull(registry, repository, "2.1.0", 0)
+                .await
+                .unwrap();
+            store.dequeue_next().await.unwrap().unwrap()
+        };
+        for _ in 0..3 {
+            store.fail_task(failed.id, "boom").await.unwrap();
+        }
+        // Reindex rows and other repositories are ignored.
+        store
+            .enqueue_reindex(registry, repository, "3.0.0")
+            .await
+            .unwrap();
+        store
+            .enqueue_pull(registry, "other/repo", "9.9.9", 0)
+            .await
+            .unwrap();
+
+        let known = store.known_tags(registry, repository).await.unwrap();
+        let mut queued: Vec<_> = known.queued.into_iter().collect();
+        queued.sort();
+        assert_eq!(queued, ["2.0.0", "2.1.0"]);
+        let cached: Vec<_> = known.cached.into_iter().collect();
+        assert_eq!(cached, ["1.0.0"]);
+    }
+
+    #[tokio::test]
+    async fn reset_stale_in_progress_tasks_requeues_only_orphans() {
+        let store = Store::open_in_memory().await.unwrap();
+        for tag in ["1.0.0", "2.0.0", "3.0.0", "4.0.0"] {
+            store
+                .enqueue_pull("ghcr.io", "user/repo", tag, 0)
+                .await
+                .unwrap();
+        }
+        let done = store.dequeue_next().await.unwrap().unwrap();
+        store.complete_task(done.id).await.unwrap();
+        let orphan = store.dequeue_next().await.unwrap().unwrap();
+        let _live = store.dequeue_next().await.unwrap().unwrap();
+        // Backdate the orphan as if its worker died long ago. Changing
+        // `updated_at` explicitly keeps the SQLite trigger from firing.
+        store
+            .db()
+            .execute_unprepared(&format!(
+                "UPDATE fetch_queue SET updated_at = '2000-01-01 00:00:00' WHERE id = {}",
+                orphan.id
+            ))
+            .await
+            .unwrap();
+        assert_eq!(store.pending_count().await.unwrap(), 1);
+
+        assert_eq!(store.reset_stale_in_progress_tasks(900).await.unwrap(), 1);
+        assert_eq!(store.pending_count().await.unwrap(), 2);
+        let status = store.get_queue_status().await.unwrap();
+        assert_eq!(status.in_progress, 1, "the live task is left alone");
+        assert_eq!(status.completed, 1);
+    }
+
+    #[tokio::test]
+    async fn postgres_indexer_lease_is_exclusive() {
+        let Ok(url) = std::env::var("COMPONENT_DATABASE_URL") else {
+            return;
+        };
+        let lower = url.to_ascii_lowercase();
+        if !(lower.starts_with("postgres:") || lower.starts_with("postgresql:")) {
+            return;
+        }
+        let data_dir = tempfile::tempdir().expect("create temp dir");
+        let store = Store::open_at(data_dir.path().to_path_buf())
+            .await
+            .expect("open postgres store");
+        let a = store.indexer_lease().await.expect("open lease A");
+        let b = store.indexer_lease().await.expect("open lease B");
+        assert!(a.try_hold().await.expect("lease A query"));
+        assert!(
+            a.try_hold().await.expect("lease A renew"),
+            "holder keeps it"
+        );
+        assert!(
+            !b.try_hold().await.expect("lease B query"),
+            "B is locked out"
+        );
+        drop(a);
+        // Dropping the pool closes the session asynchronously; poll briefly.
+        let mut acquired = false;
+        for _ in 0..50 {
+            if b.try_hold().await.expect("lease B retry") {
+                acquired = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(acquired, "B takes over once A goes away");
+    }
+
+    #[tokio::test]
     async fn db_config_redacts_password() {
         use crate::storage::redact_url;
         assert_eq!(
@@ -4119,6 +4380,51 @@ mod smoke_tests {
             .await
             .expect("open Postgres store");
         assert_commit_sha_filter(&store, "postgres.test.local", "regression/commit-sha").await;
+    }
+
+    #[tokio::test]
+    async fn fetch_queue_queries_run_postgres() {
+        let Ok(url) = std::env::var("COMPONENT_DATABASE_URL") else {
+            return;
+        };
+        let lower = url.to_ascii_lowercase();
+        if !(lower.starts_with("postgres:") || lower.starts_with("postgresql:")) {
+            return;
+        }
+        let data_dir = tempfile::tempdir().expect("create temp dir");
+        let store = Store::open_at(data_dir.path().to_path_buf())
+            .await
+            .expect("open Postgres store");
+        let (registry, repository) = ("postgres.test.local", "regression/fetch-queue");
+        // `enqueue_refetch` resets any row left over from an earlier run to
+        // `pending`, and the lowest possible priority puts it at the head of
+        // the queue even if the shared test database has other pending rows.
+        store
+            .enqueue_refetch(registry, repository, "1.0.0", i32::MIN)
+            .await
+            .expect("enqueue on Postgres");
+        let known = store
+            .known_tags(registry, repository)
+            .await
+            .expect("known_tags on Postgres");
+        assert!(known.queued.contains("1.0.0"));
+
+        let task = store
+            .dequeue_next()
+            .await
+            .expect("dequeue with SKIP LOCKED on Postgres")
+            .expect("task should dequeue");
+        assert_eq!(
+            (task.repository.as_str(), task.tag.as_str()),
+            (repository, "1.0.0")
+        );
+        store
+            .reset_stale_in_progress_tasks(0)
+            .await
+            .expect("reset in-progress on Postgres");
+        let task = store.dequeue_next().await.unwrap().expect("requeued task");
+        assert_eq!(task.tag, "1.0.0");
+        store.complete_task(task.id).await.unwrap();
     }
 
     #[test]

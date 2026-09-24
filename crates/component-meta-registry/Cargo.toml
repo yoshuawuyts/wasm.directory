@@ -22,6 +22,7 @@ path = "src/lib.rs"
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true }
+chrono = { workspace = true }
 clap = { workspace = true }
 dirs = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
