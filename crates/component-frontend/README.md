@@ -113,3 +113,23 @@ magick -background none -density 384 \
   -define icon:auto-resize=48,32,16 \
   crates/component-frontend/assets/favicon.ico
 ```
+
+## Color theme
+
+The shared sun/moon icon button switches between light and dark on every
+activation and saves the selected scheme in `localStorage` under `ds-theme`.
+The icon shows the current scheme; the accessible "Dark mode" button is pressed
+when dark mode is active, and its tooltip describes the next action.
+
+Without a valid saved choice, the frontend follows the system preference,
+including live changes. Once selected, a scheme remains active across reloads
+and system changes. The button does not reset to system mode. The initializer
+runs in the document head to avoid a flash of the wrong theme.
+
+The production navbar and design-system controls use the same renderer and
+embedded scripts. Run the dependency-free script regressions with Node.js 18
+or later, in addition to the repository's `cargo xtask test` checks:
+
+```sh
+node --test crates/component-frontend/src/theme/theme.test.cjs
+```

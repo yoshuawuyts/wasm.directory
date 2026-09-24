@@ -56,11 +56,6 @@ const SVG_CLOCK: &str = concat!(
     include_str!("../../../../../vendor/lucide/clock.svg"),
     "</svg>"
 );
-const SVG_MOON_NAV: &str = concat!(
-    r#"<svg class="h-3.5 w-3.5 text-ink-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">"#,
-    include_str!("../../../../../vendor/lucide/moon.svg"),
-    "</svg>"
-);
 const SVG_BACK: &str = concat!(
     r#"<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">"#,
     include_str!("../../../../../vendor/lucide/chevron-left.svg"),
@@ -107,13 +102,13 @@ const THEME_MOON: &str = concat!(
 );
 
 /// Render the color theme toggle.
+#[must_use]
 pub(crate) fn theme_toggle() -> String {
+    let icon_button = super::buttons::ICON_BUTTON_CLASS;
     format!(
-        r#"<button type="button" class="theme-toggle relative inline-flex h-6 w-10 items-center rounded-full border border-line bg-surface text-ink-500 hover:bg-surfaceMuted hover:text-ink-900 transition-colors" aria-label="Toggle color theme" aria-pressed="false" title="Toggle color theme">
-<span class="theme-toggle-knob inline-flex h-4 w-4 translate-x-[2px] items-center justify-center rounded-full bg-ink-900 text-canvas transition-transform">
-<span class="theme-icon theme-icon-light" style="display:none">{THEME_SUN}</span>
-<span class="theme-icon theme-icon-dark" style="display:none">{THEME_MOON}</span>
-</span>
+        r#"<button type="button" class="theme-toggle {icon_button} shrink-0 hover:text-ink-900 transition-colors" aria-label="Dark mode" aria-pressed="false" title="Switch to dark theme">
+<span class="theme-icon theme-icon-light" aria-hidden="true" style="display:none">{THEME_SUN}</span>
+<span class="theme-icon theme-icon-dark" aria-hidden="true" style="display:none">{THEME_MOON}</span>
 </button>"#
     )
 }
@@ -261,7 +256,7 @@ pub(crate) const ANATOMY_ITEMS: &[&str] = &[
     r#"<strong>Brand cluster</strong> — 24×24 sigil + 13px mono name + optional 11px ink-500 mono context label that hides below <code class="mono text-[12px]">sm</code>. Wrapped in a single <code class="mono text-[12px]">&lt;a&gt;</code> back to the home page."#,
     r#"<strong>Command palette trigger</strong> — a button (not an input). Uses the form system’s compact recipe trimmed to bar height: <code class="mono text-[12px]">h-8 rounded-md border-line bg-surface</code>, placeholder colour <code class="mono text-[12px]">text-ink-500</code>, leading 14px magnifier (<code class="mono text-[12px]">ink-400</code>), trailing <code class="mono text-[12px]">⌘K</code> kbd hint matching Section 13’s prominent search variant. Clicking opens the palette modal — the input lives there, not in the bar."#,
     r#"<strong>Nav links</strong> — 12px ink-500 in <code class="mono text-[12px]">h-7 px-2 rounded-md</code> hit areas with <code class="mono text-[12px]">hover:bg-surfaceMuted hover:text-ink-900</code>. No underline, no separator dots — spacing carries the rhythm."#,
-    r#"<strong>Theme toggle</strong> — compact switch (<code class="mono text-[12px]">h-6 w-10</code>) with one click target and no menu. It persists the opposite effective scheme from system mode, then clears back to system on the next click."#,
+    r#"<strong>Theme toggle</strong> — compact icon button (<code class="mono text-[12px]">h-8 w-8 rounded-md</code>) with a stationary sun or moon showing the current scheme. Every click switches light/dark and saves the choice. Follows the system until a choice is made; no sliding switch or menu."#,
     r#"<strong>Responsive collapse</strong> — drop the brand tagline below <code class="mono text-[12px]">sm</code>; trim primary nav at <code class="mono text-[12px]">md</code>; collapse the search button to a <code class="mono text-[12px]">h-8 w-8</code> icon button below <code class="mono text-[12px]">sm</code> and stash all links behind a hamburger."#,
 ];
 
@@ -479,15 +474,10 @@ fn mobile_drawer(links: &[DrawerLink]) -> String {
         drawer_nav.anchor(|a| a.href("#").class(class).text(svg).text(label));
     }
     drawer_nav.division(|d| d.class("border-t hairline my-2"));
-    drawer_nav.button(|b| {
-        b.type_("button")
-            .class("w-full flex items-center gap-2.5 h-8 px-2 rounded-md text-ink-700 hover:bg-surfaceMuted hover:text-ink-900")
-            .text(SVG_MOON_NAV)
-            .text("Theme")
-            .span(|s| {
-                s.class("ml-auto text-[11px] text-ink-500 mono")
-                    .text("auto")
-            })
+    drawer_nav.division(|d| {
+        d.class("flex items-center justify-between gap-2.5 px-2 text-ink-700")
+            .span(|s| s.text("Theme"))
+            .text(theme_toggle())
     });
     let drawer_nav = drawer_nav.build().to_string();
 
@@ -670,6 +660,34 @@ pub(crate) fn render(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn theme_control_is_a_compact_stationary_button() {
+        let html = theme_toggle();
+        assert!(html.contains(r#"<button type="button""#));
+        assert!(html.contains(super::super::buttons::ICON_BUTTON_CLASS));
+        assert!(html.contains(r#"aria-label="Dark mode" aria-pressed="false""#));
+        assert!(html.contains(r#"title="Switch to dark theme""#));
+        assert_eq!(html.matches(r#"aria-hidden="true""#).count(), 2);
+        assert!(!html.contains("knob"));
+        assert!(!html.contains("rounded-full"));
+        assert!(!html.contains("translate"));
+        assert!(!html.contains("role=\"switch\""));
+    }
+
+    #[test]
+    fn production_and_showcase_navbars_share_the_theme_button() {
+        let button = theme_toggle();
+        for html in [
+            render_bar(&[], &[]),
+            render_bar_grid(&[], &[]),
+            desktop(),
+            tablet(),
+            mobile_drawer(DRAWER_LINKS),
+        ] {
+            assert_eq!(html.matches(&button).count(), 1);
+        }
+    }
 
     #[test]
     fn snapshot() {
