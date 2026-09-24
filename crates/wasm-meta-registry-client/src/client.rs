@@ -193,7 +193,7 @@ impl RegistryClient {
         self.fetch_list(&url).await
     }
 
-    /// Fetch the most recently indexed releases across all packages.
+    /// Fetch the latest release of each package, most recently published first.
     pub async fn fetch_recent_releases(&self, limit: u32) -> Result<Vec<PackageRelease>, ApiError> {
         let url = format!("{}/v1/releases/recent?limit={limit}", self.base_url);
         self.fetch_list(&url).await

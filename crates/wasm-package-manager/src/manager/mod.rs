@@ -1018,8 +1018,11 @@ impl Manager {
         self.store.list_new_known_packages(offset, limit).await
     }
 
-    /// Get the most recently indexed semver releases across all packages,
-    /// newest first, one entry per `(package, version)`.
+    /// Get the latest semver release of each package, newest first.
+    ///
+    /// Releases are ordered by publish time (the manifest's
+    /// `org.opencontainers.image.created` annotation), falling back to when
+    /// the tag was first indexed.
     ///
     /// The `dependencies` field of the embedded packages is left empty.
     pub async fn list_recent_releases(

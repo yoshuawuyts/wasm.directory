@@ -200,8 +200,8 @@ impl KnownPackage {
     }
 }
 
-/// A single release (package + version tag), as returned by
-/// `GET /v1/releases/recent`.
+/// A package's latest release, as returned by `GET /v1/releases/recent`
+/// (one entry per package).
 ///
 /// # Example
 ///
@@ -234,7 +234,9 @@ pub struct PackageRelease {
     pub package: KnownPackage,
     /// The released version tag (e.g. `"1.0.0"`).
     pub version: String,
-    /// When the registry first indexed this tag (RFC 3339).
+    /// When the release was published (RFC 3339): the manifest's
+    /// `org.opencontainers.image.created` annotation when present, otherwise
+    /// when the registry first indexed the tag.
     pub released_at: String,
 }
 

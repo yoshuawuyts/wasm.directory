@@ -3,9 +3,10 @@
 
 use std::collections::HashMap;
 
+use chrono::{DateTime, Utc};
 use sea_orm::{EntityTrait, FromQueryResult, QueryOrder, QuerySelect, Statement};
 use wasm_meta_registry_types::{KnownPackage, PackageRelease, PopularPackage};
-use wasm_package_manager_migration::entities::{oci_repository, oci_tag};
+use wasm_package_manager_migration::entities::oci_repository;
 
 use super::{Store, bind_placeholders, known_package_from_repo};
 
@@ -57,78 +58,45 @@ impl Store {
         Ok(out)
     }
 
-    /// List the most recently indexed semver releases across all packages,
-    /// newest first, one entry per `(package, version)`.
+    /// List the most recent release of each package, newest first.
+    ///
+    /// A release's time is the publisher's `org.opencontainers.image.created`
+    /// manifest annotation when present and valid RFC 3339, falling back to
+    /// when this registry first indexed the tag. Only semver tags count, and
+    /// each package appears at most once (with its newest release), so a
+    /// burst of tags from one package can't crowd out everything else.
     pub(crate) async fn list_recent_releases(
         &self,
         limit: u32,
     ) -> anyhow::Result<Vec<PackageRelease>> {
+        let sql = "\
+            SELECT t.id AS tag_id, t.oci_repository_id AS repo_id, t.tag AS tag, \
+                   t.created_at AS indexed_at, m.oci_created AS oci_created \
+            FROM oci_tag t \
+            LEFT JOIN oci_manifest m \
+              ON m.oci_repository_id = t.oci_repository_id \
+             AND m.digest = t.manifest_digest";
+        let backend = self.db.get_database_backend();
+        let stmt = Statement::from_sql_and_values(backend, bind_placeholders(backend, sql), []);
+        let rows = ReleaseRow::find_by_statement(stmt).all(&self.db).await?;
+
         let limit = usize::try_from(limit).unwrap_or(usize::MAX);
         let mut out = Vec::new();
-        let mut repos: HashMap<i64, Option<KnownPackage>> = HashMap::new();
-        let mut offset = 0u64;
-        while out.len() < limit {
-            let tags = oci_tag::Entity::find()
-                .order_by_desc(oci_tag::Column::CreatedAt)
-                .order_by_desc(oci_tag::Column::Id)
-                .offset(offset)
-                .limit(SCAN_BATCH)
-                .all(&self.db)
-                .await?;
-            if tags.is_empty() {
+        for latest in latest_release_per_repo(rows) {
+            if out.len() >= limit {
                 break;
             }
-            offset += SCAN_BATCH;
-            for tag in tags {
-                if out.len() >= limit {
-                    break;
-                }
-                if let Some(release) = self.release_from_tag(tag, &mut repos).await? {
-                    out.push(release);
-                }
-            }
+            let repo = oci_repository::Entity::find_by_id(latest.repo_id)
+                .one(&self.db)
+                .await?;
+            let Some(repo) = repo else { continue };
+            out.push(PackageRelease {
+                package: known_package_from_repo(&self.db, repo).await?,
+                version: latest.tag,
+                released_at: latest.released_at.to_rfc3339(),
+            });
         }
         Ok(out)
-    }
-
-    /// Turn a tag row into a release, skipping non-semver tags and tags whose
-    /// repository is missing. Repository lookups are memoized in `repos`.
-    async fn release_from_tag(
-        &self,
-        tag: oci_tag::Model,
-        repos: &mut HashMap<i64, Option<KnownPackage>>,
-    ) -> anyhow::Result<Option<PackageRelease>> {
-        if crate::manager::parse_tag_as_semver(&tag.tag).is_none() {
-            return Ok(None);
-        }
-        let id = tag.oci_repository_id;
-        let package = match repos.get(&id).cloned() {
-            Some(package) => package,
-            None => self.load_package(id, repos).await?,
-        };
-        let Some(package) = package else {
-            return Ok(None);
-        };
-        Ok(Some(PackageRelease {
-            package,
-            version: tag.tag,
-            released_at: tag.created_at.to_rfc3339(),
-        }))
-    }
-
-    /// Load the package for repository `id` and memoize it in `repos`.
-    async fn load_package(
-        &self,
-        id: i64,
-        repos: &mut HashMap<i64, Option<KnownPackage>>,
-    ) -> anyhow::Result<Option<KnownPackage>> {
-        let row = oci_repository::Entity::find_by_id(id).one(&self.db).await?;
-        let package = match row {
-            Some(repo) => Some(known_package_from_repo(&self.db, repo).await?),
-            None => None,
-        };
-        repos.insert(id, package.clone());
-        Ok(package)
     }
 
     /// List packages ranked by how many distinct *other* indexed
@@ -188,14 +156,79 @@ impl Store {
     }
 }
 
+/// A tag joined with its manifest's publish-time annotation.
+#[derive(FromQueryResult)]
+struct ReleaseRow {
+    tag_id: i64,
+    repo_id: i64,
+    tag: String,
+    indexed_at: DateTime<Utc>,
+    oci_created: Option<String>,
+}
+
+/// The newest release of one repository.
+struct LatestRelease {
+    repo_id: i64,
+    tag_id: i64,
+    tag: String,
+    released_at: DateTime<Utc>,
+}
+
+/// Keep each repository's newest semver release, ordered newest first.
+/// Ties on time break on the most recently inserted tag so the order is
+/// stable across requests.
+fn latest_release_per_repo(rows: Vec<ReleaseRow>) -> Vec<LatestRelease> {
+    let mut latest: HashMap<i64, LatestRelease> = HashMap::new();
+    for row in rows {
+        if crate::manager::parse_tag_as_semver(&row.tag).is_none() {
+            continue;
+        }
+        let candidate = LatestRelease {
+            repo_id: row.repo_id,
+            tag_id: row.tag_id,
+            released_at: release_time(row.oci_created.as_deref(), row.indexed_at),
+            tag: row.tag,
+        };
+        let is_newer = latest
+            .get(&candidate.repo_id)
+            .is_none_or(|cur| candidate.sort_key() > cur.sort_key());
+        if is_newer {
+            latest.insert(candidate.repo_id, candidate);
+        }
+    }
+    let mut out: Vec<_> = latest.into_values().collect();
+    out.sort_by_key(|r| std::cmp::Reverse(r.sort_key()));
+    out
+}
+
+impl LatestRelease {
+    fn sort_key(&self) -> (DateTime<Utc>, i64) {
+        (self.released_at, self.tag_id)
+    }
+}
+
+/// Prefer the publisher-supplied creation time; fall back to index time.
+///
+/// A release can't have been published after we indexed it, so a
+/// future-dated annotation is capped at the index time rather than pinning
+/// the release to the top of the list.
+fn release_time(oci_created: Option<&str>, indexed_at: DateTime<Utc>) -> DateTime<Utc> {
+    oci_created
+        .and_then(|s| DateTime::parse_from_rfc3339(s.trim()).ok())
+        .map_or(indexed_at, |t| t.with_timezone(&Utc).min(indexed_at))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+
+    use chrono::{DateTime, Utc};
 
     use super::super::{
         Store, insert_wit_package_dependency, upsert_oci_manifest, upsert_oci_repository_full,
         upsert_oci_tag, upsert_wit_package,
     };
+    use super::release_time;
 
     /// Insert a repository with a single manifest carrying `tags`. Returns
     /// `(repo_id, manifest_id)`.
@@ -272,8 +305,35 @@ mod tests {
         assert_eq!(second[0].repository, "a/first");
     }
 
+    /// Add `tag` to `repo_id` on its own manifest, optionally annotated with
+    /// a publisher creation time.
+    async fn seed_release(store: &Store, repo_id: i64, tag: &str, created: Option<&str>) {
+        let digest = format!("sha256:{repo_id}-{tag}");
+        let annotations: HashMap<String, String> = created
+            .map(|c| ("org.opencontainers.image.created".to_owned(), c.to_owned()))
+            .into_iter()
+            .collect();
+        upsert_oci_manifest(
+            &store.db,
+            repo_id,
+            &digest,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &annotations,
+        )
+        .await
+        .expect("upsert manifest");
+        upsert_oci_tag(&store.db, repo_id, tag, &digest)
+            .await
+            .expect("upsert tag");
+    }
+
     #[tokio::test]
-    async fn recent_releases_list_each_semver_tag_newest_first() {
+    async fn recent_releases_show_each_package_once_newest_first() {
         let store = Store::open_in_memory().await.expect("open store");
         seed_repo(&store, "a", "one", &["1.0.0", "latest", "1.1.0"]).await;
         seed_repo(&store, "b", "two", &["0.1.0"]).await;
@@ -283,13 +343,49 @@ mod tests {
             .iter()
             .map(|r| (r.package.repository.as_str(), r.version.as_str()))
             .collect();
+        assert_eq!(got, [("b/two", "0.1.0"), ("a/one", "1.1.0")]);
+
+        let limited = store.list_recent_releases(1).await.expect("query");
+        assert_eq!(limited.len(), 1);
+        assert_eq!(limited[0].package.repository, "b/two");
+    }
+
+    #[tokio::test]
+    async fn recent_releases_prefer_publish_time_over_index_time() {
+        let store = Store::open_in_memory().await.expect("open store");
+        let (old_repo, _) = seed_repo(&store, "a", "old", &[]).await;
+        let (new_repo, _) = seed_repo(&store, "b", "new", &[]).await;
+        let (plain_repo, _) = seed_repo(&store, "c", "plain", &[]).await;
+        // `b:new` was published more recently but indexed first; `a:old` was
+        // published earlier but indexed afterwards.
+        seed_release(&store, new_repo, "1.0.0", Some("2001-01-01T00:00:00Z")).await;
+        seed_release(&store, new_repo, "0.9.0", Some("1999-01-01T00:00:00Z")).await;
+        seed_release(&store, old_repo, "1.0.0", Some("2000-01-01T00:00:00Z")).await;
+        // Unparseable annotations fall back to index time (now): newest.
+        seed_release(&store, plain_repo, "0.1.0", Some("not a date")).await;
+
+        let releases = store.list_recent_releases(10).await.expect("query");
+        let got: Vec<_> = releases
+            .iter()
+            .map(|r| (r.package.repository.as_str(), r.version.as_str()))
+            .collect();
         assert_eq!(
             got,
-            [("b/two", "0.1.0"), ("a/one", "1.1.0"), ("a/one", "1.0.0")]
+            [("c/plain", "0.1.0"), ("b/new", "1.0.0"), ("a/old", "1.0.0")]
         );
+        assert_eq!(releases[1].released_at, "2001-01-01T00:00:00+00:00");
+    }
 
-        let limited = store.list_recent_releases(2).await.expect("query");
-        assert_eq!(limited.len(), 2);
+    #[test]
+    fn release_time_parses_rfc3339_and_caps_future_dates() {
+        let indexed = DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
+            .expect("valid")
+            .with_timezone(&Utc);
+        let past = release_time(Some("2025-06-01T12:00:00+02:00"), indexed);
+        assert_eq!(past.to_rfc3339(), "2025-06-01T10:00:00+00:00");
+        assert_eq!(release_time(Some("2030-01-01T00:00:00Z"), indexed), indexed);
+        assert_eq!(release_time(Some("garbage"), indexed), indexed);
+        assert_eq!(release_time(None, indexed), indexed);
     }
 
     #[tokio::test]
