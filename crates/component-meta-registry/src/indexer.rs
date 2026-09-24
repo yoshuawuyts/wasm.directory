@@ -286,8 +286,14 @@ impl Indexer {
     /// indexed before we stored them. New pulls record them directly, so
     /// this only has work to do after an upgrade or when earlier fetches
     /// failed (those are retried on the next cycle).
-    async fn backfill_config_created(&self) {
+    ///
+    /// Stops early if this replica loses the indexer lease.
+    async fn backfill_config_created(&mut self) {
         const BATCH: u64 = 100;
+        if !self.check_leadership().await {
+            return;
+        }
+        let mut last_lease_check = Instant::now();
         let mut after_id = 0;
         let mut filled = 0u64;
         loop {
@@ -304,7 +310,14 @@ impl Indexer {
             };
             let Some(last) = batch.last() else { break };
             after_id = last.manifest_id;
-            filled += self.backfill_config_batch(&batch).await;
+            let (done, lease_held) = self
+                .backfill_config_batch(&batch, &mut last_lease_check)
+                .await;
+            filled += done;
+            if !lease_held {
+                warn!("Stopping config backfill early: indexer lease lost");
+                break;
+            }
         }
         if filled > 0 {
             info!(filled, "Backfilled config publish times");
@@ -312,10 +325,18 @@ impl Indexer {
     }
 
     /// Fetch and record config publish times for one batch, pausing
-    /// between fetches. Returns how many succeeded.
-    async fn backfill_config_batch(&self, batch: &[PendingConfig]) -> u64 {
+    /// between fetches. Returns how many succeeded, and whether the indexer
+    /// lease is still held (the batch stops early once it is lost).
+    async fn backfill_config_batch(
+        &mut self,
+        batch: &[PendingConfig],
+        last_lease_check: &mut Instant,
+    ) -> (u64, bool) {
         let mut filled = 0;
         for pending in batch {
+            if !self.lease_still_held(last_lease_check).await {
+                return (filled, false);
+            }
             match self.manager.backfill_config_created(pending).await {
                 Ok(()) => filled += 1,
                 Err(e) => warn!(
@@ -328,7 +349,7 @@ impl Indexer {
             }
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
-        filled
+        (filled, true)
     }
 
     /// Run the indexer in a loop, syncing at the configured interval.

@@ -68,6 +68,7 @@ pub(super) struct Release {
     pub(super) publisher: String,
     pub(super) tag_id: i64,
     pub(super) tag: String,
+    pub(super) version: semver::Version,
     pub(super) released_at: DateTime<Utc>,
     pub(super) indexed_at: DateTime<Utc>,
 }
@@ -93,9 +94,10 @@ pub(super) struct PackageTimeline {
 
 impl PackageTimeline {
     /// Whether the latest release is an update rather than the package's
-    /// debut.
+    /// debut. Compares versions, not tag rows, so one version mirrored to
+    /// several repositories doesn't count as an update.
     pub(super) fn has_update(&self) -> bool {
-        self.latest.tag_id != self.first.tag_id
+        self.latest.version != self.first.version
     }
 
     /// Order by when the registry first learned about the package; ties
@@ -145,9 +147,9 @@ impl PackageKey {
 pub(super) fn package_timelines(rows: Vec<ReleaseRow>) -> Vec<PackageTimeline> {
     let mut by_package: HashMap<PackageKey, PackageTimeline> = HashMap::new();
     for row in rows {
-        if crate::manager::parse_tag_as_semver(&row.tag).is_none() {
+        let Some(version) = crate::manager::parse_tag_as_semver(&row.tag) else {
             continue;
-        }
+        };
         let key = PackageKey::of(&row);
         let indexed_at = row.indexed_at();
         let release = Release {
@@ -160,6 +162,7 @@ pub(super) fn package_timelines(rows: Vec<ReleaseRow>) -> Vec<PackageTimeline> {
             ),
             indexed_at,
             tag: row.tag,
+            version,
         };
         match by_package.entry(key) {
             Entry::Occupied(mut entry) => entry.get_mut().absorb(release),
@@ -251,6 +254,22 @@ mod tests {
         assert_eq!(timelines.len(), 1);
         assert_eq!(timelines[0].first_indexed, at("2026-05-12T00:00:00Z"));
         assert_eq!(timelines[0].latest.tag, "2.0.0");
+    }
+
+    #[test]
+    fn mirrored_version_is_not_an_update() {
+        let mut primary = row("a/b", "2026-09-01T00:00:00Z", None);
+        primary.wit_namespace = Some("a".to_owned());
+        primary.wit_name = Some("b".to_owned());
+        let mut mirror = row("mirror/b", "2026-09-02T00:00:00Z", None);
+        mirror.tag_id = 2;
+        mirror.repo_id = 2;
+        mirror.wit_namespace = Some("a".to_owned());
+        mirror.wit_name = Some("b".to_owned());
+
+        let timelines = package_timelines(vec![primary, mirror]);
+        assert_eq!(timelines.len(), 1);
+        assert!(!timelines[0].has_update());
     }
 
     #[test]

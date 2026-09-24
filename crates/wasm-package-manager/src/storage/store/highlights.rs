@@ -12,7 +12,7 @@ use wasm_package_manager_migration::entities::oci_repository;
 use self::timeline::{
     PackageTimeline, RELEASE_ROWS_SQL, ReleaseRow, cap_per_publisher, package_timelines,
 };
-use super::{Store, bind_placeholders, known_package_from_repo};
+use super::{Store, known_package_from_repo};
 
 /// Most entries one publisher may occupy in the new-packages and
 /// recent-releases lists, so a bulk publish doesn't drown out everyone else.
@@ -105,12 +105,19 @@ impl Store {
         }
     }
 
+    /// Load a repository as a [`KnownPackage`] if it still exists and has
+    /// at least one semver release.
+    async fn load_released_package(&self, repo_id: i64) -> anyhow::Result<Option<KnownPackage>> {
+        let package = self.load_known_package(repo_id).await?;
+        Ok(package.filter(|p| !p.tags.is_empty()))
+    }
+
     /// List packages ranked by how many distinct *other* indexed
     /// repositories declare them as a WIT dependency.
     ///
-    /// Repositories sharing a WIT package name count as one package. Only
-    /// repositories with at least one tag are ranked; any whose tags are all
-    /// non-semver are additionally dropped from the page.
+    /// Repositories sharing a WIT package name count as one package.
+    /// Packages without semver tags are skipped before pagination, so pages
+    /// stay full and offsets don't skip valid entries.
     pub(crate) async fn list_popular_known_packages(
         &self,
         offset: u32,
@@ -130,28 +137,27 @@ impl Store {
                 SELECT 1 FROM oci_tag t WHERE t.oci_repository_id = repo.id \
               ) \
             GROUP BY repo.wit_namespace, repo.wit_name \
-            ORDER BY dependents DESC, repo.wit_namespace ASC, repo.wit_name ASC \
-            LIMIT ? OFFSET ?";
+            ORDER BY dependents DESC, repo.wit_namespace ASC, repo.wit_name ASC";
         let backend = self.db.get_database_backend();
-        let stmt = Statement::from_sql_and_values(
-            backend,
-            bind_placeholders(backend, sql),
-            [i64::from(limit).into(), i64::from(offset).into()],
-        );
+        let stmt = Statement::from_string(backend, sql);
         #[derive(FromQueryResult)]
         struct Row {
             repo_id: i64,
             dependents: i64,
         }
         let rows = Row::find_by_statement(stmt).all(&self.db).await?;
-        let mut out = Vec::with_capacity(rows.len());
+        let mut skip = usize::try_from(offset).unwrap_or(usize::MAX);
+        let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+        let mut out = Vec::new();
         for row in rows {
-            let repo = oci_repository::Entity::find_by_id(row.repo_id)
-                .one(&self.db)
-                .await?;
-            let Some(repo) = repo else { continue };
-            let package = known_package_from_repo(&self.db, repo).await?;
-            if package.tags.is_empty() {
+            if out.len() >= limit {
+                break;
+            }
+            let Some(package) = self.load_released_package(row.repo_id).await? else {
+                continue;
+            };
+            if skip > 0 {
+                skip -= 1;
                 continue;
             }
             out.push(PopularPackage {
@@ -535,6 +541,46 @@ mod tests {
             .map(|p| (p.package.repository.as_str(), p.dependents))
             .collect();
         assert_eq!(got, [("wasi/io", 3), ("wasi/clocks", 1)]);
+    }
+
+    /// Packages without semver tags are filtered before pagination, so they
+    /// neither underfill a page nor shift later pages.
+    #[tokio::test]
+    async fn popular_packages_paginate_after_semver_filter() {
+        let store = Store::open_in_memory().await.expect("open store");
+        seed_repo(&store, "top", "latest-only", &["latest"]).await;
+        seed_repo(&store, "a", "second", &["1.0.0"]).await;
+        seed_repo(&store, "a", "third", &["1.0.0"]).await;
+        let mut users = Vec::new();
+        for i in 0..3 {
+            let (_, manifest) = seed_repo(&store, "user", &format!("u{i}"), &["1.0.0"]).await;
+            users.push(manifest);
+        }
+        // latest-only is most depended upon, but has no semver release.
+        for (i, manifest) in users.iter().enumerate() {
+            let own = format!("user:u{i}");
+            seed_dependency(&store, *manifest, &own, "top:latest-only").await;
+            if i < 2 {
+                seed_dependency(&store, *manifest, &own, "a:second").await;
+            }
+        }
+        seed_dependency(&store, users[0], "user:u0", "a:third").await;
+
+        let names = |page: Vec<wasm_meta_registry_types::PopularPackage>| {
+            page.into_iter()
+                .map(|p| p.package.repository)
+                .collect::<Vec<_>>()
+        };
+        let first = store
+            .list_popular_known_packages(0, 1)
+            .await
+            .expect("query");
+        assert_eq!(names(first), ["a/second"]);
+        let second = store
+            .list_popular_known_packages(1, 1)
+            .await
+            .expect("query");
+        assert_eq!(names(second), ["a/third"]);
     }
 
     /// The popularity query is hand-written SQL; make sure it also runs on
