@@ -16,8 +16,8 @@ pub(crate) const ACCENT_COLOR: &str = "#18181B";
 
 /// Render a complete HTML document with the given title and body content.
 ///
-/// Includes the shared navigation bar, Tailwind CSS via CDN, custom accent
-/// color CSS variables, and footer.
+/// Includes the shared navigation bar, the vendored Tailwind runtime, custom
+/// accent color CSS variables, and footer.
 #[allow(dead_code)]
 #[must_use]
 pub(crate) fn document(title: &str, body_content: &str) -> String {
@@ -137,18 +137,9 @@ fn render_document(title: &str, body_class: &str, body_children: &str) -> String
   <title>{escaped_title} — Wasm Directory</title>
   <link rel="icon" href="/favicon.ico" type="image/vnd.microsoft.icon" sizes="16x16 32x32 48x48">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any">
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="{tailwind_path}"></script>
   <script>
-    /* Early theme init — prevent flash of wrong theme */
-    (function() {{
-      var t = localStorage.getItem('ds-theme');
-      if (t === 'dark' || t === 'light') {{
-        document.documentElement.setAttribute('data-theme', t);
-        document.documentElement.style.background = t === 'dark' ? '#1C1C20' : '#F4F4F5';
-      }} else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {{
-        document.documentElement.style.background = '#1C1C20';
-      }}
-    }})();
+    {theme_init}
   </script>
   <script>
     tailwind.config = {{
@@ -412,7 +403,7 @@ fn render_document(title: &str, body_class: &str, body_children: &str) -> String
       ::view-transition-new(root) {{
         animation: none;
       }}
-      .theme-toggle-knob {{
+      .theme-toggle {{
         transition: none !important;
       }}
     }}
@@ -468,6 +459,12 @@ fn render_document(title: &str, body_class: &str, body_children: &str) -> String
     .prose-doc a:hover {{
       opacity: 0.8;
     }}
+    .prose-doc ul {{
+      list-style-type: disc;
+    }}
+    .prose-doc ol {{
+      list-style-type: decimal;
+    }}
     .prose-doc ul, .prose-doc ol {{
       margin: 0.5em 0;
       padding-left: 1.5em;
@@ -478,9 +475,16 @@ fn render_document(title: &str, body_class: &str, body_children: &str) -> String
     .prose-doc pre {{
       background: var(--c-surface-muted);
       padding: 0.75em 1em;
+      /* Long code must scroll within documentation, not widen its table cell. */
+      contain: inline-size;
       overflow-x: auto;
       margin: 0.75em 0;
       font-size: 0.875em;
+    }}
+    .prose-doc pre > code {{
+      background: none;
+      padding: 0;
+      font-size: inherit;
     }}
     .card-lift:hover {{
       transform: scale(1.03);
@@ -956,83 +960,17 @@ fn render_document(title: &str, body_class: &str, body_children: &str) -> String
     }})();
   </script>
   <script>
-    /* Theme toggle */
-    (function() {{
-      var triggers = Array.prototype.slice.call(document.querySelectorAll('.theme-toggle'));
-      if (triggers.length === 0) return;
-      var root = document.documentElement;
-      var mq = window.matchMedia('(prefers-color-scheme: dark)');
-      var stored = localStorage.getItem('ds-theme');
-      var explicit = (stored === 'dark' || stored === 'light') ? stored : null;
-
-      function systemMode() {{
-        return mq.matches ? 'dark' : 'light';
-      }}
-
-      function effectiveMode() {{
-        return explicit || systemMode();
-      }}
-
-      function updateControls() {{
-        var mode = effectiveMode();
-        document.querySelectorAll('.theme-icon').forEach(function(el) {{ el.style.display = 'none'; }});
-        document.querySelectorAll('.theme-icon-' + mode).forEach(function(el) {{ el.style.display = ''; }});
-        triggers.forEach(function(trigger) {{
-          var next = mode === 'dark' ? 'light' : 'dark';
-          var label = explicit
-            ? 'Use system color theme'
-            : 'Use ' + next + ' color theme';
-          var knob = trigger.querySelector('.theme-toggle-knob');
-          trigger.setAttribute('aria-label', label);
-          trigger.setAttribute('aria-pressed', explicit ? 'true' : 'false');
-          trigger.setAttribute('title', label);
-          trigger.style.borderColor = explicit ? 'var(--c-ink-900)' : '';
-          trigger.style.backgroundColor = explicit ? 'var(--c-surface-muted)' : '';
-          if (knob) {{
-            knob.style.transform = mode === 'dark' ? 'translateX(22px)' : 'translateX(2px)';
-          }}
-        }});
-      }}
-
-      function apply(mode) {{
-        explicit = mode;
-        if (explicit) {{
-          root.setAttribute('data-theme', explicit);
-          root.style.background = explicit === 'dark' ? '#1C1C20' : '#F4F4F5';
-          localStorage.setItem('ds-theme', explicit);
-        }} else {{
-          root.removeAttribute('data-theme');
-          root.style.background = mq.matches ? '#1C1C20' : '#F4F4F5';
-          localStorage.removeItem('ds-theme');
-        }}
-        updateControls();
-      }}
-
-      updateControls();
-      triggers.forEach(function(trigger) {{
-        trigger.addEventListener('click', function() {{
-          if (explicit) {{
-            apply(null);
-          }} else {{
-            apply(effectiveMode() === 'dark' ? 'light' : 'dark');
-          }}
-        }});
-      }});
-
-      mq.addEventListener('change', function() {{
-        if (!explicit) {{
-          root.style.background = mq.matches ? '#1C1C20' : '#F4F4F5';
-          updateControls();
-        }}
-      }});
-    }})();
+    {theme_controls}
   </script>
 </body>
 </html>"#,
         escaped_title = escaped_title,
+        tailwind_path = crate::tailwind::PATH,
         body_class = body_class,
         body_children = body_children,
         search_modal = crate::components::ds::navbar::render_search_modal(),
+        theme_init = include_str!("theme/init.js"),
+        theme_controls = include_str!("theme/controls.js"),
     )
 }
 
@@ -1046,7 +984,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_document_layout_includes_favicons_in_its_head() {
+    fn shared_theme_scripts_run_in_head_and_after_controls() {
+        let html = crate::pages::design_system::render();
+        let (head, body) = html
+            .split_once("</head>")
+            .expect("document head should close");
+        let init = include_str!("theme/init.js");
+        let controls = include_str!("theme/controls.js");
+        assert_eq!(head.matches(init).count(), 1);
+        assert!(!head.contains(controls));
+        assert_eq!(body.matches(controls).count(), 1);
+        assert!(!body.contains(init));
+        let button = crate::components::ds::navbar::theme_toggle();
+        assert_eq!(body.matches(&button).count(), 4);
+        assert!(
+            body.rfind(&button)
+                .expect("page should contain theme buttons")
+                < body
+                    .find(controls)
+                    .expect("page should contain theme script")
+        );
+        assert!(head.contains(".theme-toggle {\n        transition: none !important;"));
+        assert!(!html.contains("theme-toggle-knob"));
+    }
+
+    #[test]
+    fn every_document_layout_includes_local_assets_in_its_head() {
         let documents = [
             document("Basic", "<p>Body</p>"),
             document_with_nav("Navigation", "<p>Body</p>"),
@@ -1056,6 +1019,7 @@ mod tests {
             crate::pages::not_found::render(),
             crate::pages::error::render("Registry unavailable"),
         ];
+        let script = format!(r#"<script src="{}"></script>"#, crate::tailwind::PATH);
         for document in documents {
             let head = document
                 .split_once("<head>")
@@ -1064,6 +1028,20 @@ mod tests {
                 .split_once("</head>")
                 .expect("document head should close")
                 .0;
+            assert_eq!(head.matches(script.as_str()).count(), 1);
+            assert_eq!(document.matches(crate::tailwind::PATH).count(), 1);
+            assert!(!head.contains("cdn.tailwindcss.com"));
+            let script_start = head
+                .find(script.as_str())
+                .expect("Tailwind script should be in the head");
+            let theme_start = head
+                .find("localStorage.getItem('ds-theme')")
+                .expect("early theme initialization should be in the head");
+            let config_start = head
+                .find("tailwind.config =")
+                .expect("Tailwind configuration should be in the head");
+            assert!(script_start < theme_start);
+            assert!(theme_start < config_start);
             for link in [
                 r#"<link rel="icon" href="/favicon.ico" type="image/vnd.microsoft.icon" sizes="16x16 32x32 48x48">"#,
                 r#"<link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any">"#,
@@ -1083,7 +1061,7 @@ mod tests {
     fn document_includes_expected_rendering_and_styling_primitives() {
         let html = document("Home", "<p>Body</p>");
         assert!(html.contains("<html lang=\"en\""));
-        assert!(html.contains("https://cdn.tailwindcss.com"));
+        assert!(html.contains(crate::tailwind::PATH));
         assert!(html.contains(ACCENT_COLOR));
         assert!(html.contains("<meta name=\"viewport\""));
         assert!(html.contains("bg-canvas text-ink-900"));
@@ -1094,7 +1072,8 @@ mod tests {
         assert!(html.contains("prefers-color-scheme: dark"));
         assert!(html.contains("data-theme"));
         assert!(html.contains("document.querySelectorAll('.theme-toggle')"));
-        assert!(html.contains("localStorage.removeItem('ds-theme')"));
+        assert!(html.contains("localStorage.setItem('ds-theme', explicit)"));
+        assert!(!html.contains("localStorage.removeItem('ds-theme')"));
         assert!(!html.contains("theme-menu"));
     }
 }

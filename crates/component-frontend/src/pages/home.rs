@@ -167,17 +167,17 @@ fn compose_body(
         InstallOption {
             id: "linux",
             label: "Linux",
-            command: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/yoshuawuyts/component-cli/releases/latest/download/install.sh | sh",
+            command: "curl --proto '=https' -fsSL https://wasm.directory/install/linux | sh",
         },
         InstallOption {
             id: "macos",
             label: "macOS",
-            command: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/yoshuawuyts/component-cli/releases/latest/download/install.sh | sh",
+            command: "curl --proto '=https' -fsSL https://wasm.directory/install/macos | sh",
         },
         InstallOption {
             id: "windows",
             label: "Windows",
-            command: "irm https://github.com/yoshuawuyts/component-cli/releases/latest/download/install.ps1 | iex",
+            command: "irm https://wasm.directory/install/windows | iex",
         },
     ]);
 
@@ -402,13 +402,37 @@ mod tests {
             body.contains("data-install-cta"),
             "install widget should render as the first step"
         );
-        for id in ["linux", "macos", "windows"] {
+        for (id, label, command) in [
+            (
+                "linux",
+                "Linux",
+                "curl --proto '=https' -fsSL https://wasm.directory/install/linux | sh",
+            ),
+            (
+                "macos",
+                "macOS",
+                "curl --proto '=https' -fsSL https://wasm.directory/install/macos | sh",
+            ),
+            (
+                "windows",
+                "Windows",
+                "irm https://wasm.directory/install/windows | iex",
+            ),
+        ] {
+            let command = crate::escape::escape_html_attr(command);
             assert!(
-                body.contains(&format!(r#"data-ig-option="{id}""#)),
-                "install step should offer a {id} option"
+                body.contains(&format!(
+                    r#"data-ig-option="{id}" data-label="{label}" data-value="{command}""#
+                )),
+                "install step should offer the matching {id} command"
             );
         }
-        assert!(body.contains("install.sh | sh") && body.contains("install.ps1 | iex"));
+        let linux_command = crate::escape::escape_html_attr(
+            "curl --proto '=https' -fsSL https://wasm.directory/install/linux | sh",
+        );
+        assert!(body.contains(&format!(
+            r#"data-ig-field readonly value="{linux_command}""#
+        )));
         // The remaining steps render their copyable commands.
         for cmd in [
             "component init",

@@ -1,7 +1,7 @@
 # install.ps1 — Download and install the wasm(1) CLI tool on Windows.
 #
 # Usage:
-#   irm https://github.com/yoshuawuyts/wasm.directory/releases/latest/download/install.ps1 | iex
+#   irm https://wasm.directory/install/windows | iex
 #
 # Environment variables:
 #   WASM_VERSION   Install a specific version (e.g. 0.3.0)
