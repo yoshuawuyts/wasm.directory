@@ -20,6 +20,7 @@ serde_json = { workspace = true }
 wasm-package-manager-migration = { workspace = true }
 wit-component = { workspace = true }
 wit-parser = { workspace = true }
+process-wrap = { version = "10.0.1", default-features = false, features = ["std", "process-group", "job-object"] }
 
 [lints]
 workspace = true

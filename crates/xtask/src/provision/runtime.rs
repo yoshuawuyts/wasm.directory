@@ -156,7 +156,7 @@ impl Host for Runtime {
 
     fn apply(&mut self, environment: &str, values: &Values) -> Result<()> {
         let command = self.provision_command(environment, values)?;
-        let status = process::run(command, &self.cancelled, |_, text| {
+        let status = process::run_group(command, &self.cancelled, |_, text| {
             let mut stdout = io::stdout().lock();
             stdout.write_all(self.redact(text).as_bytes())?;
             stdout.flush()?;

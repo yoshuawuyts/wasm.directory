@@ -2,8 +2,9 @@
 
 mod configuration;
 mod flow;
-mod native;
+pub(in crate::provision) mod native;
 mod safety;
+mod subscription;
 
 use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};

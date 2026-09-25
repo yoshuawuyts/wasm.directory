@@ -1,6 +1,7 @@
 //! Exercise native subprocess IO using this test binary, never az or azd.
 
-use std::io::{self, Write as _};
+use std::io::{self, Read as _, Write as _};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -28,7 +29,7 @@ fn arguments() -> Vec<String> {
     ]
 }
 
-fn command(mode: &str) -> Command {
+pub(in crate::provision) fn command(mode: &str) -> Command {
     let arguments = arguments();
     let borrowed: Vec<_> = arguments.iter().map(String::as_str).collect();
     let mut command = process::command(&borrowed).expect("construct fixture process");
@@ -160,6 +161,78 @@ fn output_failure_also_stops_the_started_child() {
 }
 
 #[test]
+fn cancellation_stops_hook_descendants() {
+    let cancelled = AtomicBool::new(false);
+    let mut listener = None;
+    let start = Instant::now();
+    let error = process::run_group(command("tree"), &cancelled, |_, line| {
+        if let Some(connection) = connect_to_listener(line) {
+            listener = Some(connection);
+            cancelled.store(true, Ordering::SeqCst);
+        }
+        Ok(())
+    })
+    .expect_err("the provision group is cancelled")
+    .to_string();
+    assert!(error.contains("Cancelled"), "{error}");
+    assert_listener_closed(listener.expect("hook descendant started"));
+    assert!(start.elapsed() < Duration::from_secs(10));
+}
+
+#[test]
+fn output_failure_stops_hook_descendants() {
+    let mut listener = None;
+    let start = Instant::now();
+    let error = process::run_group(command("tree"), &AtomicBool::new(false), |_, line| {
+        if let Some(connection) = connect_to_listener(line) {
+            listener = Some(connection);
+            anyhow::bail!("Simulated broken group output.");
+        }
+        Ok(())
+    })
+    .expect_err("the provision group stops on output failure")
+    .to_string();
+    assert!(error.contains("broken group output"), "{error}");
+    assert_listener_closed(listener.expect("hook descendant started"));
+    assert!(start.elapsed() < Duration::from_secs(10));
+}
+
+#[test]
+fn grouped_commands_preserve_success_and_failure_status() {
+    for (mode, success) in [("output", true), ("failure", false)] {
+        let status = process::run_group(command(mode), &AtomicBool::new(false), |_, _| Ok(()))
+            .expect("collect the grouped command's exit status");
+        assert_eq!(status.success(), success);
+    }
+}
+
+pub(in crate::provision) fn connect_to_listener(line: &str) -> Option<TcpStream> {
+    let (_, address) = line.split_once("fixture-listener ")?;
+    let address: SocketAddr = address
+        .trim()
+        .parse()
+        .expect("fixture announces its address");
+    let connection = TcpStream::connect_timeout(&address, Duration::from_secs(1))
+        .expect("hook descendant is alive before cancellation");
+    connection
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .expect("bound the descendant shutdown check");
+    Some(connection)
+}
+
+pub(in crate::provision) fn assert_listener_closed(mut connection: TcpStream) {
+    match connection.read(&mut [0]) {
+        Ok(0) => {}
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionAborted
+            ) => {}
+        result => panic!("hook descendant did not shut down: {result:?}"),
+    }
+}
+
+#[test]
 fn native_secret_prompt_refuses_redirected_input() {
     let mut stdout = String::new();
     let status = process::run(command("prompt"), &AtomicBool::new(false), |_, line| {
@@ -193,6 +266,8 @@ fn subprocess_fixture() {
             std::thread::sleep(Duration::from_mins(1));
         }
         "prompt" => redirected_prompt(),
+        "tree" => hook_tree(),
+        "listener" => hook_listener(),
         _ => panic!("unknown fixture mode"),
     }
 }
@@ -217,4 +292,28 @@ fn redirected_prompt() {
         .to_string();
     assert!(error.contains("interactive input"));
     println!("fixture-prompt-refused");
+}
+
+fn hook_tree() {
+    let status = command("listener")
+        .spawn()
+        .expect("spawn a synthetic hook descendant")
+        .wait()
+        .expect("wait for the hook descendant");
+    assert!(status.success());
+}
+
+fn hook_listener() {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listen on a local fixture port");
+    println!(
+        "fixture-listener {}",
+        listener
+            .local_addr()
+            .expect("fixture listener has an address")
+    );
+    io::stdout()
+        .flush()
+        .expect("flush the descendant ready signal");
+    std::thread::sleep(Duration::from_mins(1));
+    drop(listener);
 }

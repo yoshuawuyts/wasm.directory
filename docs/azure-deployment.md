@@ -67,8 +67,11 @@ Optional settings that remain unset
 continue to use the Bicep defaults, including scaling and logging parameters;
 the helper does not reset them.
 
-Missing required settings are prompted for. The current Azure CLI subscription
-can be offered as a default, but the helper never switches subscriptions.
+Missing required settings are prompted for. Only new-environment setup offers
+the current Azure CLI subscription as a default. If an existing environment is
+missing its subscription ID, recover it through configuration or enter the
+original ID explicitly; pressing Enter never substitutes the active account.
+The helper never switches subscriptions.
 If the selected deployment targets a different subscription, it stops with an
 explicit `az account set` instruction so the provisioning hooks cannot
 accidentally operate on the wrong account.
@@ -125,7 +128,9 @@ Provisioning uses the existing provider-registration and custom-domain hooks.
 Read their warnings and verify the website and `/v1/health` endpoint afterward:
 deferred domain/certificate bindings do not necessarily make azd exit with an
 error. A failed or interrupted deployment can leave partial Azure changes;
-cancellation is not rollback.
+Ctrl-C stops azd and its hook processes through an isolated process group
+(Unix) or job object (Windows). Azure requests already accepted by the service
+may still finish, so cancellation is not rollback.
 
 There is no separate preview recipe or preview environment. Dry-run support is
 deferred. In particular, raw `azd provision --preview` still invokes project

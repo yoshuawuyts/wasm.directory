@@ -66,7 +66,8 @@ pub(super) fn complete(
     subscription: &str,
     existing: bool,
 ) -> Result<()> {
-    require_setting(host, values, "AZURE_SUBSCRIPTION_ID", subscription)?;
+    let subscription_default = if existing { "" } else { subscription };
+    require_setting(host, values, "AZURE_SUBSCRIPTION_ID", subscription_default)?;
     ensure!(
         required(values, "AZURE_SUBSCRIPTION_ID")?.eq_ignore_ascii_case(subscription),
         "The az CLI subscription differs from this deployment. Explicitly run \
@@ -109,6 +110,10 @@ fn require_setting(
         return Ok(());
     }
     let (label, input) = match key {
+        "AZURE_SUBSCRIPTION_ID" if default.is_empty() => (
+            format!("{key} (recover this deployment's original subscription ID)"),
+            Input::Plain,
+        ),
         "POSTGRES_ADMIN_PASSWORD" => (
             format!("{key} (original password for an existing deployment; input hidden)"),
             Input::Secret,
