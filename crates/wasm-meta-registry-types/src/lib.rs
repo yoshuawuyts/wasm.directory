@@ -70,6 +70,18 @@ pub struct PackageDependencyRef {
 /// and is the primary wire type shared between the meta-registry server and
 /// its clients.
 ///
+/// # Compatibility
+///
+/// The `dependents` and `latest_release_at` additions are JSON-compatible:
+/// older responses deserialize with these fields set to `None`. They are
+/// nevertheless a Rust source-breaking change. Struct literals must initialize
+/// both fields (use `None` when unavailable), and exhaustive destructuring must
+/// name them or use `..`.
+///
+/// This is an intentional change to the project's unstable pre-1.0 Rust API
+/// and must ship in a new minor release, not a patch release. Serde defaults
+/// do not provide Rust source compatibility.
+///
 /// # Example
 ///
 /// ```rust

@@ -48,3 +48,17 @@ assert_eq!(pkg.reference(), "ghcr.io/user/my-component");
 
 Both fields are omitted when unavailable and default to `None` when reading
 older responses.
+
+## Rust source compatibility
+
+The defaults above preserve **JSON compatibility**, not Rust source compatibility.
+Adding fields to the public `KnownPackage` struct is intentionally source-breaking
+under the repository's [unstable API policy](../../README.md).
+Code constructing a `KnownPackage` literal must add `dependents: None` and
+`latest_release_at: None` when it has no metadata, as in the example above.
+Exhaustive destructuring must include the new fields or use `..`.
+
+This change must ship in a new pre-1.0 minor release, not a patch release.
+The release workflow assigns the release version and defaults to incrementing
+the minor version; the checked-in workspace version is not the version that
+workflow publishes.

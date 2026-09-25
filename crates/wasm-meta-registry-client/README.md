@@ -13,6 +13,15 @@ HTTP client for fetching package metadata from a
 - `RegistryClient` with ETag-based conditional fetches and exponential-backoff
   retries (behind the `client` feature, enabled by default)
 
+## Rust source compatibility
+
+The optional listing fields are backward-compatible in JSON, not in Rust
+struct literals. Rust callers constructing the re-exported `KnownPackage` must
+provide `dependents` and `latest_release_at` (use `None` when unavailable).
+This intentional pre-1.0 source break requires a new minor release, not a patch;
+see the [type's compatibility notes](../wasm-meta-registry-types/README.md#rust-source-compatibility)
+for migration details.
+
 ## Usage
 
 ```rust,no_run
