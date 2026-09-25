@@ -6,10 +6,136 @@ using the Azure Developer CLI (`azd`). The deployment uses
 Analytics workspace, Container Apps environment, two Container Apps
 (frontend + backend), and an Azure Database for PostgreSQL Flexible Server.
 
-> **Two ways to deploy.** The numbered steps below are the manual `azd`
-> walkthrough. To deploy automatically from CI instead — including GitHub
-> deployment status tracking — see
+> **Infrastructure or release?** Use
+> [`just provision`](#provision-infrastructure-without-a-release) to update
+> infrastructure while keeping your chosen container images. The numbered
+> steps below describe the underlying manual `azd` flow. To publish and deploy
+> a new release from CI — including GitHub deployment status tracking — see
 > [Automated deployment via GitHub Actions](#automated-deployment-via-github-actions).
+
+## Provision infrastructure without a release
+
+Run these commands from the checkout whose infrastructure you intend to apply.
+Use your existing deployment checkout when possible: a fresh worktree does not
+automatically have its production `.azure/` configuration.
+
+```sh
+# Sign in explicitly if needed; the helper never changes authentication for you.
+az login
+azd auth login
+
+just provision                         # use the selected azd environment
+just provision existing-environment    # explicitly select an environment for this run
+```
+
+The recipe requires `just`, **Python 3.11+** available as `python3`, `az`, and
+**azd 1.25+** with `azd env set --file` support. It needs no Python packages,
+Rust build, Docker, or GitHub CLI. It invokes
+[`scripts/provision.py`](../scripts/provision.py), which checks configuration
+and then runs `azd provision --environment <name> --no-prompt` against the
+existing [azure.yaml](../azure.yaml) and Bicep. It does **not** build or push
+images, publish crates, run a release, create cloud identities, grant
+permissions, or configure GitHub secrets.
+
+### Environment selection and missing setup
+
+An explicit recipe argument selects the environment for that invocation without
+changing an existing default. Otherwise the helper uses `AZURE_ENV_NAME` from
+the process, then azd's selected default. If there is no unambiguous selection,
+it asks rather than choosing an arbitrary environment.
+
+When the named local environment is missing, the helper offers guided setup
+and asks before creating it. **For an existing deployment, recover the original
+environment configuration first whenever possible.** You must retain its
+subscription, region, environment name, resource-group override, database
+login/name/password, domain, and any custom settings. Guessing these can
+create different resources or change credentials. Remote-only azd environments
+must be restored locally explicitly; this helper does not initialize remote
+state stores.
+
+Saved settings are preserved. Process variables can fill missing values, but a
+conflict with saved settings stops the command and names the conflicting keys
+without showing their values. Unset the conflicting input or deliberately
+change the azd setting before retrying. Optional settings that remain unset
+continue to use the Bicep defaults, including scaling and logging parameters;
+the helper does not reset them.
+
+Missing required settings are prompted for. The current Azure CLI subscription
+can be offered as a default, but the helper never switches subscriptions.
+If the selected deployment targets a different subscription, it stops with an
+explicit `az account set` instruction so the provisioning hooks cannot
+accidentally operate on the wrong account.
+
+### Images and credentials
+
+Both `BACKEND_IMAGE` and `FRONTEND_IMAGE` must identify the application images
+you intend to deploy. For an infrastructure-only update, retain their currently
+deployed references. There is no automatic version lookup, `latest` fallback,
+or demonstration image substitution. Explicitly configured `latest` or
+untagged references are preserved only after an additional warning and
+confirmation; prefer a version tag or digest to avoid pulling different code
+when a new revision starts.
+
+Public images, including public GHCR packages, do not require registry
+credentials. For private access, supply the matching `REGISTRY_SERVER`,
+`REGISTRY_USERNAME`, and `REGISTRY_PASSWORD`. The helper asks about visibility
+when setting up missing images and prompts only for genuinely missing private
+registry settings. It does not automatically use `GHCR_PULL_TOKEN`, which is
+the separate CI deployment workflow's secret.
+
+Missing passwords are read with **terminal echo disabled**. For existing
+PostgreSQL resources, enter the **original administrator password**, not a new
+one: the Bicep deployment re-applies it. No password or token is generated,
+rotated, or fetched from GitHub. Do not pass secrets as recipe arguments or
+paste them into shell-history commands.
+
+After confirmation, missing settings are imported using azd's file-input
+interface, not command-line values. The temporary import file is owner-only
+on Unix and is removed on success, failure, or interruption. The resulting
+`.azure/<environment>/.env` is **gitignored plaintext, not encrypted storage**;
+the helper restricts its Unix permissions when importing settings. Protect the
+directory and its backups with your operating system's permissions. Supported
+process environment inputs also contain plaintext and should come from a
+trusted secret-loading mechanism. The helper never prints an environment dump
+and redacts known credentials from subprocess output.
+
+Some azd versions, including 1.25.5, cannot reliably preserve dotenv values
+ending in a backslash or double quote. The helper conservatively rejects those
+values before saving or provisioning, rather than corrupting a credential.
+Keep the original value and resolve the azd storage compatibility issue; do
+not rotate a production password merely to get past this check.
+
+### Confirmation and outcome
+
+Before any provision, the helper shows the non-secret target and image
+references and requires an explicit confirmation. Declining does not save
+entered settings or start provisioning. This is an interactive command:
+missing input or confirmation without a terminal fails rather than assuming
+consent. Azure still validates permissions, image access, and resource changes;
+passing local checks is not a guarantee that deployment will succeed.
+
+Provisioning uses the existing provider-registration and custom-domain hooks.
+Read their warnings and verify the website and `/v1/health` endpoint afterward:
+deferred domain/certificate bindings do not necessarily make azd exit with an
+error. A failed or interrupted deployment can leave partial Azure changes;
+cancellation is not rollback.
+
+There is no separate preview recipe or preview environment. Dry-run support is
+deferred. In particular, raw `azd provision --preview` still invokes project
+hooks in the supported azd version; the existing hooks can register providers
+or update domain bindings, so that command is **not** a guaranteed no-write
+alternative here.
+
+`just release` remains the full publish-and-deploy workflow.
+[`scripts/setup-azure-deploy.sh`](../scripts/setup-azure-deploy.sh) is separate
+CI setup that **writes GitHub secrets and variables**; `just provision` never
+calls it.
+
+The helper's command-flow tests run offline with strict CLI doubles:
+
+```sh
+python3 -m unittest discover -s scripts/tests -p 'test_provision*.py' -v
+```
 
 ## Prerequisites
 
@@ -17,8 +143,8 @@ Install the following tools:
 
 - [Azure Developer CLI (`azd`)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) — v1.25 or newer
 - [Azure CLI (`az`)](https://learn.microsoft.com/cli/azure/install-azure-cli)
-- [Docker](https://docs.docker.com/get-docker/) — required to build the
-  `frontend` and `backend` service images during `azd deploy`
+- [Docker](https://docs.docker.com/get-docker/) — only needed when manually
+  building new container images, not for provisioning existing images
 
 You also need an Azure subscription where you have **Owner** or
 **Contributor + User Access Administrator** rights (required to create
@@ -94,15 +220,21 @@ Set them with `azd env set`:
 ```sh
 azd env set AZURE_SUBSCRIPTION_ID '<your-subscription-id>'
 azd env set AZURE_LOCATION centralus
-azd env set POSTGRES_ADMIN_PASSWORD '<a-strong-password>'
 azd env set BACKEND_IMAGE 'ghcr.io/<owner>/component-cli/backend:latest'
 azd env set FRONTEND_IMAGE 'ghcr.io/<owner>/component-cli/frontend:latest'
 ```
 
-Confirm what's stored:
+Use `just provision` for hidden entry of a missing `POSTGRES_ADMIN_PASSWORD`
+and confirmation before applying. Restore the original password when updating
+an existing deployment; do not generate a replacement.
+
+Inspect individual non-secret settings rather than dumping credentials:
 
 ```sh
-azd env get-values
+azd env get-value AZURE_ENV_NAME
+azd env get-value AZURE_LOCATION
+azd env get-value BACKEND_IMAGE
+azd env get-value FRONTEND_IMAGE
 ```
 
 > **Tip:** `POSTGRES_ADMIN_PASSWORD` is written in plain text to

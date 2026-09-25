@@ -5,6 +5,8 @@ vendor/wasm
 examples/*/vendor
 .DS_Store
 .env
+.azure/
+__pycache__/
 registry.toml
 wasm.lock.toml
 wasm.toml

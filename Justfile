@@ -30,6 +30,12 @@ release-watch:
 release-list:
     gh run list --workflow="release.yml" -R {{repo}} --limit 5
 
+# Provision infrastructure with existing images (optional azd environment name)
+[positional-arguments]
+provision environment="":
+    @command -v python3 >/dev/null 2>&1 || { echo "error: provisioning requires Python 3.11 or newer (python3)." >&2; exit 1; }
+    @python3 scripts/provision.py "$1"
+
 # Build locally
 build:
     cargo build --release --package component
