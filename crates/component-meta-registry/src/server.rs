@@ -438,8 +438,8 @@ fn validate_notify_input(registry: &str, repository: &str, tag: &str) -> Option<
 ///   registry (i.e. previously indexed). Notifications for unknown
 ///   packages return `404 Not Found` so the queue can't be flooded with
 ///   arbitrary `(registry, repository, tag)` triples.
-/// * Enforces a freshness window (the same 1-hour cooldown used by the
-///   periodic indexer). Repeated notifications for a tag that was just
+/// * Enforces a 1-hour freshness window, independent of routine discovery.
+///   Repeated notifications for a tag that was just
 ///   pulled are returned as `{"status":"skipped"}`.
 async fn notify_new_version(
     State(manager): State<AppState>,

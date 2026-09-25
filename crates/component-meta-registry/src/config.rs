@@ -22,7 +22,7 @@ use crate::registry_file::RegistryFile;
 /// use component_meta_registry::config::{Config, PackageSource, PackageKind};
 ///
 /// let config = Config {
-///     sync_interval: 3600,
+///     sync_interval: Config::DEFAULT_SYNC_INTERVAL,
 ///     bind: "0.0.0.0:8080".to_string(),
 ///     packages: vec![PackageSource {
 ///         registry: "ghcr.io/webassembly".to_string(),
@@ -39,7 +39,8 @@ use crate::registry_file::RegistryFile;
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct Config {
-    /// Sync interval in seconds.
+    /// Routine all-source discovery interval in seconds, measured from the
+    /// last completed pass. Initial indexing and queue processing are separate.
     pub sync_interval: u64,
 
     /// HTTP server bind address.
@@ -86,6 +87,9 @@ pub struct PackageSource {
 pub use wasm_meta_registry_types::PackageKind;
 
 impl Config {
+    /// Default interval between routine catalog discovery passes: 1 hour.
+    pub const DEFAULT_SYNC_INTERVAL: u64 = 3600;
+
     /// Load configuration from a registry directory.
     ///
     /// Reads all `*.toml` files in the given directory, parses each as a
@@ -107,7 +111,7 @@ impl Config {
     ///
     /// let config = Config::from_registry_dir(
     ///     Path::new("registry/"),
-    ///     3600,
+    ///     Config::DEFAULT_SYNC_INTERVAL,
     ///     "0.0.0.0:8080".to_string(),
     /// )
     /// .expect("failed to load registry config");

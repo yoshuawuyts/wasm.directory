@@ -394,4 +394,87 @@ mod tests {
         assert_eq!(enqueued, 2);
         assert_eq!(store.pending_count().await.unwrap(), 2);
     }
+
+    #[tokio::test]
+    async fn full_initial_history_resumes_partial_enqueue_without_resetting_failed_versions() {
+        let store = Store::open_in_memory().await.expect("isolated store");
+        let reference: Reference = "example.test/owner/history".parse().expect("reference");
+        let (registry, repository) = (reference.registry(), reference.repository());
+        let all = tags(&[
+            "2.0.0",
+            "1.1.0_build.7",
+            "latest",
+            "1.0.0",
+            "1.1.0-rc.1",
+            "sha256-abc.sig",
+            "v9.0.0",
+        ]);
+        let supported = sorted_semver_tags(&reference, &all);
+        let expected = ["1.0.0", "1.1.0-rc.1", "1.1.0_build.7", "2.0.0"];
+        assert_eq!(
+            supported.iter().map(|tag| tag.as_str()).collect::<Vec<_>>(),
+            expected
+        );
+
+        // The first enqueue survived, but its discovery pass did not finish.
+        store
+            .enqueue_pull(registry, repository, "1.0.0", 0)
+            .await
+            .expect("partial enqueue");
+        let known = store
+            .known_tags(registry, repository)
+            .await
+            .expect("known tags");
+        assert_eq!(
+            enqueue_new_tags(&store, registry, repository, &supported, &known, false)
+                .await
+                .expect("resume full history"),
+            3
+        );
+        assert_eq!(store.pending_count().await.expect("pending"), 4);
+
+        for _ in 0..3 {
+            let task = store
+                .dequeue_next()
+                .await
+                .expect("claim")
+                .expect("oldest release");
+            assert_eq!(task.tag, "1.0.0", "retain ascending ingestion");
+            store
+                .fail_task(&task, "unsupported artifact")
+                .await
+                .expect("record failure");
+        }
+        let before = store.get_queue_status().await.expect("status");
+        assert_eq!(before.failed, 1);
+        assert_eq!(
+            before.pending, 3,
+            "one failed release does not discard remaining history"
+        );
+
+        let known = store
+            .known_tags(registry, repository)
+            .await
+            .expect("known after failure");
+        assert_eq!(
+            enqueue_new_tags(&store, registry, repository, &supported, &known, false)
+                .await
+                .expect("repeat discovery"),
+            0
+        );
+        assert_eq!(store.get_queue_status().await.expect("status").failed, 1);
+        for tag in expected.iter().skip(1) {
+            let task = store
+                .dequeue_next()
+                .await
+                .expect("claim history")
+                .expect("next release");
+            assert_eq!(task.tag, *tag);
+            store.complete_task(&task).await.expect("complete release");
+        }
+        let after = store.get_queue_status().await.expect("status");
+        assert_eq!(after.completed, 3);
+        assert_eq!(after.failed, 1, "exhausted work remains visibly failed");
+        assert_eq!(after.pending, 0);
+    }
 }

@@ -22,8 +22,8 @@ struct Cli {
     #[arg(long)]
     data_dir: Option<std::path::PathBuf>,
 
-    /// Sync interval in seconds.
-    #[arg(long, default_value_t = 3600)]
+    /// Routine catalog discovery interval in seconds (not initial indexing or queue pickup).
+    #[arg(long, default_value_t = Config::DEFAULT_SYNC_INTERVAL)]
     sync_interval: u64,
 
     /// HTTP server bind address.
@@ -143,4 +143,26 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn discovery_defaults_to_hourly_and_preserves_overrides() {
+        let default =
+            Cli::try_parse_from(["component-meta-registry", "registry/"]).expect("parse defaults");
+        assert_eq!(default.sync_interval, 3600);
+        for seconds in ["600", "3600", "172800", "0"] {
+            let cli = Cli::try_parse_from([
+                "component-meta-registry",
+                "registry/",
+                "--sync-interval",
+                seconds,
+            ])
+            .expect("parse explicit interval");
+            assert_eq!(cli.sync_interval, seconds.parse::<u64>().expect("seconds"));
+        }
+    }
 }
