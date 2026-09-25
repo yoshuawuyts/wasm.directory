@@ -15,11 +15,13 @@ mod components;
 mod escape;
 mod favicon;
 mod footer;
+mod install;
 mod layout;
 mod markdown;
 mod pages;
 mod relative_time;
 mod reserved;
+mod server;
 mod tailwind;
 mod wit_doc;
 
@@ -50,6 +52,9 @@ fn app() -> Router {
         .route("/robots.txt", get(robots))
         .route("/favicon.svg", get(favicon::svg))
         .route("/favicon.ico", get(favicon::ico))
+        .route("/install/linux", get(install::shell))
+        .route("/install/macos", get(install::shell))
+        .route("/install/windows", get(install::windows))
         .route(tailwind::PATH, get(tailwind::script))
         .route(tailwind::LICENSE_PATH, get(tailwind::license))
         .route("/{namespace}/{name}", get(package_redirect))
@@ -97,9 +102,11 @@ fn app() -> Router {
 }
 
 // r[impl frontend.server.wasi-http]
-#[wstd_axum::http_server]
-fn main() -> Router {
-    app()
+#[wstd::http_server]
+async fn main(
+    request: wstd::http::Request<wstd::http::Body>,
+) -> wstd::http::Result<wstd::http::Response<wstd::http::Body>> {
+    server::serve(request).await
 }
 
 // r[impl frontend.server.health]

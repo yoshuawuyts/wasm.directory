@@ -17,6 +17,7 @@ const RESERVED_NAMESPACES: &[&str] = &[
     "downloads",
     "explore",
     "health",
+    "install",
     "login",
     "logout",
     "new",
@@ -57,6 +58,12 @@ mod tests {
     #[test]
     fn health_is_reserved() {
         assert!(is_reserved("health"));
+    }
+
+    // r[verify frontend.routing.reserved-namespaces]
+    #[test]
+    fn install_is_reserved() {
+        assert!(is_reserved("install"));
     }
 
     // r[verify frontend.routing.reserved-namespaces]
