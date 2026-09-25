@@ -196,6 +196,29 @@ The service URLs are printed at the end. You can also retrieve them later:
 azd env get-values | grep _URL
 ```
 
+### Indexing cadence on backend upgrades
+
+The repository's backend image, Compose configuration, and Bicep template inherit
+the server binary's discovery default: 86,400 seconds (24 hours). Existing running
+images are unchanged until an authorized rollout installs the new binary/image.
+If an operator has explicitly set `--sync-interval 3600`, that override remains
+hourly; remove it or deliberately change it to `86400` to adopt the daily cadence.
+There is no discovery-interval environment variable.
+
+The existing database's routine discovery watermark is retained. On first upgrade,
+configured sources get one bounded tag-list reconciliation, without re-fetching
+already cached/queued versions, to establish complete initial-discovery state.
+New approved sources start full history indexing when the backend learns them;
+registry files are still baked into the image and loaded at startup, so this is
+not immediate GitHub-merge detection.
+
+The nominal broad-sweep schedule changes from 24/day to 1/day, not necessarily
+CPU or active charges by the same ratio. Minute lease/queue wakeups, ingestion,
+retries, metadata backfill, requests, and health probes continue. This change
+does not modify replica settings or billing policy. Releases of known packages
+can await the daily scan unless separately notified, with upstream failures and
+queue processing potentially adding delay.
+
 ## 7. (Optional) Bind a custom domain
 
 By default the frontend is reachable only on its generated

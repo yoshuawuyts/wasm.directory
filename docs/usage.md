@@ -144,7 +144,7 @@ review.
 The running meta-registry must first load the updated registry configuration
 (container deployments bake it into the image). Once it learns the approved
 source, it schedules all supported release history without waiting for the
-routine sweep. This does not make detection of the external merge
+routine daily sweep. This does not make detection of the external merge
 immediate. Subsequent releases normally wait for the configured discovery
 interval unless an accepted targeted version notification requests earlier work.
 
