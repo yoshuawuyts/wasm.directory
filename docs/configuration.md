@@ -168,9 +168,9 @@ support both SQLite and PostgreSQL.
 
 The meta-registry server's routine all-source discovery interval is configured
 with `--sync-interval <seconds>`, not an environment variable. It defaults to
-3,600 seconds measured from persisted completion; explicit overrides survive an
+86,400 seconds measured from persisted completion; explicit overrides survive an
 upgrade. Full initial indexing of newly loaded approved sources, worker queue
-pickup, and retries are independent of that routine watermark. This setting does
+pickup, and retries are independent of that daily watermark. This setting does
 not change the CLI's separate hourly local-index refresh or the notification
 freshness cooldown. See the
 [server README](../crates/component-meta-registry/README.md#usage) for upgrade and

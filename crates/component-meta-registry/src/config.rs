@@ -33,7 +33,7 @@ use crate::registry_file::RegistryFile;
 ///     }],
 /// };
 ///
-/// assert_eq!(config.sync_interval, 3600);
+/// assert_eq!(config.sync_interval, 86_400);
 /// assert_eq!(config.packages.len(), 1);
 /// ```
 #[derive(Debug, Clone)]
@@ -87,8 +87,8 @@ pub struct PackageSource {
 pub use wasm_meta_registry_types::PackageKind;
 
 impl Config {
-    /// Default interval between routine catalog discovery passes: 1 hour.
-    pub const DEFAULT_SYNC_INTERVAL: u64 = 3600;
+    /// Default interval between routine catalog discovery passes: 24 hours.
+    pub const DEFAULT_SYNC_INTERVAL: u64 = 86_400;
 
     /// Load configuration from a registry directory.
     ///

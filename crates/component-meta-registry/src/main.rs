@@ -150,10 +150,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn discovery_defaults_to_hourly_and_preserves_overrides() {
+    fn discovery_defaults_to_daily_and_preserves_overrides() {
         let default =
             Cli::try_parse_from(["component-meta-registry", "registry/"]).expect("parse defaults");
-        assert_eq!(default.sync_interval, 3600);
+        assert_eq!(default.sync_interval, 86_400);
         for seconds in ["600", "3600", "172800", "0"] {
             let cli = Cli::try_parse_from([
                 "component-meta-registry",
