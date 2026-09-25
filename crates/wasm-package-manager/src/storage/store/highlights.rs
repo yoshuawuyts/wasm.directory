@@ -115,9 +115,10 @@ impl Store {
                     .await?,
             );
         }
-        let ids: Vec<_> = repos.iter().map(|repo| repo.id).collect();
+        // Pair with returned rows, not the IN-list's ordering or missing IDs.
+        let returned_ids: Vec<_> = repos.iter().map(|repo| repo.id).collect();
         let packages = known_packages_from_repos(&self.db, repos).await?;
-        Ok(ids.into_iter().zip(packages).collect())
+        Ok(returned_ids.into_iter().zip(packages).collect())
     }
 
     /// Load the newest repository for a WIT package that has at least one
@@ -261,6 +262,32 @@ mod tests {
         insert_wit_package_dependency(&store.db, wp_id, declared, Some("0.2.0"))
             .await
             .expect("insert dependency");
+    }
+
+    #[tokio::test]
+    async fn highlight_packages_keep_actual_ids_with_reordered_and_missing_requests() {
+        let store = Store::open_in_memory().await.expect("open store");
+        let (a, _) = seed_repo(&store, "example", "a", &["1.0.0"]).await;
+        let (b, b_manifest) = seed_repo(&store, "example", "b", &["2.0.0"]).await;
+        let (c, _) = seed_repo(&store, "example", "c", &["3.0.0"]).await;
+        seed_dependency(&store, b_manifest, "example:b", "example:a").await;
+
+        let packages = store
+            .load_known_packages(vec![c, -1, a, b, c])
+            .await
+            .expect("load reordered repositories");
+        assert_eq!(packages.len(), 3);
+        assert!(!packages.contains_key(&-1));
+        for (id, repository, tag, dependents) in [
+            (a, "example/a", "1.0.0", 1),
+            (b, "example/b", "2.0.0", 0),
+            (c, "example/c", "3.0.0", 0),
+        ] {
+            let package = packages.get(&id).expect("actual repository ID retained");
+            assert_eq!(package.repository, repository);
+            assert_eq!(package.tags, [tag]);
+            assert_eq!(package.dependents, Some(dependents));
+        }
     }
 
     #[tokio::test]

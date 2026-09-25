@@ -98,6 +98,9 @@ fn adds_one_display_prefix_without_changing_version_tags() {
         ("1.2.3", "v1.2.3"),
         ("v1.2.3", "v1.2.3"),
         ("V1.2.3", "v1.2.3"),
+        ("vv1.2.3", "v1.2.3"),
+        ("vV1.2.3", "v1.2.3"),
+        ("VVv1.2.3", "v1.2.3"),
         ("1.0.0-rc.1_build.123", "v1.0.0-rc.1_build.123"),
     ] {
         let mut pkg = packages().remove(0);

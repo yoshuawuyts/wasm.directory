@@ -105,10 +105,7 @@ fn metadata_row(pkg: &KnownPackage, now: DateTime<Utc>) -> Span {
 fn version_label(version: Option<&str>) -> String {
     match version {
         Some(version) => {
-            let number = version
-                .strip_prefix('v')
-                .or_else(|| version.strip_prefix('V'))
-                .unwrap_or(version);
+            let number = version.trim_start_matches(['v', 'V']);
             format!("v{number}")
         }
         None => "\u{2014}".to_owned(),
