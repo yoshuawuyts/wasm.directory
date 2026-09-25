@@ -166,6 +166,16 @@ support both SQLite and PostgreSQL.
 
 ## Environment Variables
 
+The meta-registry server's routine all-source discovery interval is configured
+with `--sync-interval <seconds>`, not an environment variable. It defaults to
+3,600 seconds measured from persisted completion; explicit overrides survive an
+upgrade. Full initial indexing of newly loaded approved sources, worker queue
+pickup, and retries are independent of that routine watermark. This setting does
+not change the CLI's separate hourly local-index refresh or the notification
+freshness cooldown. See the
+[server README](../crates/component-meta-registry/README.md#usage) for upgrade and
+source-loading behavior.
+
 - `COMPONENT_REGISTRY_URL` — meta-registry the CLI syncs from and notifies
   (`sync`, `search`, `install`, `run`, `registry notify`). Defaults to the
   public meta-registry API at `https://api.wasm.directory` (served on its own
