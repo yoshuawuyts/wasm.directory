@@ -9,6 +9,7 @@
 
 mod cleanup;
 mod fixtures;
+mod provision;
 mod readme;
 mod serve;
 mod sql;
@@ -26,6 +27,11 @@ use clap::{Parser, Subcommand};
 enum Xtask {
     /// Run tests, clippy, and formatting checks
     Test,
+    /// Provision infrastructure using existing images and confirmed azd settings
+    Provision {
+        /// azd environment (otherwise uses AZURE_ENV_NAME or azd's selection)
+        environment: Option<String>,
+    },
     /// Run the `component` binary (equivalent to `cargo run --package component`)
     Run {
         /// Arguments to pass to the component binary
@@ -114,6 +120,7 @@ fn main() -> Result<()> {
 
     match xtask {
         Xtask::Test => test::run_tests()?,
+        Xtask::Provision { environment } => provision::run_provision(environment.as_deref())?,
         Xtask::Run { args } => {
             let mut cargo_args = vec!["run", "--package", "component"];
             if !args.is_empty() {
@@ -248,5 +255,34 @@ pub(crate) fn workspace_root() -> Result<PathBuf> {
             .to_path_buf())
     } else {
         Ok(manifest_dir)
+    }
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::Xtask;
+    use clap::Parser as _;
+
+    #[test]
+    fn provision_accepts_default_environment() {
+        assert!(matches!(
+            Xtask::try_parse_from(["xtask", "provision"]).expect("parse provisioning command"),
+            Xtask::Provision { environment: None }
+        ));
+    }
+
+    #[test]
+    fn provision_accepts_explicit_environment() {
+        let parsed = Xtask::try_parse_from(["xtask", "provision", "test-env"])
+            .expect("parse explicit provisioning environment");
+        assert!(matches!(
+            parsed,
+            Xtask::Provision { environment: Some(name) } if name == "test-env"
+        ));
+    }
+
+    #[test]
+    fn provision_does_not_offer_a_preview_mode() {
+        assert!(Xtask::try_parse_from(["xtask", "provision", "--preview"]).is_err());
     }
 }

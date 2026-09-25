@@ -26,16 +26,21 @@ azd auth login
 
 just provision                         # use the selected azd environment
 just provision existing-environment    # explicitly select an environment for this run
+
+# Equivalent commands using the repository's existing Rust task runner:
+cargo xtask provision
+cargo xtask provision existing-environment
 ```
 
-The recipe requires `just`, **Python 3.11+** available as `python3`, `az`, and
-**azd 1.25+** with `azd env set --file` support. It needs no Python packages,
-Rust build, Docker, or GitHub CLI. It invokes
-[`scripts/provision.py`](../scripts/provision.py), which checks configuration
-and then runs `azd provision --environment <name> --no-prompt` against the
-existing [azure.yaml](../azure.yaml) and Bicep. It does **not** build or push
-images, publish crates, run a release, create cloud identities, grant
-permissions, or configure GitHub secrets.
+The command requires the repository's **Rust toolchain/Cargo**, `az`, and
+**azd 1.25+** with `azd env set --file` support. `just` is optional: the recipe
+is a thin wrapper around `cargo xtask provision`. Cargo builds the task runner
+on its first invocation; Python, Docker, and GitHub CLI are not needed.
+The [Rust provisioning helper](../crates/xtask/src/provision/mod.rs) checks
+configuration and then runs `azd provision --environment <name> --no-prompt`
+against the existing [azure.yaml](../azure.yaml) and Bicep. It does **not**
+build or push application images, publish crates, run a release, create cloud
+identities, grant permissions, or configure GitHub secrets.
 
 ### Environment selection and missing setup
 
@@ -56,7 +61,9 @@ state stores.
 Saved settings are preserved. Process variables can fill missing values, but a
 conflict with saved settings stops the command and names the conflicting keys
 without showing their values. Unset the conflicting input or deliberately
-change the azd setting before retrying. Optional settings that remain unset
+change the azd setting before retrying. This includes an exported
+`AZURE_ENV_NAME` that disagrees with an explicit environment argument.
+Optional settings that remain unset
 continue to use the Bicep defaults, including scaling and logging parameters;
 the helper does not reset them.
 
@@ -131,11 +138,13 @@ alternative here.
 CI setup that **writes GitHub secrets and variables**; `just provision` never
 calls it.
 
-The helper's command-flow tests run offline with strict CLI doubles:
+The helper's Rust command-flow tests run offline with strict CLI doubles:
 
 ```sh
-python3 -m unittest discover -s scripts/tests -p 'test_provision*.py' -v
+cargo test --package xtask provision
 ```
+
+They also run as part of the existing `cargo xtask test` CI checks.
 
 ## Prerequisites
 

@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 clap = { workspace = true }
 anyhow = { workspace = true }
+console = { workspace = true }
 dirs = { workspace = true }
 ctrlc = "3"
 notify = "8"
@@ -14,6 +15,8 @@ tempfile = { workspace = true }
 tokio = { workspace = true }
 sea-orm = { workspace = true }
 semver = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 wasm-package-manager-migration = { workspace = true }
 wit-component = { workspace = true }
 wit-parser = { workspace = true }

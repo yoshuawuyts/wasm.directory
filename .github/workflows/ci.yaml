@@ -26,14 +26,6 @@ jobs:
     steps:
     - uses: actions/checkout@v7.0.1
 
-    - name: Set up Python for provisioning helper tests
-      uses: actions/setup-python@v7.0.0
-      with:
-        python-version: '3.11'
-
-    - name: Test provisioning helper without Azure access
-      run: python -m unittest discover -s scripts/tests -p "test_provision*.py" -v
-
     - name: Run sccache-cache only on non-release runs
       if: github.event_name != 'release' && github.event_name != 'workflow_dispatch'
       uses: mozilla-actions/sccache-action@v0.0.11
