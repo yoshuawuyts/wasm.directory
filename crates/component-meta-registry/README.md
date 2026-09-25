@@ -89,13 +89,14 @@ Namespace, package, and interface names each follow the WIT identifier grammar
 
 Dependents follows the indexed WIT package dependency declarations in reverse,
 directly and transitively, ignoring dependency versions and unresolved foreign
-keys. Cycles terminate and the target itself is excluded. For unregistered
-components, declarations matching their own extracted package name are ignored
-as self-edges, including when that name is reached transitively. World queries
-instead match the world's own indexed import/export declarations, with no
-transitive traversal. These are exact-name queries, not substring searches.
-They describe the existing index, whose extractor currently records
-world-derived package dependencies, not every possible source-level dependency.
+keys. Cycles terminate and the target itself is excluded. Declarations matching
+the source package's own identity are ignored as self-edges, even when that
+identity is reached transitively. For unregistered components this check uses
+the extracted package name. World queries instead match the world's own indexed
+import/export declarations, with no transitive traversal. These are exact-name
+queries, not substring searches. They describe the existing index, whose extractor
+currently records world-derived package dependencies, not every possible
+source-level dependency.
 
 Each package, or owning-package/world pair, appears once at its highest matching
 semantic version. A newer release that dropped the relationship does not replace

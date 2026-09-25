@@ -222,6 +222,51 @@ async fn relationship_dependents_exclude_self_edges_using_the_available_identity
 }
 
 #[tokio::test]
+async fn relationship_dependents_ignore_named_self_edges_when_selecting_releases() {
+    for (own_name, identity, kind) in [
+        ("test:source", Some("test:source"), "interface"),
+        ("test:source", None, "interface"),
+        ("root:component", Some("test:source"), "component"),
+    ] {
+        let store = fixture_store().await;
+        let repo = repository(&store, "registry.test", "test/source", identity, Some(kind)).await;
+        let matching = seed_release(&store, repo, own_name, None, &["1.0.0"]).await;
+        matching.dependency(&store, "wasi:io", None).await;
+        matching.dependency(&store, "test:source", None).await;
+        let self_only = seed_release(&store, repo, own_name, None, &["2.0.0"]).await;
+        self_only.dependency(&store, "test:source", None).await;
+        package(&store, "test:consumer", "1.0.0", &["test:source"]).await;
+        let page = store
+            .list_dependents(&target("wasi:io", None), 0, 10)
+            .await
+            .expect("query named sources with self-edges");
+        let versions: Vec<_> = page
+            .results
+            .iter()
+            .map(|entry| (entry.package.repository.as_str(), entry.version.as_str()))
+            .collect();
+        assert_eq!(
+            versions,
+            [("test/consumer", "1.0.0"), ("test/source", "1.0.0")],
+            "own name {own_name}, registered identity {identity:?}, kind {kind}"
+        );
+        assert_eq!(page.total, Some(2));
+        assert!(!page.has_next);
+        assert_eq!(
+            page.results
+                .last()
+                .expect("matching source")
+                .package
+                .tags
+                .first()
+                .expect("latest repository tag"),
+            "2.0.0",
+            "self-edge filtering must not rewrite ordinary package metadata"
+        );
+    }
+}
+
+#[tokio::test]
 async fn relationship_dependents_ignore_unregistered_self_edges_in_transitive_matches() {
     let store = fixture_store().await;
     package(&store, "root:component", "1.0.0", &["wasi:io"]).await;

@@ -58,8 +58,8 @@ pub(super) fn dependents() -> String {
          JOIN wit_package_dependency d ON d.dependent_id = s.package_id \
          JOIN reverse_dependencies closure ON closure.package_name = d.declared_package \
          {MATCHING_TAGS} \
-         WHERE (s.source_name IS NULL AND s.package_name <> closure.package_name) \
-            OR s.source_name <> ?"
+         WHERE COALESCE(s.source_name, s.package_name) <> closure.package_name \
+           AND (s.source_name IS NULL OR s.source_name <> ?)"
     )
 }
 
