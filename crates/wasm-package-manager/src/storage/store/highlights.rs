@@ -4,15 +4,17 @@
 mod timeline;
 
 use std::cmp::Reverse;
+use std::collections::HashMap;
 
-use sea_orm::{ColumnTrait, EntityTrait, FromQueryResult, QueryFilter, QueryOrder, Statement};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 use wasm_meta_registry_types::{KnownPackage, NewPackage, PackageRelease, PopularPackage};
 use wasm_package_manager_migration::entities::oci_repository;
 
-use self::timeline::{
-    PackageTimeline, RELEASE_ROWS_SQL, ReleaseRow, cap_per_publisher, package_timelines,
+use self::timeline::{PackageTimeline, cap_per_publisher, package_timelines};
+use super::{
+    Store, dependents::dependent_counts, fetch_repo_tags, known_packages_from_repos,
+    releases::release_rows,
 };
-use super::{Store, known_package_from_repo};
 
 /// Most entries one publisher may occupy in the new-packages and
 /// recent-releases lists, so a bulk publish doesn't drown out everyone else.
@@ -39,11 +41,14 @@ impl Store {
         let offset = usize::try_from(offset).unwrap_or(usize::MAX);
         let limit = usize::try_from(limit).unwrap_or(usize::MAX);
         let mut out = Vec::new();
-        let page = cap_per_publisher(timelines, MAX_PER_PUBLISHER)
+        let page: Vec<_> = cap_per_publisher(timelines, MAX_PER_PUBLISHER)
             .skip(offset)
-            .take(limit);
+            .take(limit)
+            .collect();
+        let ids = page.iter().map(|t| t.latest.repo_id).collect();
+        let mut packages = self.load_known_packages(ids).await?;
         for timeline in page {
-            if let Some(package) = self.load_known_package(timeline.latest.repo_id).await? {
+            if let Some(package) = packages.remove(&timeline.latest.repo_id) {
                 out.push(NewPackage {
                     package,
                     first_indexed_at: timeline.first_indexed.to_rfc3339(),
@@ -73,9 +78,13 @@ impl Store {
         timelines.sort_by_key(|t| Reverse(t.latest.sort_key()));
         let limit = usize::try_from(limit).unwrap_or(usize::MAX);
         let mut out = Vec::new();
-        let page = cap_per_publisher(timelines, MAX_PER_PUBLISHER).take(limit);
+        let page: Vec<_> = cap_per_publisher(timelines, MAX_PER_PUBLISHER)
+            .take(limit)
+            .collect();
+        let ids = page.iter().map(|t| t.latest.repo_id).collect();
+        let mut packages = self.load_known_packages(ids).await?;
         for PackageTimeline { latest, .. } in page {
-            if let Some(package) = self.load_known_package(latest.repo_id).await? {
+            if let Some(package) = packages.remove(&latest.repo_id) {
                 out.push(PackageRelease {
                     package,
                     version: latest.tag,
@@ -88,30 +97,36 @@ impl Store {
 
     /// One release timeline per package, across every indexed tag.
     async fn package_timelines(&self) -> anyhow::Result<Vec<PackageTimeline>> {
-        let backend = self.db.get_database_backend();
-        let stmt = Statement::from_string(backend, RELEASE_ROWS_SQL);
-        let rows = ReleaseRow::find_by_statement(stmt).all(&self.db).await?;
+        let rows = release_rows(&self.db, None).await?;
         Ok(package_timelines(rows))
     }
 
-    /// Load a repository as a [`KnownPackage`], if it still exists.
-    async fn load_known_package(&self, repo_id: i64) -> anyhow::Result<Option<KnownPackage>> {
-        let repo = oci_repository::Entity::find_by_id(repo_id)
-            .one(&self.db)
-            .await?;
-        match repo {
-            Some(repo) => Ok(Some(known_package_from_repo(&self.db, repo).await?)),
-            None => Ok(None),
+    /// Load and enrich the selected repositories as a batch.
+    async fn load_known_packages(
+        &self,
+        repo_ids: Vec<i64>,
+    ) -> anyhow::Result<HashMap<i64, KnownPackage>> {
+        let mut repos = Vec::new();
+        for ids in repo_ids.chunks(400) {
+            repos.extend(
+                oci_repository::Entity::find()
+                    .filter(oci_repository::Column::Id.is_in(ids.iter().copied()))
+                    .all(&self.db)
+                    .await?,
+            );
         }
+        let ids: Vec<_> = repos.iter().map(|repo| repo.id).collect();
+        let packages = known_packages_from_repos(&self.db, repos).await?;
+        Ok(ids.into_iter().zip(packages).collect())
     }
 
     /// Load the newest repository for a WIT package that has at least one
     /// semver release, skipping mirrors that only carry e.g. `latest`.
-    async fn load_released_wit_package(
+    async fn load_released_wit_repo(
         &self,
         namespace: &str,
         name: &str,
-    ) -> anyhow::Result<Option<KnownPackage>> {
+    ) -> anyhow::Result<Option<oci_repository::Model>> {
         let repos = oci_repository::Entity::find()
             .filter(oci_repository::Column::WitNamespace.eq(namespace))
             .filter(oci_repository::Column::WitName.eq(name))
@@ -119,9 +134,8 @@ impl Store {
             .all(&self.db)
             .await?;
         for repo in repos {
-            let package = known_package_from_repo(&self.db, repo).await?;
-            if !package.tags.is_empty() {
-                return Ok(Some(package));
+            if !fetch_repo_tags(&self.db, repo.id).await?.is_empty() {
+                return Ok(Some(repo));
             }
         }
         Ok(None)
@@ -139,53 +153,42 @@ impl Store {
         offset: u32,
         limit: u32,
     ) -> anyhow::Result<Vec<PopularPackage>> {
-        let sql = "\
-            SELECT repo.wit_namespace AS wit_namespace, repo.wit_name AS wit_name, \
-                   COUNT(DISTINCT dependent_repo.id) AS dependents \
-            FROM wit_package_dependency wpd \
-            JOIN wit_package wp ON wpd.dependent_id = wp.id \
-            JOIN oci_manifest om ON wp.oci_manifest_id = om.id \
-            JOIN oci_repository dependent_repo ON om.oci_repository_id = dependent_repo.id \
-            JOIN oci_repository repo \
-              ON repo.wit_namespace || ':' || repo.wit_name = wpd.declared_package \
-            WHERE dependent_repo.id <> repo.id \
-              AND EXISTS ( \
-                SELECT 1 FROM oci_tag t WHERE t.oci_repository_id = repo.id \
-              ) \
-            GROUP BY repo.wit_namespace, repo.wit_name \
-            ORDER BY dependents DESC, repo.wit_namespace ASC, repo.wit_name ASC";
-        let backend = self.db.get_database_backend();
-        let stmt = Statement::from_string(backend, sql);
-        #[derive(FromQueryResult)]
-        struct Row {
-            wit_namespace: String,
-            wit_name: String,
-            dependents: i64,
-        }
-        let rows = Row::find_by_statement(stmt).all(&self.db).await?;
+        let rows = dependent_counts(&self.db, None).await?;
         let mut skip = usize::try_from(offset).unwrap_or(usize::MAX);
         let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-        let mut out = Vec::new();
+        let mut repos = Vec::new();
+        let mut counts = Vec::new();
         for row in rows {
-            if out.len() >= limit {
+            if repos.len() >= limit {
                 break;
             }
-            let package = self
-                .load_released_wit_package(&row.wit_namespace, &row.wit_name)
+            let repo = self
+                .load_released_wit_repo(&row.wit_namespace, &row.wit_name)
                 .await?;
-            let Some(package) = package else {
+            let Some(repo) = repo else {
                 continue;
             };
             if skip > 0 {
                 skip -= 1;
                 continue;
             }
-            out.push(PopularPackage {
-                package,
-                dependents: u64::try_from(row.dependents).unwrap_or(0),
-            });
+            repos.push(repo);
+            counts.push(u64::try_from(row.dependents)?);
         }
-        Ok(out)
+        let packages = known_packages_from_repos(&self.db, repos).await?;
+        Ok(packages
+            .into_iter()
+            .zip(counts)
+            .map(|(mut package, dependents)| {
+                // Keep the row and its ranking count from the same snapshot,
+                // even if dependencies changed during page enrichment.
+                package.dependents = Some(dependents);
+                PopularPackage {
+                    package,
+                    dependents,
+                }
+            })
+            .collect())
     }
 }
 
@@ -198,11 +201,11 @@ mod tests {
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
     use wasm_package_manager_migration::entities::{oci_manifest, oci_tag};
 
+    use super::super::releases::release_time;
     use super::super::{
         Store, insert_wit_package_dependency, upsert_oci_manifest, upsert_oci_repository_full,
         upsert_oci_tag, upsert_wit_package,
     };
-    use super::timeline::release_time;
 
     /// Insert a repository with a single manifest carrying `tags`. Returns
     /// `(repo_id, manifest_id)`.
@@ -270,6 +273,8 @@ mod tests {
         let pkgs = store.list_new_known_packages(0, 10).await.expect("query");
         let names: Vec<_> = pkgs.iter().map(|p| p.package.repository.as_str()).collect();
         assert_eq!(names, ["c/second", "a/first"]);
+        assert!(pkgs.iter().all(|p| p.package.dependents == Some(0)));
+        assert!(pkgs.iter().all(|p| p.package.latest_release_at.is_some()));
 
         // A tag-less repo at the top must not eat into the page.
         seed_repo(&store, "d", "newest-untagged", &[]).await;
@@ -327,6 +332,10 @@ mod tests {
             .expect("set config created");
 
         let releases = store.list_recent_releases(10).await.expect("query");
+        assert!(releases.iter().all(|r| {
+            r.package.dependents == Some(0)
+                && r.package.latest_release_at.as_deref() == Some(r.released_at.as_str())
+        }));
         let got: Vec<_> = releases
             .iter()
             .map(|r| (r.package.repository.as_str(), r.released_at.as_str()))

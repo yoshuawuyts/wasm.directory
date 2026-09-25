@@ -133,6 +133,15 @@ pub(crate) fn icon(size: u8, inner: &str) -> String {
     )
 }
 
+/// Render Octicons' package-dependents shape using its 16px coordinate system.
+#[must_use]
+pub(crate) fn package_dependents(size: u8) -> String {
+    let inner = include_str!("../../../../../vendor/octicons/package-dependents-16.svg").trim();
+    format!(
+        r#"<svg width="{size}" height="{size}" viewBox="0 0 16 16" fill="currentColor">{inner}</svg>"#
+    )
+}
+
 /// Render this section.
 pub(crate) fn render(
     section_id: &str,
@@ -196,6 +205,18 @@ pub(crate) fn render(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dependents_use_a_filled_16px_shape_at_the_requested_size() {
+        let svg = package_dependents(14);
+        assert!(svg.starts_with(
+            r#"<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">"#
+        ));
+        assert!(svg.contains(
+            include_str!("../../../../../vendor/octicons/package-dependents-16.svg").trim()
+        ));
+        assert!(!svg.contains("stroke="));
+    }
 
     #[test]
     fn snapshot() {

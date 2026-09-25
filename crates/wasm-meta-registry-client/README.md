@@ -6,6 +6,10 @@ HTTP client for fetching package metadata from a
 ## Features
 
 - Shared `KnownPackage` type matching the meta-registry `/v1/packages` API
+- Optional `dependents` and `latest_release_at` listing metadata, included in
+  package responses without additional requests. Missing fields from older
+  servers remain `None`; known zero dependents are `Some(0)`. Release time is
+  the newest semver publication, not the latest repository scan.
 - `RegistryClient` with ETag-based conditional fetches and exponential-backoff
   retries (behind the `client` feature, enabled by default)
 
