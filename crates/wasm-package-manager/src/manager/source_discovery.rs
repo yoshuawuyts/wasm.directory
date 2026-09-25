@@ -62,7 +62,7 @@ impl Manager {
             .await
     }
 
-    /// When config backfill last completed, independently of tag discovery.
+    /// Return when config backfill last completed, independently of tag discovery.
     ///
     /// Missing or malformed metadata is treated as never completed, matching
     /// the discovery watermark's RFC 3339 parsing.
