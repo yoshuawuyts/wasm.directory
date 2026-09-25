@@ -41,7 +41,7 @@
 //!     // Load configuration from a registry directory
 //!     let config = Config::from_registry_dir(
 //!         Path::new("registry/"),
-//!         3600,
+//!         Config::DEFAULT_SYNC_INTERVAL,
 //!         "0.0.0.0:8080".to_string(),
 //!     )?;
 //!

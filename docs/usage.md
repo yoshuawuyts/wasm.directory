@@ -135,6 +135,13 @@ the matching `registry/<namespace>.toml`. Entries in an existing namespace are
 merged automatically; creating a brand new namespace is flagged for manual
 review.
 
+The running meta-registry must first load the updated registry configuration
+(container deployments bake it into the image). Once it learns the approved
+source, it schedules all supported release history without waiting for the
+routine daily sweep. This does not make detection of the external merge
+immediate. Subsequent releases normally wait for the configured discovery
+interval unless an accepted targeted version notification requests earlier work.
+
 To prefill that issue from the command line, run `component registry publish`
 from a project that has a `[package]` section in its `wasm.toml`:
 
