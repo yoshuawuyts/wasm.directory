@@ -36,7 +36,8 @@ Then visit <http://localhost:8080> in your browser.
 
 The shared router streams Brotli and gzip responses through `tower-http`,
 including on `wasm32-wasip2`; it does not need a Tokio runtime or native codec
-library. HTML, ordinary text, JavaScript, JSON, and SVG are eligible. Already
+library. HTML, ordinary text, JavaScript, JSON, and SVG are eligible, with
+case-insensitive media-type matching. Already
 encoded responses, byte ranges, binary media, server-sent events, and bodyless
 statuses are not recompressed.
 

@@ -357,6 +357,8 @@ async fn binary_media_and_event_streams_are_not_encoded() {
         "application/zip",
         "video/mp4",
         "text/event-stream",
+        "text/Event-Stream; charset=UTF-8",
+        "TEXT/EVENT-STREAM",
     ] {
         let app = layer(Router::new().route(
             "/",
@@ -370,6 +372,38 @@ async fn binary_media_and_event_streams_are_not_encoded() {
         let response = request(app, Method::GET, "/", Some("gzip, br"), &[]).await;
         assert!(!response.headers().contains_key(header::CONTENT_ENCODING));
         assert_eq!(body(response).await, b"unchanged response bytes");
+    }
+}
+
+#[tokio::test]
+async fn text_media_types_are_matched_case_insensitively_without_changing_the_header() {
+    for content_type in [
+        "Text/HTML; charset=UTF-8",
+        "TEXT/PLAIN",
+        "Application/JSON",
+        "APPLICATION/JAVASCRIPT; charset=utf-8",
+        "Image/SVG+XML",
+    ] {
+        let app = layer(Router::new().route(
+            "/",
+            get(move || async move {
+                (
+                    [(header::CONTENT_TYPE, content_type)],
+                    "unchanged response bytes",
+                )
+            }),
+        ));
+        let response = request(app, Method::GET, "/", Some("gzip"), &[]).await;
+        assert_eq!(response.headers()[header::CONTENT_TYPE], content_type);
+        assert_eq!(
+            response.headers().get(header::CONTENT_ENCODING),
+            Some(&HeaderValue::from_static("gzip")),
+            "{content_type}"
+        );
+        assert_eq!(
+            decode("gzip", &body(response).await),
+            b"unchanged response bytes"
+        );
     }
 }
 

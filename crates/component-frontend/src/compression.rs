@@ -35,12 +35,13 @@ fn is_text_response(status: StatusCode, _: Version, headers: &HeaderMap, _: &Ext
     else {
         return false;
     };
-    let content_type = content_type.trim();
-    (content_type.starts_with("text/") && content_type != "text/event-stream")
-        || matches!(
-            content_type,
-            "application/json" | "application/javascript" | "image/svg+xml"
-        )
+    let Some((kind, subtype)) = content_type.trim().split_once('/') else {
+        return false;
+    };
+    (kind.eq_ignore_ascii_case("text") && !subtype.eq_ignore_ascii_case("event-stream"))
+        || (kind.eq_ignore_ascii_case("application")
+            && (subtype.eq_ignore_ascii_case("json") || subtype.eq_ignore_ascii_case("javascript")))
+        || (kind.eq_ignore_ascii_case("image") && subtype.eq_ignore_ascii_case("svg+xml"))
 }
 
 async fn conditional_response(request: Request, next: Next) -> Response {
