@@ -14,9 +14,9 @@ use super::detail::{self, DetailSpec};
 const TABLE_CLASS: &str = "w-full text-[13px]";
 const HEADER_ROW_CLASS: &str = "border-b border-line text-left text-ink-500";
 const ROW_CLASS: &str = "border-b-2 border-line";
-const NAME_CELL_CLASS: &str = "py-2 pr-4 font-mono text-accent";
-const VALUE_CELL_CLASS: &str = "py-2 pr-4 font-mono text-ink-900";
-const DESC_CELL_CLASS: &str = "py-2 text-ink-700";
+const NAME_CELL_CLASS: &str = "py-2 pr-4 align-top font-mono text-accent";
+const VALUE_CELL_CLASS: &str = "py-2 pr-4 align-top font-mono text-ink-900";
+const DESC_CELL_CLASS: &str = "py-2 align-top text-ink-700";
 
 /// Build a header row with N columns.
 fn table_header(columns: &[&str]) -> TableRow {
@@ -66,10 +66,10 @@ pub(crate) fn render_type(
 
     // Description
 
-    let header = page_header::page_header_block(
+    let header = page_header::page_header_markdown(
         kind_label,
         &ty.name,
-        &crate::markdown::render_inline(ty.docs.as_deref().unwrap_or("No description available.")),
+        ty.docs.as_deref().unwrap_or("No description available."),
         Some(&code_block),
     )
     .to_string();
@@ -131,12 +131,10 @@ pub(crate) fn render_function(
 
     // Description
 
-    let header = page_header::page_header_block(
+    let header = page_header::page_header_markdown(
         "Function",
         &func.name,
-        &crate::markdown::render_inline(
-            func.docs.as_deref().unwrap_or("No description available."),
-        ),
+        func.docs.as_deref().unwrap_or("No description available."),
         Some(&code_block),
     )
     .to_string();
@@ -295,7 +293,10 @@ fn render_field_row(name: &str, ty: &TypeRef, docs: Option<&str>) -> TableRow {
         })
         .table_cell(|td| {
             td.class(DESC_CELL_CLASS)
-                .text(crate::markdown::render_inline(docs.unwrap_or("")))
+                .text(crate::markdown::render_block(
+                    docs.unwrap_or(""),
+                    "prose-doc",
+                ))
         })
         .build()
 }
@@ -326,8 +327,9 @@ fn render_variant_table(cases: &[crate::wit_doc::CaseDoc]) -> Division {
                 })
                 .table_cell(|td| {
                     td.class(DESC_CELL_CLASS)
-                        .text(crate::markdown::render_inline(
+                        .text(crate::markdown::render_block(
                             case.docs.as_deref().unwrap_or(""),
+                            "prose-doc",
                         ))
                 })
         });
@@ -351,7 +353,7 @@ fn render_enum_list(cases: &[crate::wit_doc::EnumCaseDoc]) -> Division {
             (NAME_CELL_CLASS, &case.name),
             (
                 DESC_CELL_CLASS,
-                &crate::markdown::render_inline(case.docs.as_deref().unwrap_or("")),
+                &crate::markdown::render_block(case.docs.as_deref().unwrap_or(""), "prose-doc"),
             ),
         ]));
     }
@@ -374,7 +376,7 @@ fn render_flags_list(flags: &[crate::wit_doc::FlagDoc]) -> Division {
             (NAME_CELL_CLASS, &flag.name),
             (
                 DESC_CELL_CLASS,
-                &crate::markdown::render_inline(flag.docs.as_deref().unwrap_or("")),
+                &crate::markdown::render_block(flag.docs.as_deref().unwrap_or(""), "prose-doc"),
             ),
         ]));
     }
@@ -413,7 +415,7 @@ fn render_function_detail_block(func: &FunctionDoc) -> html::content::Article {
     let docs = func
         .docs
         .as_deref()
-        .map(|d| crate::markdown::render_block(d, "id-page-tagline mt-3"));
+        .map(|d| crate::markdown::render_block(d, "id-page-tagline mt-3 prose-doc"));
 
     item_details::item_detail_entry(
         &ItemDetailEntry {

@@ -1,6 +1,6 @@
 //! 09 — Labels.
 
-use html::text_content::Division;
+use html::{inline_text::Span, text_content::Division};
 
 /// Label bar entries: (bg class, ink class, text).
 pub(crate) const BARS: &[(&str, &str, &str)] = &[
@@ -23,6 +23,14 @@ pub(crate) fn label_bar(bg_class: &str, ink_class: &str, text: &str) -> Division
     let class = format!("bar {bg_class} {ink_class}");
     let text = text.to_owned();
     Division::builder().class(class).text(text).build()
+}
+
+/// Render the compact label used inline within rows.
+pub(crate) fn inline_label(bg_class: &str, ink_class: &str, text: &str) -> Span {
+    Span::builder()
+        .class(format!("bar-sm {bg_class} {ink_class}"))
+        .text(text.to_owned())
+        .build()
 }
 
 pub(crate) fn render(
@@ -50,9 +58,7 @@ pub(crate) fn render(
                 .text("Small \u{00b7} for inline use inside compact rows")
         });
         for (bg, ink, text) in bars {
-            let class = format!("bar-sm {bg} {ink}");
-            let text = (*text).to_owned();
-            group = group.division(|d| d.class(class).text(text));
+            group = group.push(inline_label(bg, ink, text));
         }
         group
     });

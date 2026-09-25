@@ -4,7 +4,7 @@ use super::*;
 mod requests;
 
 #[test]
-fn renders_flowing_rows_without_column_headings() {
+fn renders_two_row_items_without_column_headings() {
     let packages = package_row::tests::packages();
     let html = render_packages(&packages, Some(245), 0, 100);
     package_row::tests::assert_listing(&html, &packages);

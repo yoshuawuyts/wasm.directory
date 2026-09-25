@@ -16,3 +16,6 @@ pub(crate) mod package;
 pub(crate) mod queue;
 pub(crate) mod search;
 pub(crate) mod world;
+
+#[cfg(test)]
+mod markdown_tests;

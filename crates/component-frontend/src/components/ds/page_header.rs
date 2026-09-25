@@ -1,6 +1,8 @@
 //! C03 — Page Header.
 
-use html::text_content::Division;
+use html::text_content::{Division, Paragraph};
+
+const TAGLINE_CLASS: &str = "mt-3 max-w-2xl text-[15px] text-ink-700 leading-relaxed";
 
 const SVG_COPY: &str = concat!(
     r#"<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">"#,
@@ -24,9 +26,34 @@ pub(crate) fn page_header_block(
     tagline: &str,
     metadata_html: Option<&str>,
 ) -> Division {
+    let description = Paragraph::builder()
+        .class(TAGLINE_CLASS)
+        .text(tagline.to_owned())
+        .build()
+        .to_string();
+    build_page_header(kicker_html, title, description, metadata_html)
+}
+
+/// Render a page header with full, sanitized Markdown documentation.
+#[must_use]
+pub(crate) fn page_header_markdown(
+    kicker_html: &str,
+    title: &str,
+    docs: &str,
+    metadata_html: Option<&str>,
+) -> Division {
+    let description = crate::markdown::render_block(docs, &format!("{TAGLINE_CLASS} prose-doc"));
+    build_page_header(kicker_html, title, description, metadata_html)
+}
+
+fn build_page_header(
+    kicker_html: &str,
+    title: &str,
+    description_html: String,
+    metadata_html: Option<&str>,
+) -> Division {
     let kicker_html = kicker_html.to_owned();
     let title = title.to_owned();
-    let tagline = tagline.to_owned();
     let mut div = Division::builder();
     div.class("pb-10 border-b border-line");
     div.division(|d| {
@@ -37,10 +64,7 @@ pub(crate) fn page_header_block(
         h.class("mt-3 text-[36px] md:text-[44px] leading-[1.05] font-semibold tracking-tight")
             .text(title)
     });
-    div.paragraph(|p| {
-        p.class("mt-3 max-w-2xl text-[15px] text-ink-700 leading-relaxed")
-            .text(tagline)
-    });
+    div.text(description_html);
     if let Some(meta) = metadata_html {
         let meta = meta.to_owned();
         div.division(|d| d.class("mt-6").text(meta));
@@ -145,5 +169,49 @@ mod tests {
             "Top-of-page identification block: a kicker, a large title, an optional tagline, and an optional metadata strip. Used to anchor reference and documentation pages.",
             ANATOMY_ITEMS,
         )));
+    }
+
+    #[test]
+    fn markdown_header_uses_block_container_and_preserves_metadata_order() {
+        let html = page_header_markdown(
+            "Interface",
+            "transport",
+            "First `paragraph`.\n\nSecond paragraph.\n\n- An item.",
+            Some("<pre><code>signature</code></pre>"),
+        )
+        .to_string();
+        assert!(html.contains(&format!(
+            r#"<div class="{TAGLINE_CLASS} prose-doc"><p>First <code>paragraph</code>.</p>"#
+        )));
+        assert_eq!(html.matches("<p>").count(), 2);
+        assert!(html.contains("<ul>\n<li>An item.</li>\n</ul>"));
+        assert!(
+            html.find("Second paragraph.").expect("second paragraph")
+                < html.find("signature").expect("signature metadata")
+        );
+    }
+
+    #[test]
+    fn plain_header_keeps_its_single_paragraph_tagline() {
+        let html = page_header_block("Package", "demo", "A short tagline.", None).to_string();
+        assert!(html.contains(&format!(
+            r#"<p class="{TAGLINE_CLASS}">A short tagline.</p>"#
+        )));
+        assert!(!html.contains("prose-doc"));
+    }
+
+    #[test]
+    fn markdown_header_sanitizes_source_before_inserting_html() {
+        let html = page_header_markdown(
+            "World",
+            "proxy",
+            "<script>alert(1)</script>\n\n[bad](javascript:alert(1))",
+            None,
+        )
+        .to_string();
+        assert!(!html.contains("<script>"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains(r##"href="#""##));
+        assert!(!html.contains("javascript:"));
     }
 }

@@ -459,6 +459,12 @@ fn render_document(title: &str, body_class: &str, body_children: &str) -> String
     .prose-doc a:hover {{
       opacity: 0.8;
     }}
+    .prose-doc ul {{
+      list-style-type: disc;
+    }}
+    .prose-doc ol {{
+      list-style-type: decimal;
+    }}
     .prose-doc ul, .prose-doc ol {{
       margin: 0.5em 0;
       padding-left: 1.5em;
@@ -469,9 +475,16 @@ fn render_document(title: &str, body_class: &str, body_children: &str) -> String
     .prose-doc pre {{
       background: var(--c-surface-muted);
       padding: 0.75em 1em;
+      /* Long code must scroll within documentation, not widen its table cell. */
+      contain: inline-size;
       overflow-x: auto;
       margin: 0.75em 0;
       font-size: 0.875em;
+    }}
+    .prose-doc pre > code {{
+      background: none;
+      padding: 0;
+      font-size: inherit;
     }}
     .card-lift:hover {{
       transform: scale(1.03);
