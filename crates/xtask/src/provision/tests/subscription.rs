@@ -61,7 +61,7 @@ fn new_environment_can_accept_the_active_subscription_default() {
     let mut host = FakeHost::new(None);
     host.inputs = saved("new-env");
     host.inputs.remove("AZURE_SUBSCRIPTION_ID");
-    host.answer(&["yes", "", "", "", "yes", "yes"]);
+    host.answer(&["yes", "", "yes", "yes"]);
     run(&mut host, Some("new-env")).expect("new setup can confirm the active subscription");
     assert_eq!(host.settings("new-env"), &saved("new-env"));
     assert_eq!(host.applied, vec!["new-env".to_owned()]);

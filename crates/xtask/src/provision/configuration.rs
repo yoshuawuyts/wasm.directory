@@ -8,6 +8,14 @@ use super::Values;
 use super::host::{Host, Input, confirm, has_value, required};
 use super::store;
 
+/// Deployment overrides whose omission can change an existing target.
+pub(super) const DEPLOYMENT_OVERRIDES: [&str; 4] = [
+    "AZURE_RESOURCE_GROUP",
+    "POSTGRES_ADMIN_LOGIN",
+    "POSTGRES_DB",
+    "CUSTOM_DOMAIN_NAME",
+];
+
 pub(super) fn inputs(host: &mut impl Host, name: &str, saved: &Values) -> Result<Values> {
     let source = std::fs::read_to_string(host.root().join("infra/main.bicepparam"))
         .context("Cannot read infra/main.bicepparam.")?;
@@ -80,8 +88,8 @@ pub(super) fn complete(
             "For an existing deployment, restore its exact region, resource group, \
              database settings, and domain. Changing them can target new resources.",
         )?;
-        optional_settings(host, values)?;
     }
+    optional_settings(host, values, existing)?;
     for key in ["BACKEND_IMAGE", "FRONTEND_IMAGE", "POSTGRES_ADMIN_PASSWORD"] {
         require_setting(host, values, key, "")?;
     }
@@ -131,23 +139,29 @@ fn require_setting(
     Ok(())
 }
 
-fn optional_settings(host: &mut impl Host, values: &mut Values) -> Result<()> {
-    for key in [
-        "AZURE_RESOURCE_GROUP",
-        "POSTGRES_ADMIN_LOGIN",
-        "POSTGRES_DB",
-        "CUSTOM_DOMAIN_NAME",
-    ] {
+fn optional_settings(host: &mut impl Host, values: &mut Values, existing: bool) -> Result<()> {
+    for key in DEPLOYMENT_OVERRIDES {
         if values.contains_key(key) {
             continue;
         }
-        let value = host.prompt(
-            &format!("{key} (optional; blank uses the existing Bicep default)"),
-            "",
-            Input::Plain,
-        )?;
+        let label = if existing {
+            format!("{key} (recover the original value; blank requests the Bicep default)")
+        } else {
+            format!("{key} (optional; blank uses the existing Bicep default)")
+        };
+        let value = host.prompt(&label, "", Input::Plain)?;
         if !value.is_empty() {
             values.insert(key.into(), value);
+            continue;
+        }
+        if existing {
+            confirm(
+                host,
+                &format!(
+                    "Use the Bicep default for {key}? \
+                     Confirm only if it matches this deployment's original configuration."
+                ),
+            )?;
         }
     }
     Ok(())

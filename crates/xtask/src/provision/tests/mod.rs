@@ -3,6 +3,7 @@
 mod configuration;
 mod flow;
 pub(in crate::provision) mod native;
+mod recovery;
 mod safety;
 mod subscription;
 
@@ -39,6 +40,8 @@ fn saved(name: &str) -> Values {
         ("AZURE_SUBSCRIPTION_ID", SUBSCRIPTION),
         ("AZURE_LOCATION", "test-region"),
         ("AZURE_RESOURCE_GROUP", "rg-test-env"),
+        ("POSTGRES_ADMIN_LOGIN", "test_admin"),
+        ("POSTGRES_DB", "test_database"),
         ("POSTGRES_ADMIN_PASSWORD", PASSWORD),
         ("BACKEND_IMAGE", "ghcr.io/example/test-backend:1.2.3"),
         ("FRONTEND_IMAGE", "ghcr.io/example/test-frontend:4.5.6"),

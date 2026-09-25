@@ -65,6 +65,30 @@ fn provision_command_uses_confirmed_values_without_secret_arguments() {
 }
 
 #[test]
+fn confirmed_defaults_remove_empty_inherited_overrides() {
+    let directory = tempfile::tempdir().expect("create fixture root");
+    let inputs = values(&[
+        ("AZURE_RESOURCE_GROUP", ""),
+        ("POSTGRES_ADMIN_LOGIN", ""),
+        ("POSTGRES_DB", ""),
+        ("CUSTOM_DOMAIN_NAME", ""),
+    ]);
+    let runtime = Runtime::with_inputs(directory.path().to_owned(), inputs.clone());
+    let mut settings = saved("test-env");
+    settings.retain(|key, _| !inputs.contains_key(key));
+    let command = runtime
+        .provision_command("test-env", &settings)
+        .expect("construct the command using confirmed defaults");
+    for key in inputs.keys() {
+        let (_, value) = command
+            .get_envs()
+            .find(|(name, _)| *name == std::ffi::OsStr::new(key))
+            .expect("the inherited override is explicitly removed");
+        assert!(value.is_none());
+    }
+}
+
+#[test]
 fn drains_both_pipes_without_deadlock() {
     let mut stdout = String::new();
     let mut stderr = String::new();

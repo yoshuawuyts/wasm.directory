@@ -361,6 +361,8 @@ fn guided_bootstrap_does_not_write_empty_database_defaults() {
     let mut host = FakeHost::new(None);
     host.inputs = saved("new-env");
     host.inputs.remove("AZURE_RESOURCE_GROUP");
+    host.inputs.remove("POSTGRES_ADMIN_LOGIN");
+    host.inputs.remove("POSTGRES_DB");
     host.inputs.remove("CUSTOM_DOMAIN_NAME");
     host.answer(&["yes", "", "", "", "", "yes", "yes"]);
     run(&mut host, Some("new-env")).expect("guided setup succeeds");
@@ -371,17 +373,24 @@ fn guided_bootstrap_does_not_write_empty_database_defaults() {
     );
     assert!(!settings.contains_key("POSTGRES_ADMIN_LOGIN"));
     assert!(!settings.contains_key("POSTGRES_DB"));
+    assert!(!settings.contains_key("AZURE_RESOURCE_GROUP"));
+    assert!(!settings.contains_key("CUSTOM_DOMAIN_NAME"));
     assert!(!settings.contains_key("REGISTRY_PASSWORD"));
     assert_eq!(host.applied, vec!["new-env".to_owned()]);
     assert!(host.messages.join("\n").contains("NOT encrypted"));
     assert!(!format!("{:?}", host.calls).contains(PASSWORD));
+    assert!(
+        host.prompts
+            .iter()
+            .all(|(label, _)| !label.starts_with("Use the Bicep default"))
+    );
 }
 
 #[test]
 fn creation_failure_stops_before_importing_or_applying() {
     let mut host = FakeHost::new(None);
     host.inputs = saved("new-env");
-    host.answer(&["yes", "", "", "yes", "yes"]);
+    host.answer(&["yes", "yes", "yes"]);
     host.fail(&["azd", "env", "new"]);
     assert!(error(&mut host, Some("new-env")).contains("CLI failure"));
     assert!(host.imports.is_empty());

@@ -67,12 +67,7 @@ fn show_target(host: &mut impl Host, name: &str, values: &Values) -> Result<()> 
     ] {
         host.message(&format!("  {key}: {}", required(values, key)?))?;
     }
-    for key in [
-        "AZURE_RESOURCE_GROUP",
-        "POSTGRES_ADMIN_LOGIN",
-        "POSTGRES_DB",
-        "CUSTOM_DOMAIN_NAME",
-    ] {
+    for key in configuration::DEPLOYMENT_OVERRIDES {
         let value = values
             .get(key)
             .filter(|value| !value.is_empty())

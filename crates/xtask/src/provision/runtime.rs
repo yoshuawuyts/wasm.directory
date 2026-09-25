@@ -11,6 +11,7 @@ use anyhow::{Context, Result, anyhow, ensure};
 use console::Term;
 
 use super::Values;
+use super::configuration::DEPLOYMENT_OVERRIDES;
 use super::host::{Disclosure, Host, Input};
 use super::process::{self, Stream};
 use super::redactor::Redactor;
@@ -69,10 +70,13 @@ impl Runtime {
             environment,
             "--no-prompt",
         ])?;
-        command
-            .current_dir(&self.root)
-            .envs(&self.inputs)
-            .envs(values);
+        command.current_dir(&self.root).envs(&self.inputs);
+        for key in DEPLOYMENT_OVERRIDES {
+            if !values.contains_key(key) {
+                command.env_remove(key);
+            }
+        }
+        command.envs(values);
         Ok(command)
     }
 }

@@ -63,9 +63,17 @@ conflict with saved settings stops the command and names the conflicting keys
 without showing their values. Unset the conflicting input or deliberately
 change the azd setting before retrying. This includes an exported
 `AZURE_ENV_NAME` that disagrees with an explicit environment argument.
-Optional settings that remain unset
-continue to use the Bicep defaults, including scaling and logging parameters;
-the helper does not reset them.
+An existing environment that is missing its resource-group override, database
+login/name, or custom domain is prompted to recover the original value.
+Requesting a Bicep default with blank input requires a separate confirmation
+that the original deployment used that default. Defaults remain unset rather
+than being written as empty database values; this confirmation is requested
+again on later runs while the setting remains absent.
+
+New local environments retain guided setup and can leave those optional
+settings blank. Other optional settings that remain unset continue to use
+the Bicep defaults, including scaling and logging parameters; the helper does
+not reset configured values.
 
 Missing required settings are prompted for. Only new-environment setup offers
 the current Azure CLI subscription as a default. If an existing environment is
