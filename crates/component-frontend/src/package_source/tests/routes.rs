@@ -186,6 +186,27 @@ async fn ordinary_name_lookup_pins_the_repository_it_resolves() {
 }
 
 #[tokio::test]
+async fn versioned_name_lookup_renders_without_a_source_redirect() {
+    let registry = RegistryFixture::new(Some(WIT)).await;
+    let response = registry.request(Method::GET, "/example/http/9.0.0").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(!response.headers().contains_key(header::LOCATION));
+    assert!(html(response).await.contains("example:http"));
+    let requests = registry.requests();
+    assert_eq!(requests.len(), 2);
+    assert!(
+        requests
+            .first()
+            .expect("package lookup request")
+            .starts_with("/v1/search?")
+    );
+    assert_eq!(
+        requests.get(1).expect("version lookup request"),
+        "/v1/packages/version/canonical.test/9.0.0/canonical/http"
+    );
+}
+
+#[tokio::test]
 async fn source_pinned_head_and_conditional_gets_preserve_cache_behavior() {
     let registry = RegistryFixture::new(Some(WIT)).await;
     let uri = format!("/example/http/0.1.0/interface/types{SOURCE}");

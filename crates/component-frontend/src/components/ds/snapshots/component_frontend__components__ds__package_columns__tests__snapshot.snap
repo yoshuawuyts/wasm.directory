@@ -12,7 +12,7 @@ expression: "crate::components::ds::pretty_html(&sample())"
       </div>
       <ol class="divide-y divide-lineSoft">
         <li>
-          <a href="/wasi/http" class="grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[repeat(3,1.25rem)] items-center gap-x-4 gap-y-0.5 px-4 py-3 no-underline hover:bg-surfaceMuted focus-visible:bg-surfaceMuted">
+          <a href="/wasi/http/0.2.0" class="grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[repeat(3,1.25rem)] items-center gap-x-4 gap-y-0.5 px-4 py-3 no-underline hover:bg-surfaceMuted focus-visible:bg-surfaceMuted">
             <span class="h-5 leading-5 font-sans text-[14px] font-medium text-ink-900 truncate">
               wasi:http
             </span>
@@ -39,7 +39,7 @@ expression: "crate::components::ds::pretty_html(&sample())"
           </a>
         </li>
         <li>
-          <a href="/wasi/io" class="grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[repeat(3,1.25rem)] items-center gap-x-4 gap-y-0.5 px-4 py-3 no-underline hover:bg-surfaceMuted focus-visible:bg-surfaceMuted">
+          <a href="/wasi/io/0.2.0" class="grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[repeat(3,1.25rem)] items-center gap-x-4 gap-y-0.5 px-4 py-3 no-underline hover:bg-surfaceMuted focus-visible:bg-surfaceMuted">
             <span class="h-5 leading-5 font-sans text-[14px] font-medium text-ink-900 truncate">
               wasi:io
             </span>
@@ -97,7 +97,7 @@ expression: "crate::components::ds::pretty_html(&sample())"
       </div>
       <ol class="divide-y divide-lineSoft">
         <li>
-          <a href="/wasi/io" class="grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[repeat(3,1.25rem)] items-center gap-x-4 gap-y-0.5 px-4 py-3 no-underline hover:bg-surfaceMuted focus-visible:bg-surfaceMuted">
+          <a href="/wasi/io/0.2.0" class="grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[repeat(3,1.25rem)] items-center gap-x-4 gap-y-0.5 px-4 py-3 no-underline hover:bg-surfaceMuted focus-visible:bg-surfaceMuted">
             <span class="h-5 leading-5 font-sans text-[14px] font-medium text-ink-900 truncate">
               wasi:io
             </span>
@@ -123,7 +123,7 @@ expression: "crate::components::ds::pretty_html(&sample())"
           </a>
         </li>
         <li>
-          <a href="/wasi/http" class="grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[repeat(3,1.25rem)] items-center gap-x-4 gap-y-0.5 px-4 py-3 no-underline hover:bg-surfaceMuted focus-visible:bg-surfaceMuted">
+          <a href="/wasi/http/0.2.1" class="grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[repeat(3,1.25rem)] items-center gap-x-4 gap-y-0.5 px-4 py-3 no-underline hover:bg-surfaceMuted focus-visible:bg-surfaceMuted">
             <span class="h-5 leading-5 font-sans text-[14px] font-medium text-ink-900 truncate">
               wasi:http
             </span>

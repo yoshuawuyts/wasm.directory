@@ -257,7 +257,7 @@ fn format_count(n: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wasm_meta_registry_client::{KnownPackage, PopularPackage};
+    use wasm_meta_registry_client::{KnownPackage, NewPackage, PackageRelease, PopularPackage};
 
     // r[verify frontend.pages.home]
     #[test]
@@ -388,9 +388,56 @@ mod tests {
             popular: ColumnState::default(),
         };
         let body = compose_body(&RegistryStats::default(), &highlights, None);
-        assert!(body.contains(r#"href="/wasi/http""#));
+        assert!(body.contains(r#"href="/wasi/http/0.2.1""#));
         assert!(body.contains("Unavailable right now."));
         assert!(body.contains("Nothing here yet."));
+    }
+
+    #[test]
+    fn all_highlight_columns_link_directly_to_versions_without_source_queries() {
+        let mut package = pkg("componentized", "valkey-cli", &["0.2.2", "0.2.1"], None);
+        package.repository = "componentized/valkey/cli".to_owned();
+        let now = chrono::Utc::now();
+        let highlights = Highlights {
+            releases: ColumnState::Rows(vec![
+                ColumnRow::release(
+                    &PackageRelease {
+                        package: package.clone(),
+                        version: "0.2.2".to_owned(),
+                        released_at: String::new(),
+                    },
+                    now,
+                ),
+                ColumnRow::release(
+                    &PackageRelease {
+                        package: package.clone(),
+                        version: "0.2.1".to_owned(),
+                        released_at: String::new(),
+                    },
+                    now,
+                ),
+            ]),
+            new_packages: ColumnState::Rows(vec![ColumnRow::new_package(
+                &NewPackage {
+                    package: package.clone(),
+                    first_indexed_at: String::new(),
+                },
+                now,
+            )]),
+            popular: ColumnState::Rows(vec![ColumnRow::popular(&PopularPackage {
+                package,
+                dependents: 3,
+            })]),
+        };
+        let body = compose_body(&RegistryStats::default(), &highlights, None);
+        assert_eq!(
+            body.matches(r#"href="/componentized/valkey-cli/0.2.2""#)
+                .count(),
+            3
+        );
+        assert!(body.contains(r#"href="/componentized/valkey-cli/0.2.1""#));
+        assert!(!body.contains("?registry="));
+        assert!(!body.contains("repository="));
     }
 
     #[test]
