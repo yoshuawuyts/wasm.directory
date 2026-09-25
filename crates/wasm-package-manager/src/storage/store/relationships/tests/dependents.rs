@@ -1,6 +1,6 @@
-use sea_orm::{EntityTrait, PaginatorTrait};
+use sea_orm::{ActiveModelTrait, EntityTrait, PaginatorTrait, Set};
 use wasm_meta_registry_types::PackageKind;
-use wasm_package_manager_migration::entities::wit_package_dependency;
+use wasm_package_manager_migration::entities::{wasm_component, wit_package_dependency};
 
 use super::super::super::upsert_wit_package;
 use super::{fixture_store, package, repository, seed_release, target};
@@ -184,6 +184,75 @@ async fn relationship_dependents_prefer_registered_component_identities() {
             .as_deref(),
         Some("consumer")
     );
+}
+
+#[tokio::test]
+async fn relationship_dependents_exclude_self_edges_using_the_available_identity() {
+    for (identity, kind, expected_count) in [
+        (None, Some("component"), 0),
+        (None, None, 0),
+        (Some("root:component"), Some("component"), 0),
+        (Some("test:registered"), Some("component"), 1),
+    ] {
+        let store = fixture_store().await;
+        let repo = repository(&store, "registry.test", "compiled/source", identity, kind).await;
+        let release = seed_release(&store, repo, "root:component", None, &["1.0.0"]).await;
+        if kind.is_none() {
+            wasm_component::ActiveModel {
+                oci_manifest_id: Set(release.manifest_id),
+                ..Default::default()
+            }
+            .insert(&store.db)
+            .await
+            .expect("mark unclassified compiled component");
+        }
+        release.dependency(&store, "root:component", None).await;
+        let page = store
+            .list_dependents(&target("root:component", None), 0, 10)
+            .await
+            .expect("query synthetic package target");
+        assert_eq!(
+            page.total,
+            Some(expected_count),
+            "identity {identity:?}, kind {kind:?}"
+        );
+        assert_eq!(page.results.is_empty(), expected_count == 0);
+        assert!(!page.has_next);
+    }
+}
+
+#[tokio::test]
+async fn relationship_dependents_ignore_unregistered_self_edges_in_transitive_matches() {
+    let store = fixture_store().await;
+    package(&store, "root:component", "1.0.0", &["wasi:io"]).await;
+    let repo = repository(
+        &store,
+        "registry.test",
+        "compiled/consumer",
+        None,
+        Some("component"),
+    )
+    .await;
+    let matching = seed_release(&store, repo, "root:component", None, &["1.0.0"]).await;
+    matching.dependency(&store, "wasi:io", None).await;
+    matching.dependency(&store, "root:component", None).await;
+    let self_only = seed_release(&store, repo, "root:component", None, &["2.0.0"]).await;
+    self_only.dependency(&store, "root:component", None).await;
+    let page = store
+        .list_dependents(&target("wasi:io", None), 0, 10)
+        .await
+        .expect("query reverse closure containing a synthetic name");
+    let versions: Vec<_> = page
+        .results
+        .iter()
+        .map(|entry| (entry.package.repository.as_str(), entry.version.as_str()))
+        .collect();
+    assert_eq!(
+        versions,
+        [("root/component", "1.0.0"), ("compiled/consumer", "1.0.0")]
+    );
+    assert_eq!(page.total, Some(2));
+    assert!(!page.has_next);
 }
 
 #[tokio::test]
