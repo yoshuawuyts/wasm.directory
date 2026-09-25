@@ -75,7 +75,7 @@ pub(crate) struct WitItem {
     pub name: String,
     /// Link target for the row.
     pub href: String,
-    /// Optional first-sentence description shown under the name.
+    /// Optional raw Markdown excerpt shown under the name, not rendered HTML.
     pub docs: Option<String>,
     /// Optional inline version badge shown next to the name.
     pub version: String,

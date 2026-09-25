@@ -21,7 +21,7 @@ pub(crate) fn render(
     let display_name = crate::components::page_shell::display_name_for(pkg);
     let title = format!("{display_name} \u{2014} {}", world.name);
 
-    let header = page_header::page_header_block(
+    let header = page_header::page_header_markdown(
         &format!("v{version} \u{00b7} World"),
         &world.name,
         world.docs.as_deref().unwrap_or("No description available."),

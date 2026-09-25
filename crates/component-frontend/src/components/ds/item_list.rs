@@ -21,6 +21,7 @@ pub(crate) struct DynItemRow {
     pub(crate) sigil_text: String,
     pub(crate) name: String,
     pub(crate) href: String,
+    /// Raw Markdown excerpt, rendered once as a non-interactive summary.
     pub(crate) desc: String,
     pub(crate) version: String,
     pub(crate) meta: String,
@@ -70,7 +71,7 @@ pub(crate) fn render_dyn_item_row(item: &DynItemRow) -> Anchor {
     let _sigil_style = format!("background:{};color:{};", item.sigil_bg, item.sigil_color);
     let sigil_text = escape_html_text(&item.sigil_text);
     let name = escape_html_text(&item.name);
-    let desc = escape_html_text(&item.desc);
+    let desc = crate::markdown::render_summary(&item.desc);
     let meta = escape_html_text(&item.meta);
     let href = escape_html_attr(&item.href);
     // Raw HTML: Span::style() creates a <style> child, not an inline style attribute.
@@ -93,8 +94,10 @@ pub(crate) fn render_dyn_item_row(item: &DynItemRow) -> Anchor {
         )
     };
     let name_html = format!(r#"<span class="name">{name}</span>{version_tag}"#);
-    a.text(sigil_html)
-        .division(|d| d.text(name_html).division(|dd| dd.class("desc").text(desc)));
+    a.text(sigil_html).division(|d| {
+        d.text(name_html)
+            .division(|dd| dd.class("desc prose-doc").text(desc))
+    });
     if !meta.is_empty() {
         let meta_title = escape_html_attr(&item.meta_title);
         let meta_tag = format!(
@@ -328,5 +331,21 @@ mod tests {
         let html = render_dyn_item_list("</h2><script>alert(1)</script>", &[]).to_string();
         assert!(!html.contains("<script>"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn dyn_item_row_renders_raw_markdown_once_without_changing_navigation() {
+        let mut item = malicious_row();
+        item.href = "/example/item?one=1&two=2".to_owned();
+        item.desc = "A `value` and [**link**](https://example.com).\n\nLater.".to_owned();
+        let html = render_dyn_item_row(&item).to_string();
+        assert!(html.contains("<code>value</code>"));
+        assert!(html.contains("<strong>link</strong>"));
+        assert!(!html.contains("&lt;code&gt;"));
+        assert!(!html.contains("Later."));
+        assert_eq!(html.matches("<a ").count(), 1);
+        assert!(html.contains(r#"href="/example/item?one=1&amp;two=2""#));
+        assert!(html.contains(r#"class="desc prose-doc""#));
+        assert!(!html.contains("<script>"));
     }
 }
