@@ -10,6 +10,9 @@ use tokio_stream::StreamExt;
 
 use crate::config::Config;
 
+#[path = "tag_pagination.rs"]
+mod tag_pagination;
+
 pub(crate) struct Client {
     inner: WasmClient,
     config: Config,
@@ -131,61 +134,11 @@ impl Client {
 
     /// Fetches all tags for a given reference from the registry.
     ///
-    /// This method handles pagination automatically, fetching all available tags
-    /// by making multiple requests if necessary.
+    /// Pagination and decoding errors are returned rather than exposing an
+    /// incomplete listing as successful.
     pub(crate) async fn list_tags(&self, reference: &Reference) -> anyhow::Result<Vec<String>> {
         let auth = resolve_auth(reference, &self.config)?;
-        let mut all_tags = Vec::new();
-        let mut last: Option<String> = None;
-
-        loop {
-            // Some registries return null for tags instead of an empty array,
-            // which causes deserialization to fail. We handle this gracefully.
-            let response = match self
-                .inner
-                .list_tags(reference, &auth, None, last.as_deref())
-                .await
-            {
-                Ok(resp) => resp,
-                Err(_) if all_tags.is_empty() => {
-                    // First request failed, likely due to null tags - return empty
-                    return Ok(Vec::new());
-                }
-                Err(_) => {
-                    // Subsequent request failed, return what we have
-                    break;
-                }
-            };
-
-            if response.tags.is_empty() {
-                break;
-            }
-
-            last = response.tags.last().cloned();
-            all_tags.extend(response.tags);
-
-            // If we got fewer tags than a typical page size, we're done
-            // The API doesn't provide a "next" link, so we detect the end
-            // by checking if the last tag changed
-            if last.is_none() {
-                break;
-            }
-
-            // Make another request to check if there are more tags
-            let Ok(next_response) = self
-                .inner
-                .list_tags(reference, &auth, Some(1), last.as_deref())
-                .await
-            else {
-                break;
-            };
-
-            if next_response.tags.is_empty() {
-                break;
-            }
-        }
-
-        Ok(all_tags)
+        tag_pagination::list_tags(&self.inner, reference, &auth).await
     }
 
     /// Fetches referrers (signatures, SBOMs, attestations) for a given reference.
