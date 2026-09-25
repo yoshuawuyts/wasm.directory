@@ -44,6 +44,7 @@ use wasm_package_manager_migration::entities::{
 
 mod highlights;
 mod manifest_config;
+mod source_discovery;
 
 pub use manifest_config::PendingConfig;
 pub(crate) use manifest_config::created_from_config;
