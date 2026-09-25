@@ -130,8 +130,11 @@ package-level import/export searches.
 
 Candidates stream in bytewise identity order. Release selection retains only
 the requested page and the current identity's best matching release; full
-package/world metadata is loaded only for that page. Exact totals and canonical
-SemVer filtering still require scanning all lightweight matching candidates.
+package/world metadata is loaded only for that page. Repositories and worlds
+are loaded in ID batches; tags, descriptions, and listing
+metadata are hydrated with set-based queries and reused by worlds sharing a
+repository. Exact totals and canonical SemVer filtering still require scanning
+all lightweight matching candidates.
 The page size bounds retained release-selection memory, not total database
 scan or transfer work.
 

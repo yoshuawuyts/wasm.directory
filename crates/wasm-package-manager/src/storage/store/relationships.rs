@@ -1,5 +1,6 @@
 //! Relationship discovery over indexed WIT declarations and matching releases.
 
+mod hydration;
 mod queries;
 mod releases;
 
@@ -7,14 +8,13 @@ mod releases;
 mod tests;
 
 use anyhow::Context;
-use sea_orm::{EntityTrait, FromQueryResult, Statement, Value};
+use sea_orm::{FromQueryResult, Statement, Value};
 use tokio_stream::StreamExt;
 use wasm_meta_registry_types::{
-    DependentPackage, KnownPackage, MatchingWorld, RelationshipPage, RelationshipTarget,
+    DependentPackage, MatchingWorld, RelationshipPage, RelationshipTarget,
 };
-use wasm_package_manager_migration::entities::{oci_repository, wit_world};
 
-use super::{Store, bind_placeholders, known_packages_from_repos};
+use super::{Store, bind_placeholders};
 use queries::WorldDirection;
 use releases::{MatchingReleasePage, MatchingReleaseRow};
 
@@ -34,11 +34,14 @@ impl Store {
                 limit,
             )
             .await?;
-        let packages = self.relationship_packages(&page.results).await?;
+        let packages = hydration::packages(&self.db, &page.results).await?;
         let mut results = Vec::with_capacity(page.results.len());
-        for (row, package) in page.results.into_iter().zip(packages) {
+        for row in page.results {
             results.push(DependentPackage {
-                package,
+                package: packages
+                    .get(&row.repo_id)
+                    .context("relationship repository no longer exists")?
+                    .clone(),
                 version: row.tag,
             });
         }
@@ -92,18 +95,21 @@ impl Store {
                 limit,
             )
             .await?;
-        let packages = self.relationship_packages(&page.results).await?;
+        let packages = hydration::packages(&self.db, &page.results).await?;
+        let worlds = hydration::worlds(&self.db, &page.results).await?;
         let mut results = Vec::with_capacity(page.results.len());
-        for (row, package) in page.results.into_iter().zip(packages) {
+        for row in page.results {
             let world_id = row.world_id.context("relationship world ID is missing")?;
-            let world = wit_world::Entity::find_by_id(world_id)
-                .one(&self.db)
-                .await?
+            let world = worlds
+                .get(&world_id)
                 .context("relationship world no longer exists")?;
             results.push(MatchingWorld {
-                package,
-                name: world.name,
-                description: world.description,
+                package: packages
+                    .get(&row.repo_id)
+                    .context("relationship repository no longer exists")?
+                    .clone(),
+                name: world.name.clone(),
+                description: world.description.clone(),
                 version: row.tag,
                 is_synthetic: row.is_synthetic,
             });
@@ -136,21 +142,5 @@ impl Store {
             page.push(row?)?;
         }
         Ok(page.finish())
-    }
-
-    async fn relationship_packages(
-        &self,
-        rows: &[MatchingReleaseRow],
-    ) -> anyhow::Result<Vec<KnownPackage>> {
-        let mut repos = Vec::with_capacity(rows.len());
-        for row in rows {
-            repos.push(
-                oci_repository::Entity::find_by_id(row.repo_id)
-                    .one(&self.db)
-                    .await?
-                    .context("relationship repository no longer exists")?,
-            );
-        }
-        known_packages_from_repos(&self.db, repos).await
     }
 }
