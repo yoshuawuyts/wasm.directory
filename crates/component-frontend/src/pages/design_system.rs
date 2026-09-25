@@ -626,7 +626,7 @@ fn render_landing_components() -> String {
         "c-package-columns",
         "C14",
         "Package Columns",
-        "Three-up package highlights used below the landing hero: new releases, new packages, and popular packages. Each column is a standalone card (the landing card shell: hairline border, surface, card elevation) with a header strip carrying the mono column title, and hairline-divided rows. Rows are a fixed-height grid: a mono name and a description clamped to two lines on the left, a muted detail (version or dependents) and age (released or first indexed) on the right. Two description lines are always reserved, so rows are the same height; a missing description shows an italic \"No description\" placeholder. Empty and unavailable columns show a short note.",
+        "Three-up package highlights used below the landing hero: new releases, new packages, and popular packages. Each column is a standalone card (the landing card shell: hairline border, surface, card elevation) with a header strip carrying the sans-serif column title, and hairline-divided rows. Rows are a fixed-height grid: a sans-serif name and a description clamped to two lines on the left. On the right, two lines show version and date for new releases/packages, or version and dependents for popular packages; kind labels are omitted. Versions have a single v prefix; dependents use a package-dependents icon and count; ages (released or first indexed) use a clock and compact duration, with full labels available to screen readers and exact dates on hover. Two description lines are always reserved, so rows are the same height; a missing description shows an italic \"No description\" placeholder. Empty and unavailable columns show a short note.",
         &render_package_columns_demo(),
     ));
 
@@ -635,20 +635,22 @@ fn render_landing_components() -> String {
 
 /// Demo content for the package-columns component (C14).
 fn render_package_columns_demo() -> String {
-    use crate::components::ds::package_columns::{self, Column, ColumnRow, ColumnState};
+    use crate::components::ds::package_columns::{
+        self, Column, ColumnMetric, ColumnRow, ColumnState,
+    };
     use crate::relative_time::Age;
 
     let row =
-        |name: &str, detail: &str, description: Option<&str>, event: &str, age: &str| ColumnRow {
+        |name: &str, version: &str, description: Option<&str>, event: &str, age: &str| ColumnRow {
             name: name.to_owned(),
             href: Some("#".to_owned()),
-            detail: detail.to_owned(),
+            version: version.to_owned(),
             description: description.map(str::to_owned),
-            age: Some(Age {
+            metric: Some(ColumnMetric::Age(Age {
                 datetime: "2026-01-01T00:00:00Z".to_owned(),
                 title: format!("{event} 2026-01-01"),
                 label: age.to_owned(),
-            }),
+            })),
         };
     package_columns::render(&[
         Column {
@@ -685,7 +687,13 @@ fn render_package_columns_demo() -> String {
         },
         Column {
             title: "Popular packages",
-            state: &ColumnState::Unavailable,
+            state: &ColumnState::Rows(vec![ColumnRow {
+                name: "wasi:io".to_owned(),
+                href: Some("#".to_owned()),
+                version: "0.2.4".to_owned(),
+                description: Some("Streams and polling interfaces".to_owned()),
+                metric: Some(ColumnMetric::Dependents(42)),
+            }]),
         },
     ])
 }
