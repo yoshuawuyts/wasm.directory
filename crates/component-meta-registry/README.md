@@ -68,6 +68,8 @@ component-meta-registry registry/ --sync-interval 3600 --bind 0.0.0.0:8080
 
 - `GET /v1/health` — Health check
 - `GET /v1/stats` — Package, namespace, and version counts for the whole index
+- `GET /v1/namespaces?offset={n}&limit={n}` — Namespaces in alphabetical order with package counts
+- `GET /v1/namespaces/{namespace}/packages?offset={n}&limit={n}` — Packages in one exact namespace
 - `GET /v1/search?q={query}&offset={n}&limit={n}` — Search packages
 - `GET /v1/search/by-import?interface={package}&offset={n}&limit={n}` — Existing package-level import search
 - `GET /v1/search/by-export?interface={package}&offset={n}&limit={n}` — Existing package-level export search
@@ -76,6 +78,21 @@ component-meta-registry registry/ --sync-interval 3600 --bind 0.0.0.0:8080
 - `GET /v1/relationships/exported-by?package={namespace:name}&interface={member}&offset={n}&limit={n}` — Worlds exporting the package or exact interface
 - `GET /v1/packages?offset={n}&limit={n}` — List all packages
 - `GET /v1/packages/{registry}/{repository}` — Get a specific package
+
+### Namespace discovery
+
+Namespace endpoints return `RegistryPage<T>` with `results`, `total`, `offset`,
+`limit`, and `has_next`. Namespace entries have `name` and `packages` fields;
+namespace package entries use the existing `KnownPackage` shape.
+The default limit is 20, capped at 100; zero selects the default.
+
+Like `/v1/stats`, these listings include repositories with semver release tags,
+using their registered WIT namespace or the first repository path segment as an
+owner fallback. Each repository counts once, regardless of how many release
+tags it has. Namespace-only configuration files and packages not yet indexed
+with a release do not appear. Filtering and grouping happen before pagination,
+so duplicate namespaces and non-release tags do not create gaps. Namespace
+package matching is exact, not a capped substring search.
 
 ### Relationship discovery
 

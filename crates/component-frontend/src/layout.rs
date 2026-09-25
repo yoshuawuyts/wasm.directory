@@ -59,10 +59,16 @@ pub(crate) fn document_design_system(title: &str, body_content: &str) -> String 
 #[must_use]
 pub(crate) fn document_landing(title: &str, body_content: &str) -> String {
     use crate::components::ds::navbar::{self, NavLink};
-    const LINKS: &[NavLink] = &[NavLink {
-        label: "Packages",
-        href: "/all",
-    }];
+    const LINKS: &[NavLink] = &[
+        NavLink {
+            label: "Packages",
+            href: "/all",
+        },
+        NavLink {
+            label: "Namespaces",
+            href: "/namespaces",
+        },
+    ];
     let nav = navbar::render_bar_grid(&[], LINKS);
     document_inner(title, body_content, &nav, MAIN_CLASS_FULL, true)
 }

@@ -20,6 +20,7 @@ const RESERVED_NAMESPACES: &[&str] = &[
     "install",
     "login",
     "logout",
+    "namespaces",
     "new",
     "primitives",
     "register",
@@ -52,6 +53,11 @@ mod tests {
     #[test]
     fn all_is_reserved() {
         assert!(is_reserved("all"));
+    }
+
+    #[test]
+    fn namespaces_is_reserved() {
+        assert!(is_reserved("namespaces"));
     }
 
     // r[verify frontend.routing.reserved-namespaces]

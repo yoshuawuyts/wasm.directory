@@ -5,12 +5,16 @@
 //! runtime dependencies — only `serde`.
 
 mod dependent_package;
+mod known_namespace;
 mod matching_world;
+mod registry_page;
 mod relationship_page;
 mod relationship_target;
 
 pub use dependent_package::DependentPackage;
+pub use known_namespace::KnownNamespace;
 pub use matching_world::MatchingWorld;
+pub use registry_page::RegistryPage;
 pub use relationship_page::RelationshipPage;
 pub use relationship_target::{RelationshipTarget, RelationshipTargetError};
 

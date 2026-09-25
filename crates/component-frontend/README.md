@@ -64,6 +64,26 @@ the last scan time.
 The [package-dependents SVG](../../vendor/octicons/README.md) is vendored with its
 MIT license and rendered using the current text color; no icon package is needed.
 
+## Namespace directory
+
+`/namespaces` lists indexed namespaces alphabetically, using the same heading,
+result summary, flowing rows, and pagination as `/all`. Each row shows the
+namespace and its released-package count and links to `/{namespace}`.
+The homepage navigation and shared footer link to the directory.
+
+Namespaces follow the registry's stats semantics: a registered WIT namespace
+is preferred, with the repository owner as fallback, and a repository must have
+at least one semver release to appear. Namespace-only configuration files and
+packages still awaiting release indexing are not included.
+
+Both the directory and individual namespace pages accept `offset` and `limit`
+(default 100, clamped to 1–100). Exact, paginated namespace queries replace the
+old capped substring search, including for repository-owner fallbacks. Counts
+and next-page availability come from the same API response. Out-of-range pages
+retain Previous navigation; API failures return an uncached 502 error rather
+than looking like an empty registry. Successful pages retain one-minute caching
+and conditional requests. `/namespaces` is reserved for the application route.
+
 ## Installers
 
 The `/install/linux` and `/install/macos` routes serve the shared
