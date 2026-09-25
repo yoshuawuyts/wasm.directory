@@ -1,4 +1,5 @@
 use super::*;
+use wasm_meta_registry_client::PackageKind;
 
 fn package() -> KnownPackage {
     package_row::tests::packages().remove(0)
@@ -24,6 +25,7 @@ fn world() -> MatchingWorld {
         name: "proxy".to_owned(),
         description: Some("A **streaming** proxy.".to_owned()),
         version: "0.1.0".to_owned(),
+        is_synthetic: false,
     }
 }
 
@@ -72,13 +74,47 @@ fn world_results_have_distinct_identity_direction_and_matching_version() {
 
 #[test]
 fn synthetic_worlds_link_to_their_component_page() {
-    let mut world = world();
-    world.package.kind = Some(PackageKind::Component);
-    world.name = "root".to_owned();
-    let html = render_world(&world).to_string();
-    assert!(html.contains("/example/http/0.1.0?registry=ghcr.io"));
-    assert!(!html.contains("/world/root"));
-    assert!(html.contains(">example:http/root</span>"));
+    for kind in [Some(PackageKind::Component), None] {
+        let mut world = world();
+        world.package.kind = kind;
+        world.name = "root".to_owned();
+        world.is_synthetic = true;
+        let html = render_world(&world).to_string();
+        assert!(html.contains("/example/http/0.1.0?registry=ghcr.io"));
+        assert!(!html.contains("/world/root"));
+        assert!(html.contains(">example:http/root</span>"));
+    }
+}
+
+#[test]
+fn authored_root_worlds_keep_their_own_detail_page_regardless_of_package_kind() {
+    for kind in [
+        Some(PackageKind::Interface),
+        Some(PackageKind::Component),
+        None,
+    ] {
+        let mut world = world();
+        world.package.kind = kind;
+        world.name = "root".to_owned();
+        let html = render_world(&world).to_string();
+        assert!(html.contains("/example/http/0.1.0/world/root?registry=ghcr.io"));
+    }
+}
+
+#[test]
+fn matching_rows_do_not_relabel_latest_package_metadata_as_matching_release_metadata() {
+    let mut package = package();
+    package.latest_release_at = Some("2026-09-01T12:00:00Z".to_owned());
+    package.dependents = Some(42);
+    let html = render_dependent(&DependentPackage {
+        package,
+        version: "0.1.0".to_owned(),
+    })
+    .to_string();
+    assert!(html.contains(">0.1.0</span>"));
+    assert!(!html.contains("<time"));
+    assert!(!html.contains("2026-09-01"));
+    assert!(!html.contains("42 dependents"));
 }
 
 #[test]

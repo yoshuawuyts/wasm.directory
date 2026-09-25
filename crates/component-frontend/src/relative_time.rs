@@ -1,6 +1,32 @@
 //! Human-friendly relative ages ("3 days ago", "2 weeks ago").
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, SecondsFormat, Utc};
+
+/// An event's relative age, machine-readable timestamp, and exact-date tooltip.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Age {
+    /// Normalized RFC 3339 timestamp for a `<time datetime>` attribute.
+    pub datetime: String,
+    /// Event and date, such as `Updated 2026-09-21`.
+    pub title: String,
+    /// Relative age, such as `3 days ago`.
+    pub label: String,
+}
+
+impl Age {
+    /// Describe an RFC 3339 timestamp, or return `None` if it is invalid.
+    #[must_use]
+    pub(crate) fn parse(event: &str, rfc3339: &str, now: DateTime<Utc>) -> Option<Self> {
+        let then = DateTime::parse_from_rfc3339(rfc3339)
+            .ok()?
+            .with_timezone(&Utc);
+        Some(Self {
+            datetime: then.to_rfc3339_opts(SecondsFormat::Secs, true),
+            title: format!("{event} {}", then.format("%Y-%m-%d")),
+            label: relative_age(then, now),
+        })
+    }
+}
 
 /// Describe how long ago `then` was, relative to `now`.
 ///

@@ -19,6 +19,7 @@ pub struct RelationshipTarget {
 impl RelationshipTarget {
     /// Validate a `namespace:name` identity and optional interface name.
     ///
+    /// Each name follows `[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*`.
     /// Versions and search operators are not accepted.
     pub fn new(package: &str, interface: Option<&str>) -> Result<Self, RelationshipTargetError> {
         let Some((namespace, name)) = package.split_once(':') else {
@@ -50,12 +51,11 @@ impl RelationshipTarget {
 }
 
 fn is_identifier(value: &str) -> bool {
-    !value.is_empty()
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-        && !value.starts_with('-')
-        && !value.ends_with('-')
+    value.split('-').all(|segment| {
+        let mut bytes = segment.bytes();
+        bytes.next().is_some_and(|byte| byte.is_ascii_lowercase())
+            && bytes.all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+    })
 }
 
 /// Why a relationship query's target could not be parsed.
@@ -121,6 +121,30 @@ mod tests {
             assert_eq!(
                 RelationshipTarget::new("wasi:io", Some(interface)),
                 Err(RelationshipTargetError::Interface),
+            );
+        }
+    }
+
+    #[test]
+    fn validates_every_identifier_segment_consistently() {
+        for name in ["a", "foo2", "foo2-bar3", "a1-b2-c3"] {
+            let package = format!("{name}:{name}");
+            RelationshipTarget::new(&package, Some(name)).expect("valid WIT names");
+        }
+        for name in [
+            "", "Foo", "fOo", "2foo", "foo--bar", "foo-2bar", "-foo", "foo-", "foo_bar", "fo\u{f3}",
+        ] {
+            for package in [format!("{name}:io"), format!("wasi:{name}")] {
+                assert_eq!(
+                    RelationshipTarget::new(&package, None),
+                    Err(RelationshipTargetError::Package),
+                    "{package:?}"
+                );
+            }
+            assert_eq!(
+                RelationshipTarget::new("wasi:io", Some(name)),
+                Err(RelationshipTargetError::Interface),
+                "{name:?}"
             );
         }
     }

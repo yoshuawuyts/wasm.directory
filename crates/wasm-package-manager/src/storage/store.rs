@@ -42,9 +42,12 @@ use wasm_package_manager_migration::entities::{
     wit_package, wit_package_dependency, wit_world, wit_world_export, wit_world_import,
 };
 
+mod dependents;
 mod highlights;
 mod manifest_config;
+mod package_metadata;
 mod relationships;
+mod releases;
 
 pub use manifest_config::PendingConfig;
 pub(crate) use manifest_config::created_from_config;
@@ -282,9 +285,12 @@ fn parse_kind(s: Option<&str>) -> Option<wasm_meta_registry_types::PackageKind> 
 async fn known_package_from_repo(
     db: &DatabaseConnection,
     repo: oci_repository::Model,
+    metadata: &package_metadata::PackageMetadata,
 ) -> anyhow::Result<super::known_package::KnownPackage> {
     let tags = fetch_repo_tags(db, repo.id).await?;
     let description = fetch_repo_description(db, repo.id).await?;
+    let dependents = metadata.dependents(&repo);
+    let latest_release_at = metadata.latest_release_at(repo.id);
     Ok(super::known_package::KnownPackage {
         registry: repo.registry,
         repository: repo.repository,
@@ -297,8 +303,32 @@ async fn known_package_from_repo(
         created_at: repo.created_at.to_rfc3339(),
         wit_namespace: repo.wit_namespace,
         wit_name: repo.wit_name,
+        dependents,
+        latest_release_at,
         dependencies: Vec::new(),
     })
+}
+
+/// Enrich only the selected repositories, preserving their order.
+async fn known_packages_from_repos(
+    db: &DatabaseConnection,
+    repos: Vec<oci_repository::Model>,
+) -> anyhow::Result<Vec<super::known_package::KnownPackage>> {
+    let metadata = package_metadata::PackageMetadata::load(db, &repos).await?;
+    let mut packages = Vec::with_capacity(repos.len());
+    for repo in repos {
+        packages.push(known_package_from_repo(db, repo, &metadata).await?);
+    }
+    Ok(packages)
+}
+
+async fn released_known_packages_from_repos(
+    db: &DatabaseConnection,
+    repos: Vec<oci_repository::Model>,
+) -> anyhow::Result<Vec<super::known_package::KnownPackage>> {
+    let mut packages = known_packages_from_repos(db, repos).await?;
+    packages.retain(|package| !package.tags.is_empty());
+    Ok(packages)
 }
 
 /// Fetch a repository's tags from `oci_tag`, sorted by semver descending.
@@ -809,14 +839,7 @@ impl Store {
         let rows = oci_repository::Model::find_by_statement(stmt)
             .all(&self.db)
             .await?;
-        let mut out = Vec::with_capacity(rows.len());
-        for r in rows {
-            let pkg = known_package_from_repo(&self.db, r).await?;
-            if !pkg.tags.is_empty() {
-                out.push(pkg);
-            }
-        }
-        Ok(out)
+        released_known_packages_from_repos(&self.db, rows).await
     }
 }
 
@@ -2925,14 +2948,7 @@ impl Store {
             .limit(u64::from(limit))
             .all(&self.db)
             .await?;
-        let mut out = Vec::with_capacity(rows.len());
-        for r in rows {
-            let pkg = known_package_from_repo(&self.db, r).await?;
-            if !pkg.tags.is_empty() {
-                out.push(pkg);
-            }
-        }
-        Ok(out)
+        released_known_packages_from_repos(&self.db, rows).await
     }
 
     pub(crate) async fn search_known_packages_by_import(
@@ -2967,14 +2983,7 @@ impl Store {
             .limit(u64::from(limit))
             .all(&self.db)
             .await?;
-        let mut out = Vec::with_capacity(rows.len());
-        for r in rows {
-            let pkg = known_package_from_repo(&self.db, r).await?;
-            if !pkg.tags.is_empty() {
-                out.push(pkg);
-            }
-        }
-        Ok(out)
+        released_known_packages_from_repos(&self.db, rows).await
     }
 
     pub(crate) async fn list_recent_known_packages(
@@ -2988,14 +2997,7 @@ impl Store {
             .limit(u64::from(limit))
             .all(&self.db)
             .await?;
-        let mut out = Vec::with_capacity(rows.len());
-        for r in rows {
-            let pkg = known_package_from_repo(&self.db, r).await?;
-            if !pkg.tags.is_empty() {
-                out.push(pkg);
-            }
-        }
-        Ok(out)
+        released_known_packages_from_repos(&self.db, rows).await
     }
 
     pub(crate) async fn get_known_package(
@@ -3008,10 +3010,11 @@ impl Store {
             .filter(oci_repository::Column::Repository.eq(repository))
             .one(&self.db)
             .await?;
-        match row {
-            Some(r) => Ok(Some(known_package_from_repo(&self.db, r).await?)),
-            None => Ok(None),
-        }
+        Ok(
+            known_packages_from_repos(&self.db, row.into_iter().collect())
+                .await?
+                .pop(),
+        )
     }
 
     /// Compute aggregate counts over the whole index.
@@ -3755,7 +3758,7 @@ impl Store {
             .one(&self.db)
             .await?;
         if let Some(repo) = by_columns {
-            return Ok(Some(known_package_from_repo(&self.db, repo).await?));
+            return Ok(known_packages_from_repos(&self.db, vec![repo]).await?.pop());
         }
         // Fuzzy fallback: match repository column.
         let pattern = wit_name.replace(':', "/");
@@ -3765,10 +3768,11 @@ impl Store {
             .order_by_desc(oci_repository::Column::UpdatedAt)
             .one(&self.db)
             .await?;
-        match by_repo {
-            Some(r) => Ok(Some(known_package_from_repo(&self.db, r).await?)),
-            None => Ok(None),
-        }
+        Ok(
+            known_packages_from_repos(&self.db, by_repo.into_iter().collect())
+                .await?
+                .pop(),
+        )
     }
 
     // ---- _sync_meta ---------------------------------------------------

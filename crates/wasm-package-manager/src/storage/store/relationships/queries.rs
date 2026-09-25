@@ -1,12 +1,15 @@
 //! Portable SQL selecting only tags whose own manifest supplies a match.
 
+use sea_orm::DbBackend;
+
 // Registered identities override extracted names, which can be synthetic for
 // compiled components. Unregistered components have no usable WIT source name:
 // their results use OCI identity, never a shared synthetic `root:component`.
 // Unattached WIT packages still participate in the dependency graph.
 const SOURCES: &str = "\
     package_sources AS ( \
-        SELECT wp.id AS package_id, m.id AS manifest_id, m.digest AS digest, \
+        SELECT wp.id AS package_id, wp.package_name AS package_name, \
+               m.id AS manifest_id, m.digest AS digest, \
                r.id AS repo_id, r.registry AS registry, r.repository AS repository, \
                CASE \
                    WHEN r.wit_namespace IS NOT NULL AND r.wit_name IS NOT NULL \
@@ -49,7 +52,8 @@ pub(super) fn dependents() -> String {
          ) \
          SELECT DISTINCT s.repo_id AS repo_id, s.registry AS registry, \
                 s.repository AS repository, s.source_name AS source_name, t.tag AS tag, \
-                CAST(NULL AS BIGINT) AS world_id, CAST(NULL AS TEXT) AS world_name \
+                CAST(NULL AS BIGINT) AS world_id, CAST(NULL AS TEXT) AS world_name, \
+                FALSE AS is_synthetic \
          FROM package_sources s \
          JOIN wit_package_dependency d ON d.dependent_id = s.package_id \
          JOIN reverse_dependencies closure ON closure.package_name = d.declared_package \
@@ -73,11 +77,29 @@ pub(super) fn worlds(direction: WorldDirection, with_interface: bool) -> String 
         "WITH {SOURCES} \
          SELECT DISTINCT s.repo_id AS repo_id, s.registry AS registry, \
                 s.repository AS repository, s.source_name AS source_name, t.tag AS tag, \
-                world.id AS world_id, world.name AS world_name \
+                world.id AS world_id, world.name AS world_name, \
+                (s.package_name = 'root:component' AND world.name = 'root') AS is_synthetic \
          FROM package_sources s \
          JOIN wit_world world ON world.wit_package_id = s.package_id \
          JOIN {table} member ON member.wit_world_id = world.id \
          {MATCHING_TAGS} \
          WHERE member.declared_package = ? {interface_filter}"
     )
+}
+
+/// Bytewise identity ordering lets release selection retain only one group.
+pub(super) fn ordered_candidates(sql: &str, backend: DbBackend) -> anyhow::Result<String> {
+    let collation = match backend {
+        DbBackend::Postgres => "\"C\"",
+        DbBackend::Sqlite => "BINARY",
+        _ => anyhow::bail!("Relationship discovery requires SQLite or PostgreSQL"),
+    };
+    Ok(format!(
+        "SELECT * FROM ({sql}) AS candidates \
+         ORDER BY CASE WHEN source_name IS NULL THEN 1 ELSE 0 END, \
+             COALESCE(source_name, '') COLLATE {collation}, \
+             CASE WHEN source_name IS NULL THEN registry ELSE '' END COLLATE {collation}, \
+             CASE WHEN source_name IS NULL THEN repository ELSE '' END COLLATE {collation}, \
+             COALESCE(world_name, '') COLLATE {collation}"
+    ))
 }

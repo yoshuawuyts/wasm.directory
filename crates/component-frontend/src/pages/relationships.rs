@@ -2,8 +2,8 @@
 
 use html::text_content::Division;
 use wasm_meta_registry_client::{
-    ApiError, DependentPackage, KnownPackage, MatchingWorld, PackageKind, RegistryClient,
-    RelationshipPage, RelationshipTarget,
+    ApiError, DependentPackage, KnownPackage, MatchingWorld, RegistryClient, RelationshipPage,
+    RelationshipTarget,
 };
 
 use crate::components::ds::{listing, package_row, pagination::PaginationState, search_bar};
@@ -53,10 +53,7 @@ fn render_dependent(result: &DependentPackage) -> Division {
 }
 
 fn render_world(world: &MatchingWorld) -> Division {
-    let world_name = match world.package.kind {
-        Some(PackageKind::Component) => None,
-        _ => Some(world.name.as_str()),
-    };
+    let world_name = (!world.is_synthetic).then_some(world.name.as_str());
     package_row::render_matching_world(
         world,
         matching_href(&world.package, &world.version, world_name),

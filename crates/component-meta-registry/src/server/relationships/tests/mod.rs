@@ -89,6 +89,7 @@ async fn relationships_return_typed_matching_packages_and_worlds() {
         assert_eq!(world.description.as_deref(), Some("1.10.0_build.7"));
         assert_eq!(world.version, "1.10.0_build.7");
         assert_eq!(world.package.kind, Some(PackageKind::Component));
+        assert!(world.is_synthetic);
     }
     let wrong_direction = fixture
         .get("/v1/relationships/exported-by?package=wasi%3Aio&interface=streams")
@@ -111,6 +112,12 @@ async fn relationships_reject_malformed_targets_and_pagination_with_json_errors(
             "?package=wasi",
             "?package=wasi%3Aio%400.2.0",
             "?package=wasi%3Aio%2Fstreams",
+            "?package=Wasi%3Aio",
+            "?package=wasi%3AIo",
+            "?package=2wasi%3Aio",
+            "?package=wasi%3A2io",
+            "?package=wasi%3Afoo--bar",
+            "?package=foo-2bar%3Aio",
             "?package=%27%20OR%201%3D1%20--",
             "?package=wasi%3Aio&package=test%3Aother",
             "?package=wasi%3Aio&offset=-1",
@@ -125,7 +132,16 @@ async fn relationships_reject_malformed_targets_and_pagination_with_json_errors(
         }
     }
     for endpoint in ["imported-by", "exported-by"] {
-        for interface in ["", "streams%400.2.0", "io%2Fstreams", "%27%20OR%201%3D1"] {
+        for interface in [
+            "",
+            "streams%400.2.0",
+            "io%2Fstreams",
+            "%27%20OR%201%3D1",
+            "Streams",
+            "2streams",
+            "foo--bar",
+            "foo-2bar",
+        ] {
             let response = fixture
                 .get(&format!(
                     "/v1/relationships/{endpoint}?package=wasi%3Aio&interface={interface}"
@@ -141,6 +157,46 @@ async fn relationships_reject_malformed_targets_and_pagination_with_json_errors(
             ))
             .await;
         assert_json_error(response, StatusCode::BAD_REQUEST).await;
+    }
+}
+
+#[tokio::test]
+async fn relationships_distinguish_unclassified_synthetic_worlds_from_authored_roots() {
+    let fixture = Fixture::new().await;
+    for (identity, own_name) in [
+        ("test:authored", "test:authored"),
+        ("test:unclassified", "root:component"),
+    ] {
+        let repo = fixture.repository(identity, "interface").await;
+        fixture
+            .execute(
+                "UPDATE oci_repository SET kind = NULL WHERE id = ?",
+                vec![repo.into()],
+            )
+            .await;
+        let release = fixture.release(repo, own_name, "1.0.0").await;
+        let world = fixture.world(&release, "root", "A root world").await;
+        fixture.member(world, "wasi:io", "streams", true).await;
+        fixture.member(world, "wasi:io", "streams", false).await;
+    }
+    for endpoint in ["imported-by", "exported-by"] {
+        let response = fixture
+            .get(&format!("/v1/relationships/{endpoint}?package=wasi%3Aio"))
+            .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let page: RelationshipPage<MatchingWorld> = response.json().await.expect("world page");
+        assert_eq!(page.total, Some(2));
+        assert_eq!(page.results.len(), 2);
+        let authored = &page.results[0];
+        let synthetic = &page.results[1];
+        assert_eq!(authored.package.wit_name.as_deref(), Some("authored"));
+        assert_eq!(synthetic.package.wit_name.as_deref(), Some("unclassified"));
+        assert_eq!(authored.name, "root");
+        assert_eq!(synthetic.name, "root");
+        assert!(authored.package.kind.is_none());
+        assert!(synthetic.package.kind.is_none());
+        assert!(!authored.is_synthetic);
+        assert!(synthetic.is_synthetic);
     }
 }
 

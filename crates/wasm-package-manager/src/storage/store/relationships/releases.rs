@@ -1,15 +1,16 @@
 //! Select a deterministic matching release per identity before pagination.
 
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
-use std::collections::btree_map::Entry;
 
 use sea_orm::FromQueryResult;
 use wasm_meta_registry_types::RelationshipPage;
 
+#[cfg(test)]
+mod tests;
+
 /// Lightweight match data; full packages and world descriptions are loaded
 /// only after release filtering, deduplication, and pagination.
-#[derive(FromQueryResult)]
+#[derive(Debug, FromQueryResult)]
 pub(super) struct MatchingReleaseRow {
     pub(super) repo_id: i64,
     pub(super) registry: String,
@@ -18,15 +19,16 @@ pub(super) struct MatchingReleaseRow {
     pub(super) tag: String,
     pub(super) world_id: Option<i64>,
     pub(super) world_name: Option<String>,
+    pub(super) is_synthetic: bool,
 }
 
 impl MatchingReleaseRow {
-    fn key(&self) -> (PackageIdentity, Option<String>) {
-        let identity = match &self.source_name {
-            Some(name) => PackageIdentity::Wit(name.clone()),
-            None => PackageIdentity::Oci(self.registry.clone(), self.repository.clone()),
+    fn key(&self) -> (PackageIdentity<'_>, Option<&str>) {
+        let identity = match self.source_name.as_deref() {
+            Some(name) => PackageIdentity::Wit(name),
+            None => PackageIdentity::Oci(&self.registry, &self.repository),
         };
-        (identity, self.world_name.clone())
+        (identity, self.world_name.as_deref())
     }
 
     fn tie_breaker(&self) -> (&str, &str, &str, Option<i64>) {
@@ -35,9 +37,9 @@ impl MatchingReleaseRow {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
-enum PackageIdentity {
-    Wit(String),
-    Oci(String, String),
+enum PackageIdentity<'a> {
+    Wit(&'a str),
+    Oci(&'a str, &'a str),
 }
 
 struct Release {
@@ -55,45 +57,69 @@ impl Release {
     }
 }
 
-/// Totals and next-page detection both use the eligible deduplicated matches;
-/// has_next is detected from an extra result, not from the display total.
-pub(super) fn matching_release_page(
-    rows: Vec<MatchingReleaseRow>,
-    offset: u32,
-    limit: u32,
-) -> RelationshipPage<MatchingReleaseRow> {
-    let mut matches: BTreeMap<_, Release> = BTreeMap::new();
-    for row in rows {
-        let Some(version) = crate::manager::parse_tag_as_semver(&row.tag) else {
-            continue;
-        };
-        let key = row.key();
-        let release = Release { row, version };
-        match matches.entry(key) {
-            Entry::Occupied(mut entry) => {
-                if release.preferred_to(entry.get()) {
-                    entry.insert(release);
-                }
-            }
-            Entry::Vacant(entry) => {
-                entry.insert(release);
-            }
+/// Retain the requested page and one identity's best release, not every match.
+pub(super) struct MatchingReleasePage {
+    page: RelationshipPage<MatchingReleaseRow>,
+    current: Option<Release>,
+    total: u64,
+}
+
+impl MatchingReleasePage {
+    pub(super) fn new(offset: u32, limit: u32) -> Self {
+        Self {
+            page: RelationshipPage {
+                results: Vec::new(),
+                total: None,
+                offset,
+                limit,
+                has_next: false,
+            },
+            current: None,
+            total: 0,
         }
     }
-    let total = u64::try_from(matches.len()).ok();
-    let mut remaining = matches
-        .into_values()
-        .skip(usize::try_from(offset).unwrap_or(usize::MAX));
-    let results = remaining
-        .by_ref()
-        .take(usize::try_from(limit).unwrap_or(usize::MAX))
-        .map(|release| release.row)
-        .collect();
-    RelationshipPage {
-        results,
-        total,
-        offset,
-        limit,
-        has_next: remaining.next().is_some(),
+
+    pub(super) fn push(&mut self, row: MatchingReleaseRow) -> anyhow::Result<()> {
+        let Some(version) = crate::manager::parse_tag_as_semver(&row.tag) else {
+            return Ok(());
+        };
+        let release = Release { row, version };
+        let Some(current) = &self.current else {
+            self.current = Some(release);
+            return Ok(());
+        };
+        match release.row.key().cmp(&current.row.key()) {
+            Ordering::Less => anyhow::bail!("Relationship candidate identities are not ordered"),
+            Ordering::Equal if release.preferred_to(current) => self.current = Some(release),
+            Ordering::Equal => {}
+            Ordering::Greater => {
+                self.finish_identity();
+                self.current = Some(release);
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn finish(mut self) -> RelationshipPage<MatchingReleaseRow> {
+        self.finish_identity();
+        self.page.total = Some(self.total);
+        self.page
+    }
+
+    fn finish_identity(&mut self) {
+        let Some(release) = self.current.take() else {
+            return;
+        };
+        let in_page = self.total >= u64::from(self.page.offset);
+        self.total += 1;
+        if !in_page {
+            return;
+        }
+        let limit = usize::try_from(self.page.limit).expect("u32 limits fit supported targets");
+        if self.page.results.len() < limit {
+            self.page.results.push(release.row);
+        } else {
+            self.page.has_next = true;
+        }
     }
 }

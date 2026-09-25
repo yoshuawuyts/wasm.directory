@@ -160,7 +160,7 @@ async fn relationship_worlds_keep_compiled_sources_and_unregistered_oci_sources_
         "unregistered-two",
         "unknown-kind",
     ] {
-        let registered = ["one", "two"].contains(&name);
+        let registered = ["one", "two", "unknown-kind"].contains(&name);
         let identity = registered.then(|| format!("test:{name}"));
         let kind = (name != "unknown-kind").then_some("component");
         let repo = repository(
@@ -195,6 +195,14 @@ async fn relationship_worlds_keep_compiled_sources_and_unregistered_oci_sources_
     assert_eq!(worlds.total, Some(5));
     assert_eq!(dependents.total, Some(5));
     assert!(worlds.results.iter().all(|world| world.name == "root"));
+    assert!(worlds.results.iter().all(|world| world.is_synthetic));
+    let unclassified = worlds
+        .results
+        .iter()
+        .find(|world| world.package.repository == "compiled/unknown-kind")
+        .expect("unclassified component");
+    assert!(unclassified.package.kind.is_none());
+    assert_eq!(unclassified.package.wit_namespace.as_deref(), Some("test"));
     assert_eq!(
         worlds
             .results
@@ -218,6 +226,31 @@ async fn relationship_worlds_keep_compiled_sources_and_unregistered_oci_sources_
             "compiled/unregistered-two",
         ]
     );
+}
+
+#[tokio::test]
+async fn relationship_worlds_do_not_treat_authored_root_worlds_as_synthetic() {
+    let store = fixture_store().await;
+    let release = package(&store, "test:authored", "1.0.0", &["wasi:io"]).await;
+    let world = release.world(&store, "root", None).await;
+    for is_import in [true, false] {
+        member(&store, world, "wasi:io", Some("streams"), None, is_import).await;
+    }
+    let query = target("wasi:io", Some("streams"));
+    let imports = store
+        .list_importing_worlds(&query, 0, 100)
+        .await
+        .expect("imports");
+    let exports = store
+        .list_exporting_worlds(&query, 0, 100)
+        .await
+        .expect("exports");
+    for page in [imports, exports] {
+        assert_eq!(page.total, Some(1));
+        let world = page.results.first().expect("authored world");
+        assert_eq!(world.name, "root");
+        assert!(!world.is_synthetic);
+    }
 }
 
 #[tokio::test]

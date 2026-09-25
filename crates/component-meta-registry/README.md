@@ -84,6 +84,8 @@ Relationship targets are version-independent WIT identities, such as
 omitting it matches any interface in that package; `interface=streams` matches
 that exact member. Dependents does not accept `interface`. Missing or malformed
 identities and invalid pagination parameters return `400` with a JSON `error`.
+Namespace, package, and interface names each follow the WIT identifier grammar
+`[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*`.
 
 Dependents follows the indexed WIT package dependency declarations in reverse,
 directly and transitively, ignoring dependency versions and unresolved foreign
@@ -105,11 +107,13 @@ kind. Registered WIT identities take precedence over synthetic names extracted
 from compiled components; components without a registered identity remain
 distinct by OCI identity. A compiled component's synthetic world belongs on its
 owning version page, while a WIT package's world has a versioned world page.
+Use the world's `is_synthetic` flag for this distinction, not the optional
+package kind or the world name alone.
 
 The three endpoints return `RelationshipPage<T>`:
 
 - `results`: dependent entries contain `package` (the existing `KnownPackage`
-  shape) and `version`; world entries also contain `name` and optional
+  shape) and `version`; world entries also contain `name`, `is_synthetic`, and optional
   `description`.
 - `total`: optional count of eligible, deduplicated matches for this query, not
   the whole registry.
@@ -123,6 +127,13 @@ match declared references. No matches returns an empty page (with `total: 0`);
 database failures return an error, not a successful empty result. These endpoints
 do not change the shapes or matching behavior of `/v1/search` or the existing
 package-level import/export searches.
+
+Candidates stream in bytewise identity order. Release selection retains only
+the requested page and the current identity's best matching release; full
+package/world metadata is loaded only for that page. Exact totals and canonical
+SemVer filtering still require scanning all lightweight matching candidates.
+The page size bounds retained release-selection memory, not total database
+scan or transfer work.
 
 Run the focused store and HTTP relationship tests with:
 

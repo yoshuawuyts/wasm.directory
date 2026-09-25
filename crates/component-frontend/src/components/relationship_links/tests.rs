@@ -182,6 +182,8 @@ fn detail_pages_render_relationships_once_and_never_in_main_content() {
         created_at: "2026-01-01T00:00:00Z".to_owned(),
         wit_namespace: Some("wasi".to_owned()),
         wit_name: Some("io".to_owned()),
+        dependents: None,
+        latest_release_at: None,
         dependencies: vec![],
     };
     let html = render(&DetailSpec {

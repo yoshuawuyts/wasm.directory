@@ -40,6 +40,12 @@ async fn malformed_queries_are_visible_uncached_client_errors() {
         "/search/imported-by?package=wasi%3Aio%400.2.0",
         "/search/exported-by?package=wasi%3Aio&interface=",
         "/search/imported-by?package=wasi%3Aio&offset=invalid",
+        "/search/dependents?package=Wasi%3Aio",
+        "/search/dependents?package=2wasi%3Aio",
+        "/search/imported-by?package=wasi%3Afoo--bar",
+        "/search/imported-by?package=wasi%3Aio&interface=Streams",
+        "/search/exported-by?package=wasi%3Aio&interface=foo-2bar",
+        "/search/exported-by?package=wasi%3Aio&interface=foo--bar",
     ] {
         let response = crate::app()
             .oneshot(

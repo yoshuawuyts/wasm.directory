@@ -80,6 +80,18 @@ pub struct PackageDependencyRef {
 /// and is the primary wire type shared between the meta-registry server and
 /// its clients.
 ///
+/// # Compatibility
+///
+/// The `dependents` and `latest_release_at` additions are JSON-compatible:
+/// older responses deserialize with these fields set to `None`. They are
+/// nevertheless a Rust source-breaking change. Struct literals must initialize
+/// both fields (use `None` when unavailable), and exhaustive destructuring must
+/// name them or use `..`.
+///
+/// This is an intentional change to the project's unstable pre-1.0 Rust API
+/// and must ship in a new minor release, not a patch release. Serde defaults
+/// do not provide Rust source compatibility.
+///
 /// # Example
 ///
 /// ```rust
@@ -97,6 +109,8 @@ pub struct PackageDependencyRef {
 ///     created_at: "2024-06-15T12:00:00Z".into(),
 ///     wit_namespace: None,
 ///     wit_name: None,
+///     dependents: None,
+///     latest_release_at: None,
 ///     dependencies: vec![],
 /// };
 ///
@@ -134,6 +148,22 @@ pub struct KnownPackage {
     /// Optional WIT package name within the namespace (e.g. `"http"`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wit_name: Option<String>,
+    /// Number of distinct other indexed repositories declaring this WIT
+    /// package as a dependency, using the same count as [`PopularPackage`].
+    ///
+    /// `Some(0)` is a known zero; `None` means the WIT identity is unknown
+    /// or the server does not supply this metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dependents: Option<u64>,
+    /// Most recent publication time among this repository's semver releases,
+    /// as an RFC 3339 timestamp. This need not belong to the highest version.
+    ///
+    /// Uses the valid OCI creation annotation, then config creation time,
+    /// then earliest tag/manifest indexing time, capped at that indexing time.
+    /// `None` means no semver release is known or the server omits metadata.
+    /// This is independent of the repository's last scan (`last_seen_at`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_release_at: Option<String>,
     /// Declared WIT dependencies of this package's latest indexed version.
     ///
     /// The field MAY be omitted when no WIT metadata has been extracted for
@@ -163,6 +193,8 @@ impl KnownPackage {
     ///     created_at: String::new(),
     ///     wit_namespace: None,
     ///     wit_name: None,
+    ///     dependents: None,
+    ///     latest_release_at: None,
     ///     dependencies: vec![],
     /// };
     ///
@@ -195,6 +227,8 @@ impl KnownPackage {
     ///     created_at: String::new(),
     ///     wit_namespace: None,
     ///     wit_name: None,
+    ///     dependents: None,
+    ///     latest_release_at: None,
     ///     dependencies: vec![],
     /// };
     ///
@@ -231,6 +265,8 @@ impl KnownPackage {
 ///         created_at: String::new(),
 ///         wit_namespace: None,
 ///         wit_name: None,
+///         dependents: None,
+///         latest_release_at: None,
 ///         dependencies: vec![],
 ///     },
 ///     version: "1.0.0".into(),
@@ -272,6 +308,8 @@ pub struct PackageRelease {
 ///         created_at: String::new(),
 ///         wit_namespace: None,
 ///         wit_name: None,
+///         dependents: None,
+///         latest_release_at: None,
 ///         dependencies: vec![],
 ///     },
 ///     first_indexed_at: "2025-01-01T00:00:00Z".into(),
@@ -308,6 +346,8 @@ pub struct NewPackage {
 ///         created_at: String::new(),
 ///         wit_namespace: Some("wasi".into()),
 ///         wit_name: Some("io".into()),
+///         dependents: Some(42),
+///         latest_release_at: None,
 ///         dependencies: vec![],
 ///     },
 ///     dependents: 42,
@@ -818,6 +858,8 @@ mod tests {
             created_at: String::new(),
             wit_namespace: None,
             wit_name: None,
+            dependents: None,
+            latest_release_at: None,
             dependencies: vec![],
         };
         assert_eq!(pkg.reference(), "ghcr.io/user/repo");
@@ -838,6 +880,8 @@ mod tests {
             created_at: String::new(),
             wit_namespace: None,
             wit_name: None,
+            dependents: None,
+            latest_release_at: None,
             dependencies: vec![],
         };
         assert_eq!(pkg.reference_with_tag(), "ghcr.io/user/repo:v1.0");
@@ -858,6 +902,8 @@ mod tests {
             created_at: String::new(),
             wit_namespace: None,
             wit_name: None,
+            dependents: None,
+            latest_release_at: None,
             dependencies: vec![],
         };
         assert_eq!(pkg.reference_with_tag(), "ghcr.io/user/repo:latest");
@@ -878,6 +924,8 @@ mod tests {
             created_at: String::new(),
             wit_namespace: Some("wasi".into()),
             wit_name: Some("http".into()),
+            dependents: None,
+            latest_release_at: None,
             dependencies: vec![
                 PackageDependencyRef {
                     package: "wasi:io".into(),
@@ -914,12 +962,69 @@ mod tests {
             created_at: String::new(),
             wit_namespace: None,
             wit_name: None,
+            dependents: None,
+            latest_release_at: None,
             dependencies: vec![],
         };
 
         let json = serde_json::to_string(&pkg).unwrap();
         // Empty dependencies should not appear in JSON
         assert!(!json.contains("dependencies"));
+    }
+
+    #[test]
+    fn known_package_listing_metadata_is_backward_compatible() {
+        let old = serde_json::json!({
+            "registry": "ghcr.io",
+            "repository": "user/repo",
+            "description": null,
+            "tags": ["1.0.0"],
+            "last_seen_at": "2025-01-01T00:00:00Z",
+            "created_at": "2024-01-01T00:00:00Z"
+        });
+        let package: KnownPackage = serde_json::from_value(old).expect("old server response");
+        assert_eq!(package.dependents, None);
+        assert_eq!(package.latest_release_at, None);
+        let encoded = serde_json::to_value(package).expect("serialize old package");
+        assert!(encoded.get("dependents").is_none());
+        assert!(encoded.get("latest_release_at").is_none());
+    }
+
+    #[test]
+    fn known_package_listing_metadata_roundtrips_zero_and_nonzero() {
+        for count in [0, 42, u64::MAX] {
+            let wire = serde_json::json!({
+                "registry": "ghcr.io",
+                "repository": "user/repo",
+                "description": null,
+                "tags": ["1.0.0"],
+                "last_seen_at": "2025-01-01T00:00:00Z",
+                "created_at": "2024-01-01T00:00:00Z",
+                "dependents": count,
+                "latest_release_at": "2024-12-01T00:00:00Z"
+            });
+            let package: KnownPackage = serde_json::from_value(wire).expect("new server response");
+            assert_eq!(package.dependents, Some(count));
+            assert_eq!(
+                package.latest_release_at.as_deref(),
+                Some("2024-12-01T00:00:00Z")
+            );
+            let encoded = serde_json::to_value(package).expect("serialize package");
+            assert_eq!(
+                encoded
+                    .get("dependents")
+                    .and_then(serde_json::Value::as_u64),
+                Some(count)
+            );
+            assert_eq!(
+                encoded
+                    .get("latest_release_at")
+                    .and_then(serde_json::Value::as_str),
+                Some("2024-12-01T00:00:00Z")
+            );
+            let decoded: KnownPackage = serde_json::from_value(encoded).expect("roundtrip");
+            assert_eq!(decoded.dependents, Some(count));
+        }
     }
 
     #[test]

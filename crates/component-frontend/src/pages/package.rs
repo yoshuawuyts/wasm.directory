@@ -595,6 +595,8 @@ mod tests {
                 package: "wasi:io".to_string(),
                 version: Some("0.2.0".to_string()),
             }],
+            dependents: None,
+            latest_release_at: None,
         }
     }
 

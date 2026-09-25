@@ -136,6 +136,39 @@ mod tests {
         }
 
         #[tokio::test]
+        async fn relationship_worlds_preserve_synthetic_status_with_unknown_kind() {
+            for synthetic in [None, Some(false), Some(true)] {
+                let mut world = serde_json::json!({
+                    "package": {
+                        "registry": "registry.test",
+                        "repository": "test/source",
+                        "description": null,
+                        "tags": ["1.0.0"],
+                        "last_seen_at": "2026-01-01T00:00:00Z",
+                        "created_at": "2026-01-01T00:00:00Z"
+                    },
+                    "name": "root",
+                    "version": "1.0.0"
+                });
+                if let Some(synthetic) = synthetic {
+                    world["is_synthetic"] = synthetic.into();
+                }
+                let body = serde_json::json!({
+                    "results": [world], "total": 1, "offset": 0, "limit": 1, "has_next": false
+                })
+                .to_string();
+                let base = spawn_single_response_server("200 OK", &body, "application/json");
+                let page = RegistryClient::new(base)
+                    .fetch_importing_worlds("wasi:io", None, 0, 1)
+                    .await
+                    .expect("world response");
+                let world = page.results.first().expect("matching world");
+                assert!(world.package.kind.is_none());
+                assert_eq!(world.is_synthetic, synthetic.unwrap_or(false));
+            }
+        }
+
+        #[tokio::test]
         async fn relationship_failures_never_become_empty_successes() {
             for status in [
                 "400 Bad Request",

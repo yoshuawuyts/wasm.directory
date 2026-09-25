@@ -51,6 +51,9 @@ async fn fetches_both_page_and_registry_total() {
     ])
     .await;
     assert!(html.contains("showing 4 of 245 results"));
+    package_row::tests::assert_listing(&html, &package_row::tests::packages());
+    assert!(html.contains(">12 dependents</span>"));
+    assert!(html.contains("datetime=\"2026-09-21T06:30:00Z\""));
     assert_eq!(
         requests,
         [
@@ -58,6 +61,35 @@ async fn fetches_both_page_and_registry_total() {
             "GET /v1/stats HTTP/1.1",
         ]
     );
+}
+
+#[tokio::test]
+async fn older_api_responses_show_zero_dependents_and_omit_unknown_dates() {
+    let mut packages =
+        serde_json::to_value(package_row::tests::packages()).expect("serialize fixture packages");
+    for package in packages.as_array_mut().expect("package array") {
+        let fields = package.as_object_mut().expect("package object");
+        fields.remove("dependents");
+        fields.remove("latest_release_at");
+    }
+    let (html, requests) = render_with_responses(vec![
+        ("200 OK", packages.to_string()),
+        (
+            "200 OK",
+            r#"{"packages":245,"namespaces":2,"versions":1000}"#.to_owned(),
+        ),
+    ])
+    .await;
+    assert_eq!(
+        html.matches(">0 dependents (count unavailable)</span>")
+            .count(),
+        4
+    );
+    assert_eq!(html.matches(r#"aria-hidden="true">0</span>"#).count(), 4);
+    assert!(!html.contains("Update time unavailable"));
+    assert!(!html.contains("<time"));
+    assert_eq!(requests.len(), 2);
+    assert!(html.contains(">example/http</span>"));
 }
 
 #[tokio::test]

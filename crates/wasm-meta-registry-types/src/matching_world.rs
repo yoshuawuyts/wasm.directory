@@ -16,4 +16,10 @@ pub struct MatchingWorld {
     pub description: Option<String>,
     /// The actual OCI release tag containing the matching world.
     pub version: String,
+    /// Whether this is the `root` world of an indexed `root:component` envelope.
+    ///
+    /// Synthetic worlds are displayed on the owning package page, even when
+    /// that repository's package kind has not been classified.
+    #[serde(default)]
+    pub is_synthetic: bool,
 }
