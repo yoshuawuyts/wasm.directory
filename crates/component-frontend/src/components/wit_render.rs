@@ -24,7 +24,11 @@ pub(crate) fn render_type_ref(ty: &TypeRef) -> html::inline_text::Span {
                 Some(crate::wit_doc::WitTypeKind::Enum) => "text-wit-enum hover:underline",
                 _ => "text-accent hover:underline",
             };
-            span.anchor(|a| a.href(url.clone()).class(color).text(name.clone()));
+            span.anchor(|a| {
+                a.href(crate::escape::escape_html_attr(url))
+                    .class(color)
+                    .text(name.clone())
+            });
         }
         TypeRef::Named {
             name, url: None, ..
@@ -74,7 +78,7 @@ pub(crate) fn render_type_ref(ty: &TypeRef) -> html::inline_text::Span {
             HandleKind::Own => {
                 if let Some(url) = resource_url {
                     span.anchor(|a| {
-                        a.href(url.clone())
+                        a.href(crate::escape::escape_html_attr(url))
                             .class("text-accent hover:underline")
                             .text(resource_name.clone())
                     });
@@ -86,7 +90,7 @@ pub(crate) fn render_type_ref(ty: &TypeRef) -> html::inline_text::Span {
                 span.text("borrow\u{200b}<".to_owned());
                 if let Some(url) = resource_url {
                     span.anchor(|a| {
-                        a.href(url.clone())
+                        a.href(crate::escape::escape_html_attr(url))
                             .class("text-accent hover:underline")
                             .text(resource_name.clone())
                     });

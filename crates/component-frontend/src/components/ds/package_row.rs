@@ -14,6 +14,9 @@ use super::{icons, labels};
 use crate::escape::{escape_html_attr, escape_html_text};
 use crate::relative_time::Age;
 
+mod matching;
+pub(crate) use matching::{render_matching_package, render_matching_world};
+
 const ROW_CLASS: &str = "flex flex-col gap-1 py-3 -mx-2 px-2";
 const PRIMARY_CLASS: &str = "flex flex-wrap items-baseline gap-x-3 gap-y-1 min-w-0";
 const META_CLASS: &str =

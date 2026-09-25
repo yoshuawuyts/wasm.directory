@@ -158,8 +158,6 @@ pub(crate) fn render(
         sidebar_active: SidebarActive::Interface(&iface.name),
         extra_crumbs: &[],
         toc_html: toc_html.as_deref(),
-        importers: &[],
-        exporters: &[],
     })
 }
 

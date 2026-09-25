@@ -45,7 +45,9 @@ use wasm_package_manager_migration::entities::{
 mod dependents;
 mod highlights;
 mod manifest_config;
+mod package_data;
 mod package_metadata;
+mod relationships;
 mod releases;
 
 pub use manifest_config::PendingConfig;
@@ -279,18 +281,17 @@ fn parse_kind(s: Option<&str>) -> Option<wasm_meta_registry_types::PackageKind> 
     }
 }
 
-/// Build a public [`KnownPackage`] from an `oci_repository` row, fetching its
-/// tags and description.
-async fn known_package_from_repo(
-    db: &DatabaseConnection,
+/// Build a public [`KnownPackage`] from page-batched repository data.
+fn known_package_from_repo(
     repo: oci_repository::Model,
     metadata: &package_metadata::PackageMetadata,
-) -> anyhow::Result<super::known_package::KnownPackage> {
-    let tags = fetch_repo_tags(db, repo.id).await?;
-    let description = fetch_repo_description(db, repo.id).await?;
+    data: &package_data::PackageData,
+) -> super::known_package::KnownPackage {
+    let tags = data.tags(repo.id);
+    let description = data.description(repo.id);
     let dependents = metadata.dependents(&repo);
     let latest_release_at = metadata.latest_release_at(repo.id);
-    Ok(super::known_package::KnownPackage {
+    super::known_package::KnownPackage {
         registry: repo.registry,
         repository: repo.repository,
         kind: parse_kind(repo.kind.as_deref()),
@@ -305,7 +306,7 @@ async fn known_package_from_repo(
         dependents,
         latest_release_at,
         dependencies: Vec::new(),
-    })
+    }
 }
 
 /// Enrich only the selected repositories, preserving their order.
@@ -314,11 +315,11 @@ async fn known_packages_from_repos(
     repos: Vec<oci_repository::Model>,
 ) -> anyhow::Result<Vec<super::known_package::KnownPackage>> {
     let metadata = package_metadata::PackageMetadata::load(db, &repos).await?;
-    let mut packages = Vec::with_capacity(repos.len());
-    for repo in repos {
-        packages.push(known_package_from_repo(db, repo, &metadata).await?);
-    }
-    Ok(packages)
+    let data = package_data::PackageData::load(db, &repos).await?;
+    Ok(repos
+        .into_iter()
+        .map(|repo| known_package_from_repo(repo, &metadata, &data))
+        .collect())
 }
 
 async fn released_known_packages_from_repos(
@@ -338,25 +339,16 @@ async fn fetch_repo_tags(db: &DatabaseConnection, repo_id: i64) -> anyhow::Resul
         .filter(oci_tag::Column::OciRepositoryId.eq(repo_id))
         .all(db)
         .await?;
-    let mut versioned: Vec<(semver::Version, String)> = rows
+    let versioned = rows
         .into_iter()
         .filter_map(|t| crate::manager::parse_tag_as_semver(&t.tag).map(|v| (v, t.tag)))
         .collect();
-    versioned.sort_by(|(a, _), (b, _)| b.cmp(a));
-    Ok(versioned.into_iter().map(|(_, t)| t).collect())
+    Ok(sort_versioned_tags(versioned))
 }
 
-/// Fetch the first manifest description for a repository, if any.
-async fn fetch_repo_description(
-    db: &DatabaseConnection,
-    repo_id: i64,
-) -> anyhow::Result<Option<String>> {
-    let row = oci_manifest::Entity::find()
-        .filter(oci_manifest::Column::OciRepositoryId.eq(repo_id))
-        .filter(oci_manifest::Column::OciDescription.is_not_null())
-        .one(db)
-        .await?;
-    Ok(row.and_then(|m| m.oci_description))
+fn sort_versioned_tags(mut versioned: Vec<(semver::Version, String)>) -> Vec<String> {
+    versioned.sort_by(|(a, _), (b, _)| b.cmp(a));
+    versioned.into_iter().map(|(_, tag)| tag).collect()
 }
 
 impl Store {

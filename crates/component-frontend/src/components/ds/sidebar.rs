@@ -5,6 +5,10 @@ use html::content::Navigation;
 use html::interactive::Details;
 use html::text_content::Division;
 
+/// C01 section label shared by sidebar navigation groups.
+pub(crate) const SECTION_LABEL_CLASS: &str =
+    "mono uppercase tracking-wider text-[10px] text-ink-500 mb-2";
+
 /// Info bubble: a small info icon with a tooltip.
 pub(crate) const INFO_BUBBLE: &str = concat!(
     r#"<span class="inline-flex items-center justify-center w-3 h-3 text-ink-400 cursor-help" title="The OCI tag for this release">"#,
@@ -120,8 +124,8 @@ pub(crate) enum SidebarItem {
 
 /// Render the version selector as a native `<select>` dropdown.
 ///
-/// `base_url` should end with `/` (e.g. `"/wasi/http/"`). Each option
-/// navigates to `{base_url}{version}` on change.
+/// The path in `base_url` should end with `/` (e.g. `"/wasi/http/"`).
+/// Each option appends its version before any source query parameters.
 ///
 /// Returns `None` if `versions` is empty.
 pub(crate) fn render_version_selector(
@@ -146,7 +150,10 @@ pub(crate) fn render_version_selector(
         } else {
             format!("v{v}")
         };
-        let value = escape_html_attr(&format!("{base_url}{v}"));
+        let value = escape_html_attr(&crate::package_source::urls::append_path(
+            base_url,
+            &crate::package_source::urls::encode_segment(v),
+        ));
         let label = escape_html_text(&label);
         let _ = write!(
             options,
@@ -186,10 +193,7 @@ pub(crate) fn render_items_nav(section_label: Option<&str>, items: &[SidebarItem
     let mut wrapper = Division::builder();
 
     if let Some(label) = section_label {
-        wrapper.division(|l| {
-            l.class("mono uppercase tracking-wider text-[10px] text-ink-500 mb-2")
-                .text(label.to_owned())
-        });
+        wrapper.division(|l| l.class(SECTION_LABEL_CLASS).text(label.to_owned()));
     }
 
     wrapper.push(nav.build());
@@ -414,10 +418,7 @@ pub(crate) fn render(
     // Project links footer
     let footer = Division::builder()
         .class("mt-5 pt-4 border-t-[1.5px] border-rule")
-        .division(|l| {
-            l.class("mono uppercase tracking-wider text-[10px] text-ink-500 mb-2")
-                .text("Project")
-        })
+        .division(|l| l.class(SECTION_LABEL_CLASS).text("Project"))
         .push(
             Navigation::builder()
                 .class("space-y-px")

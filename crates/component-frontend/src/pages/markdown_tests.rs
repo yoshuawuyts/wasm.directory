@@ -255,7 +255,7 @@ fn interface_and_world_function_docs_are_not_truncated() {
 #[test]
 fn package_overviews_render_markdown_once_and_keep_first_line_excerpts() {
     let fixture = Fixture::new();
-    let html = package::render(&fixture.pkg, "1.0.0", Some(&fixture.version), &[], &[]);
+    let html = package::render(&fixture.pkg, "1.0.0", Some(&fixture.version));
     assert_summary_rows(&html);
     assert!(!html.contains("A soft-wrapped line."));
     assert!(!html.contains("Second paragraph."));
@@ -279,7 +279,7 @@ fn api_enriched_and_fallback_summaries_render_markdown_once() {
         imports: vec![iface.clone()],
         exports: vec![iface.clone()],
     }];
-    let html = package::render(&fixture.pkg, "1.0.0", Some(&fixture.version), &[], &[]);
+    let html = package::render(&fixture.pkg, "1.0.0", Some(&fixture.version));
     assert_summary_rows(&html);
     assert!(!html.contains("Second paragraph."));
     assert!(html.contains("href=\"https://example.com/spec?a=1&amp;b=2\""));

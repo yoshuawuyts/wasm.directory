@@ -65,8 +65,6 @@ pub(crate) fn render(
             href: None,
         }],
         toc_html: None,
-        importers: &[],
-        exporters: &[],
     })
 }
 

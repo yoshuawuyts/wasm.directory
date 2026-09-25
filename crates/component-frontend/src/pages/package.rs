@@ -5,6 +5,7 @@
 use crate::components::ds::wit_item::{self, WitItem, WitItemKind};
 use crate::components::ds::{metadata_table, page_header};
 use crate::components::page_sidebar::SidebarActive;
+use crate::package_source::urls::{append_path, encode_segment};
 use crate::wit_doc::WitDocument;
 use html::content::Section;
 use html::text_content::Division;
@@ -19,8 +20,6 @@ pub(crate) fn render(
     pkg: &KnownPackage,
     version: &str,
     version_detail: Option<&PackageVersion>,
-    importers: &[KnownPackage],
-    exporters: &[KnownPackage],
 ) -> String {
     let display_name = page_shell::display_name_for(pkg);
     let url_base = page_shell::url_base_for(pkg, version);
@@ -177,8 +176,6 @@ pub(crate) fn render(
         sidebar_active: SidebarActive::None,
         extra_crumbs: &[],
         toc_html: toc_html.as_deref(),
-        importers,
-        exporters,
     })
 }
 
@@ -382,9 +379,9 @@ fn render_children_overview(
             let fallback = format!("{kind}[{i}]");
             let name = child.name.as_deref().unwrap_or(&fallback).to_owned();
             let href = if kind == "module" {
-                format!("{url_base}/module/{name}")
+                append_path(url_base, &format!("/module/{}", encode_segment(&name)))
             } else {
-                format!("{url_base}/component/{i}")
+                append_path(url_base, &format!("/component/{i}"))
             };
             let item_kind = if kind == "component" {
                 WitItemKind::Component
@@ -607,7 +604,7 @@ mod tests {
     #[test]
     fn dependency_versions_shown_in_sidebar() {
         let pkg = sample_pkg();
-        let html = render(&pkg, "1.0.0", None, &[], &[]);
+        let html = render(&pkg, "1.0.0", None);
         // Sidebar temporarily removed — just verify the page renders
         assert!(html.contains("<!DOCTYPE html>"));
     }

@@ -12,7 +12,7 @@ use wasm_package_manager_migration::entities::oci_repository;
 use super::{dependents::dependent_counts, releases::release_rows};
 
 // Stay below SQLite's bind limit even for callers requesting very large pages.
-const BATCH_SIZE: usize = 400;
+pub(super) const BATCH_SIZE: usize = 400;
 
 #[derive(Default)]
 pub(super) struct PackageMetadata {

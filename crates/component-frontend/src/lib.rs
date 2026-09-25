@@ -18,15 +18,20 @@ mod footer;
 mod install;
 mod layout;
 mod markdown;
+mod package_source;
 mod pages;
+mod relationship_routes;
+mod relationships;
 mod relative_time;
 mod reserved;
 mod server;
 mod tailwind;
 mod wit_doc;
 
+use std::sync::Arc;
+
 use axum::body::Body;
-use axum::extract::{Path, Query};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::{Json, Router, routing::get};
@@ -38,10 +43,17 @@ use crate::reserved::is_reserved;
 
 /// Build the application router with all frontend routes.
 fn app() -> Router {
+    app_with_client(RegistryClient::from_env())
+}
+
+fn app_with_client(client: RegistryClient) -> Router {
     Router::new()
         .route("/", get(home))
         .route("/all", get(all_packages))
         .route("/search", get(search))
+        .route("/search/dependents", get(relationship_routes::dependents))
+        .route("/search/imported-by", get(relationship_routes::imported_by))
+        .route("/search/exported-by", get(relationship_routes::exported_by))
         .route("/about", get(about))
         .route("/docs", get(docs))
         .route("/docs/{page}", get(docs_page))
@@ -99,6 +111,7 @@ fn app() -> Router {
             get(child_component_detail),
         )
         .fallback(not_found)
+        .with_state(Arc::new(client))
 }
 
 // r[impl frontend.server.wasi-http]
@@ -230,8 +243,12 @@ async fn namespace_page(headers: HeaderMap, Path(namespace): Path<String>) -> Re
 // r[impl frontend.pages.package-redirect]
 // r[impl frontend.routing.reserved-namespaces]
 /// Redirect `/<namespace>/<name>` to `/<namespace>/<name>/<latest-version>`.
-async fn package_redirect(path: Path<(String, String)>) -> Response {
-    match resolve_package_redirect(path).await {
+async fn package_redirect(
+    State(client): State<Arc<RegistryClient>>,
+    path: Path<(String, String)>,
+    Query(source): Query<package_source::PackageSource>,
+) -> Response {
+    match resolve_package_redirect(&client, path, &source).await {
         Ok(redirect) => redirect.into_response(),
         Err(response) => *response,
     }
@@ -240,46 +257,33 @@ async fn package_redirect(path: Path<(String, String)>) -> Response {
 /// Resolve the latest-version redirect for a package, or the error response
 /// to send instead.
 async fn resolve_package_redirect(
+    client: &RegistryClient,
     Path((namespace, name)): Path<(String, String)>,
+    source: &package_source::PackageSource,
 ) -> Result<Redirect, Box<Response>> {
-    if is_reserved(&namespace) {
+    let Some(pkg) = source.fetch_package(client, &namespace, &name).await? else {
+        eprintln!("component-frontend: package not found: {namespace}/{name}");
         return Err(Box::new(not_found_response()));
-    }
-
-    let client = RegistryClient::from_env();
-    match client.fetch_package_by_wit(&namespace, &name).await {
-        Ok(Some(pkg)) => {
-            if let Some(version) = pick_redirect_version(&pkg.tags) {
-                Ok(Redirect::temporary(&format!(
-                    "/{namespace}/{name}/{version}"
-                )))
-            } else {
-                eprintln!(
-                    "component-frontend: package has no redirectable tags: {namespace}/{name}"
-                );
-                Err(Box::new(not_found_response()))
-            }
-        }
-        Ok(None) => {
-            eprintln!("component-frontend: package not found: {namespace}/{name}");
-            Err(Box::new(not_found_response()))
-        }
-        Err(e) => {
-            eprintln!("component-frontend: API error looking up {namespace}/{name}: {e}");
-            Err(Box::new(error_response(&e.to_string())))
-        }
-    }
+    };
+    let Some(version) = pick_redirect_version(&pkg.tags) else {
+        eprintln!("component-frontend: package has no redirectable tags: {namespace}/{name}");
+        return Err(Box::new(not_found_response()));
+    };
+    Ok(Redirect::temporary(&components::page_shell::url_base_for(
+        &pkg, &version,
+    )))
 }
 
 // r[impl frontend.pages.package-detail]
 // r[impl frontend.routing.package-path]
 /// Package detail page at `/<namespace>/<name>/<version>`.
 async fn package_detail(
+    State(client): State<Arc<RegistryClient>>,
     headers: HeaderMap,
     Path((namespace, name, version)): Path<(String, String, String)>,
+    Query(source): Query<package_source::PackageSource>,
 ) -> Response {
-    let client = RegistryClient::from_env();
-    let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
+    let pkg = match source.fetch(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
@@ -289,46 +293,51 @@ async fn package_detail(
         .await
         .ok()
         .flatten();
-    let display_name = format!("{namespace}:{name}");
-    let importers = client
-        .search_packages_by_import(&display_name)
-        .await
-        .unwrap_or_default();
-    let exporters = client
-        .search_packages_by_export(&display_name)
-        .await
-        .unwrap_or_default();
-    let html = pages::package::render(
-        &pkg,
-        &version,
-        version_detail.as_ref(),
-        &importers,
-        &exporters,
-    );
+    let html = pages::package::render(&pkg, &version, version_detail.as_ref());
     with_cache_control(&headers, html, "public, max-age=300")
 }
 
 /// Legacy dependencies route — redirects to the main package page.
 async fn package_dependencies(
     Path((namespace, name, version)): Path<(String, String, String)>,
+    Query(source): Query<package_source::PackageSource>,
 ) -> Response {
-    Redirect::permanent(&format!("/{namespace}/{name}/{version}")).into_response()
+    use package_source::urls::encode_segment;
+
+    let path = format!(
+        "/{}/{}/{}",
+        encode_segment(&namespace),
+        encode_segment(&name),
+        encode_segment(&version)
+    );
+    match source.redirect_href(&path) {
+        Ok(href) => Redirect::permanent(&href).into_response(),
+        Err(response) => *response,
+    }
 }
 
-/// Legacy dependents route — redirects to the main package page.
+/// Legacy dependents route, now pointing to version-independent relationships.
 async fn package_dependents(
-    Path((namespace, name, version)): Path<(String, String, String)>,
+    Path((namespace, name, _version)): Path<(String, String, String)>,
 ) -> Response {
-    Redirect::permanent(&format!("/{namespace}/{name}/{version}")).into_response()
+    match wasm_meta_registry_client::RelationshipTarget::new(&format!("{namespace}:{name}"), None) {
+        Ok(target) => Redirect::permanent(&relationships::Relationship::Dependents.href(&target))
+            .into_response(),
+        Err(error) => {
+            eprintln!("component-frontend: invalid legacy dependents target: {error}");
+            not_found_response()
+        }
+    }
 }
 
 /// Interface detail page at `/<namespace>/<name>/<version>/interface/<iface>`.
 async fn interface_detail(
+    State(client): State<Arc<RegistryClient>>,
     headers: HeaderMap,
     Path((namespace, name, version, iface)): Path<(String, String, String, String)>,
+    Query(source): Query<package_source::PackageSource>,
 ) -> Response {
-    let client = RegistryClient::from_env();
-    let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
+    let pkg = match source.fetch(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
@@ -345,6 +354,7 @@ async fn interface_detail(
 
 /// Item detail page at `/<namespace>/<name>/<version>/interface/<iface>/<item>`.
 async fn item_detail(
+    State(client): State<Arc<RegistryClient>>,
     headers: HeaderMap,
     Path((namespace, name, version, iface, item_name)): Path<(
         String,
@@ -353,9 +363,9 @@ async fn item_detail(
         String,
         String,
     )>,
+    Query(source): Query<package_source::PackageSource>,
 ) -> Response {
-    let client = RegistryClient::from_env();
-    let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
+    let pkg = match source.fetch(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
@@ -374,7 +384,10 @@ async fn item_detail(
         return with_cache_control(&headers, html, "public, max-age=300");
     }
     if let Some(func) = iface_doc.functions.iter().find(|f| f.name == item_name) {
-        let iface_url = format!("/{namespace}/{name}/{version}/interface/{iface}");
+        let iface_url = package_source::urls::append_path(
+            &components::page_shell::url_base_for(&pkg, &version),
+            &format!("/interface/{iface}"),
+        );
         let html = pages::item::render_function(
             &pkg,
             &version,
@@ -392,11 +405,12 @@ async fn item_detail(
 
 /// World detail page at `/<namespace>/<name>/<version>/world/<world_name>`.
 async fn world_detail(
+    State(client): State<Arc<RegistryClient>>,
     headers: HeaderMap,
     Path((namespace, name, version, world_name)): Path<(String, String, String, String)>,
+    Query(source): Query<package_source::PackageSource>,
 ) -> Response {
-    let client = RegistryClient::from_env();
-    let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
+    let pkg = match source.fetch(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
@@ -418,6 +432,7 @@ async fn world_detail(
 /// Detail page for a freestanding function declared directly on a world,
 /// at `/<namespace>/<name>/<version>/world/<world>/function/<func>`.
 async fn world_function_detail(
+    State(client): State<Arc<RegistryClient>>,
     headers: HeaderMap,
     Path((namespace, name, version, world_name, func_name)): Path<(
         String,
@@ -426,11 +441,11 @@ async fn world_function_detail(
         String,
         String,
     )>,
+    Query(source): Query<package_source::PackageSource>,
 ) -> Response {
     use crate::wit_doc::WorldItemDoc;
 
-    let client = RegistryClient::from_env();
-    let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
+    let pkg = match source.fetch(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
@@ -452,7 +467,10 @@ async fn world_function_detail(
     let Some(func) = func else {
         return not_found_response();
     };
-    let world_url = format!("/{namespace}/{name}/{version}/world/{world_name}");
+    let world_url = package_source::urls::append_path(
+        &components::page_shell::url_base_for(&pkg, &version),
+        &format!("/world/{world_name}"),
+    );
     let html = pages::item::render_function(
         &pkg,
         &version,
@@ -470,13 +488,14 @@ async fn world_function_detail(
 /// world's imports and exports for a function with the given name and
 /// returns the first match.
 async fn package_function_detail(
+    State(client): State<Arc<RegistryClient>>,
     headers: HeaderMap,
     Path((namespace, name, version, func_name)): Path<(String, String, String, String)>,
+    Query(source): Query<package_source::PackageSource>,
 ) -> Response {
     use crate::wit_doc::WorldItemDoc;
 
-    let client = RegistryClient::from_env();
-    let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
+    let pkg = match source.fetch(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
@@ -501,7 +520,7 @@ async fn package_function_detail(
     let Some(func) = func else {
         return not_found_response();
     };
-    let pkg_url = format!("/{namespace}/{name}/{version}");
+    let pkg_url = components::page_shell::url_base_for(&pkg, &version);
     let display_name = components::page_shell::display_name_for(&pkg);
     let html = pages::item::render_function(
         &pkg,
@@ -540,12 +559,7 @@ async fn fetch_wit_doc(
             Some((dep.package.clone(), url))
         })
         .collect();
-    let url_base = format!(
-        "/{}/{}/{}",
-        pkg.wit_namespace.as_deref().unwrap_or("_"),
-        pkg.wit_name.as_deref().unwrap_or(&pkg.repository),
-        version
-    );
+    let url_base = components::page_shell::url_base_for(pkg, version);
     let own_oci_package = match (pkg.wit_namespace.as_deref(), pkg.wit_name.as_deref()) {
         (Some(ns), Some(n)) => Some(format!("{ns}:{n}")),
         _ => None,
@@ -563,11 +577,12 @@ async fn fetch_wit_doc(
 
 /// Module detail page at `/<namespace>/<name>/<version>/module/<child_name>`.
 async fn module_detail(
+    State(client): State<Arc<RegistryClient>>,
     headers: HeaderMap,
     Path((namespace, name, version, child_name)): Path<(String, String, String, String)>,
+    Query(source): Query<package_source::PackageSource>,
 ) -> Response {
-    let client = RegistryClient::from_env();
-    let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
+    let pkg = match source.fetch(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
@@ -615,11 +630,12 @@ async fn module_detail(
 
 /// Child component detail page at `/<namespace>/<name>/<version>/component/<index>`.
 async fn child_component_detail(
+    State(client): State<Arc<RegistryClient>>,
     headers: HeaderMap,
     Path((namespace, name, version, child_index)): Path<(String, String, String, String)>,
+    Query(source): Query<package_source::PackageSource>,
 ) -> Response {
-    let client = RegistryClient::from_env();
-    let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
+    let pkg = match source.fetch(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
@@ -652,43 +668,6 @@ async fn child_component_detail(
         &display_name,
     );
     with_cache_control(&headers, html, "public, max-age=300")
-}
-
-/// Fetch a package by WIT namespace/name, validating the version exists.
-///
-/// Returns `Ok(None)` (and logs) if the namespace is reserved, the package is
-/// not found, or the version tag doesn't exist. Returns `Err(Box<Response>)` with
-/// a `502 Bad Gateway` response when the upstream API call fails, so that
-/// registry outages are surfaced correctly instead of being masked as 404s.
-async fn fetch_package_or_404(
-    client: &RegistryClient,
-    namespace: &str,
-    name: &str,
-    version: &str,
-) -> Result<Option<KnownPackage>, Box<Response>> {
-    if is_reserved(namespace) {
-        return Ok(None);
-    }
-    match client.fetch_package_by_wit(namespace, name).await {
-        Ok(Some(pkg)) => {
-            if pkg.tags.iter().any(|tag| tag == version) {
-                Ok(Some(pkg))
-            } else {
-                eprintln!(
-                    "component-frontend: version not found for {namespace}/{name}: {version}"
-                );
-                Ok(None)
-            }
-        }
-        Ok(None) => {
-            eprintln!("component-frontend: package not found: {namespace}/{name}@{version}");
-            Ok(None)
-        }
-        Err(e) => {
-            eprintln!("component-frontend: API error looking up {namespace}/{name}@{version}: {e}");
-            Err(Box::new(error_response(&e.to_string())))
-        }
-    }
 }
 
 // r[impl frontend.pages.not-found]
@@ -843,9 +822,13 @@ mod tests {
     // r[verify frontend.routing.reserved-namespaces]
     #[tokio::test]
     async fn package_redirect_reserved_namespace_returns_not_found() {
-        let response = resolve_package_redirect(Path(("all".to_string(), "demo".to_string())))
-            .await
-            .expect_err("reserved namespace should not redirect");
+        let response = resolve_package_redirect(
+            &RegistryClient::new("http://127.0.0.1:1"),
+            Path(("all".to_string(), "demo".to_string())),
+            &package_source::PackageSource::default(),
+        )
+        .await
+        .expect_err("reserved namespace should not redirect");
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
         assert_eq!(
@@ -863,8 +846,10 @@ mod tests {
     #[tokio::test]
     async fn package_detail_reserved_namespace_returns_not_found() {
         let response = package_detail(
+            State(Arc::new(RegistryClient::new("http://127.0.0.1:1"))),
             HeaderMap::new(),
             Path(("all".to_string(), "demo".to_string(), "1.0.0".to_string())),
+            Query(package_source::PackageSource::default()),
         )
         .await;
 
@@ -1139,8 +1124,12 @@ mod tests {
     /// return bad-gateway when the registry API is unreachable.
     #[tokio::test]
     async fn package_redirect_handles_trailing_slash_path() {
-        let result =
-            resolve_package_redirect(Path(("wasi".to_string(), "random".to_string()))).await;
+        let result = resolve_package_redirect(
+            &RegistryClient::new("http://127.0.0.1:1"),
+            Path(("wasi".to_string(), "random".to_string())),
+            &package_source::PackageSource::default(),
+        )
+        .await;
         match result {
             Ok(redirect) => {
                 let resp = redirect.into_response();

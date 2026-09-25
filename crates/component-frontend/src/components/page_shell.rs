@@ -19,10 +19,6 @@ pub(crate) struct SidebarContext<'a> {
     pub version: &'a str,
     /// Version detail (annotations, size, etc.) if available.
     pub version_detail: Option<&'a PackageVersion>,
-    /// Packages that import this one.
-    pub importers: &'a [KnownPackage],
-    /// Packages that export this one.
-    pub exporters: &'a [KnownPackage],
     /// Optional navigation card HTML (interfaces/worlds/items list).
     pub nav_html: Option<String>,
 }
@@ -75,7 +71,13 @@ pub(crate) fn render_page_with_crumbs(
         label: "Downloads",
         href: "/downloads",
     }];
-    let nav = navbar::render_bar_grid(&crumbs, LINKS);
+    let (nav, mobile_sidebar) = match &ctx.nav_html {
+        Some(_) => (
+            navbar::render_package_bar_grid(&crumbs, LINKS),
+            crate::components::mobile_sidebar::render(&crumbs, LINKS),
+        ),
+        None => (navbar::render_bar_grid(&crumbs, LINKS), String::new()),
+    };
 
     // Sidebar navigation (interfaces/worlds tree) — already an <aside> with
     // its own sticky positioning, column placement, and aria-label from
@@ -101,7 +103,8 @@ pub(crate) fn render_page_with_crumbs(
   <main id="content" class="min-w-0 px-4 md:px-6 lg:px-8 pt-8 pb-24 bg-canvas"><article>{header}{body_content}</article></main>
   {toc_column}
   <div class="hidden md:block bg-canvas" aria-hidden="true"></div>
-  <div class="detail-footer">{footer_html}</div>"#,
+  <div class="detail-footer">{footer_html}</div>
+  {mobile_sidebar}"#,
     );
 
     layout::document_grid(title, body_class, &body_children)
@@ -139,7 +142,7 @@ const SIDEBAR_LABEL: &str = crate::components::ds::typography::SECTION_LABEL_CLA
 
 /// Render the right sidebar with all package metadata.
 #[allow(dead_code)]
-fn render_sidebar(ctx: &SidebarContext<'_>, display_name: &str) -> Division {
+fn render_sidebar(ctx: &SidebarContext<'_>) -> Division {
     let pkg = ctx.pkg;
     let version = ctx.version;
     let version_detail = ctx.version_detail;
@@ -257,22 +260,6 @@ fn render_sidebar(ctx: &SidebarContext<'_>, display_name: &str) -> Division {
         });
     }
 
-    // ── Dependents ───────────────────────────────────────
-    let total_dependents = ctx.importers.len() + ctx.exporters.len();
-    if total_dependents > 0 {
-        sidebar.division(|wrapper| {
-            wrapper
-                .class("my-3 border-t-[1.5px] border-rule pt-3")
-                .heading_3(|h3| h3.class(SIDEBAR_LABEL).text("Dependents"));
-            wrapper.anchor(|a| {
-                a.href(format!("/search?q={display_name}"))
-                    .class("text-[13px] text-accent hover:underline")
-                    .text("Search for dependent packages \u{2192}")
-            });
-            wrapper
-        });
-    }
-
     sidebar.build()
 }
 
@@ -293,12 +280,26 @@ pub(crate) fn kind_label_for(pkg: &KnownPackage) -> &'static str {
     }
 }
 
-/// Compute the URL base for sub-page links.
+/// Compute the source-pinned URL base for package-local navigation.
 pub(crate) fn url_base_for(pkg: &KnownPackage, version: &str) -> String {
-    match (&pkg.wit_namespace, &pkg.wit_name) {
-        (Some(ns), Some(name)) => format!("/{ns}/{name}/{version}"),
-        _ => format!("/{}/{version}", pkg.repository),
-    }
+    use crate::package_source::urls::{encode_segment, with_source};
+
+    let version = encode_segment(version);
+    let (Some(ns), Some(name)) = (&pkg.wit_namespace, &pkg.wit_name) else {
+        let repository = pkg
+            .repository
+            .split('/')
+            .map(encode_segment)
+            .collect::<Vec<_>>()
+            .join("/");
+        return with_source(
+            &format!("/{repository}/{version}"),
+            &pkg.registry,
+            &pkg.repository,
+        );
+    };
+    let path = format!("/{}/{}/{version}", encode_segment(ns), encode_segment(name));
+    with_source(&path, &pkg.registry, &pkg.repository)
 }
 
 /// Render the version selector dropdown.

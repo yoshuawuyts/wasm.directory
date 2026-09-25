@@ -2,6 +2,9 @@
 
 use html::text_content::Division;
 
+/// The existing 14px destination arrow from the inline icon set.
+pub(crate) const ARROW_UP_RIGHT: &str = r#"<svg class="h-3.5 w-3.5 text-ink-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10" /><path d="M7 17 17 7" /></svg>"#;
+
 /// Inline icon entries: (svg, label).
 pub(crate) const INLINE_ICONS: &[(&str, &str)] = &[
     (
@@ -16,10 +19,7 @@ pub(crate) const INLINE_ICONS: &[(&str, &str)] = &[
         r#"<svg class="h-3.5 w-3.5 text-ink-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6" /></svg>"#,
         "chevron-right",
     ),
-    (
-        r#"<svg class="h-3.5 w-3.5 text-ink-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10" /><path d="M7 17 17 7" /></svg>"#,
-        "arrow-up-right",
-    ),
+    (ARROW_UP_RIGHT, "arrow-up-right"),
     (
         r#"<svg class="h-3.5 w-3.5 text-ink-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h9" /></svg>"#,
         "copy",

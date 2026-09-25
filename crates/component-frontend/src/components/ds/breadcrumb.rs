@@ -43,7 +43,7 @@ pub(crate) fn render_breadcrumb(crumbs: &[Crumb]) -> String {
             nav.text(SVG_CHEV_RIGHT);
         }
         if let Some(href) = &crumb.href {
-            let href = href.clone();
+            let href = crate::escape::escape_html_attr(href);
             let label = crumb.label.clone();
             nav.anchor(|a| {
                 a.href(href)

@@ -621,10 +621,12 @@ fn render_document(title: &str, body_class: &str, body_children: &str) -> String
     .motion-target.t-slow {{ transition: transform 260ms cubic-bezier(0.2, 0, 0, 1); }}
     .motion-target.t-spring {{ transition: transform 360ms cubic-bezier(0.34, 1.56, 0.64, 1); }}
     @media (prefers-reduced-motion: reduce) {{ .motion-target {{ transition: none !important; }} }}
+    {package_sidebar_styles}
     /* Search modal */
     .search-modal {{ position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-start; justify-content: center; padding-top: 4px; }}
     .search-modal.hidden {{ display: none; }}
-    .search-scrim {{ position: absolute; inset: 0; background: rgba(15, 15, 17, 0.4); backdrop-filter: blur(2px); }}
+    .search-scrim {{ position: absolute; inset: 0; }}
+    .search-scrim, #package-navigation-dialog::backdrop {{ background: rgba(15, 15, 17, 0.4); backdrop-filter: blur(2px); }}
     .search-dialog {{ position: relative; width: 100%; max-width: 600px; margin: 0 16px; background: var(--c-surface); border: 1px solid var(--c-line); border-radius: 12px; box-shadow: 0 16px 48px rgba(0,0,0,.2); overflow: hidden; }}
     .search-input-row {{ display: flex; align-items: center; gap: 10px; padding: 0 16px; height: 48px; border-bottom: 1px solid var(--c-line-soft); }}
     .search-hint {{ padding: 10px 16px; font-size: 12px; color: var(--c-ink-500); }}
@@ -968,6 +970,7 @@ fn render_document(title: &str, body_class: &str, body_children: &str) -> String
         tailwind_path = crate::tailwind::PATH,
         body_class = body_class,
         body_children = body_children,
+        package_sidebar_styles = crate::components::mobile_sidebar::STYLES,
         search_modal = crate::components::ds::navbar::render_search_modal(),
         theme_init = include_str!("theme/init.js"),
         theme_controls = include_str!("theme/controls.js"),
