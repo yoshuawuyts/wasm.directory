@@ -79,9 +79,9 @@ pub(crate) fn render_type(
 
     let content = format!("<div class=\"pt-8\">{body}</div>");
 
-    let iface_url = format!(
-        "/{}/{version}/interface/{iface_name}",
-        display_name.replace(':', "/")
+    let iface_url = crate::package_source::urls::append_path(
+        &crate::components::page_shell::url_base_for(pkg, version),
+        &format!("/interface/{iface_name}"),
     );
     let extra = [
         crate::components::ds::breadcrumb::Crumb {

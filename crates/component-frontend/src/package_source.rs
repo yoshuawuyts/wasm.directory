@@ -1,11 +1,13 @@
 //! Resolve release links without confusing mirrors of the same WIT package.
 
+pub(crate) mod urls;
+
 use axum::http::{StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use serde::Deserialize;
 use wasm_meta_registry_client::{KnownPackage, RegistryClient};
 
-/// Optional OCI provenance attached to relationship result links.
+/// Optional OCI provenance attached to package detail navigation.
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct PackageSource {
     registry: Option<String>,
@@ -21,37 +23,35 @@ impl PackageSource {
         name: &str,
         version: &str,
     ) -> Result<Option<KnownPackage>, Box<Response>> {
-        let (registry, repository) = match (&self.registry, &self.repository) {
-            (None, None) => {
-                return crate::fetch_package_or_404(client, namespace, name, version).await;
-            }
-            (Some(registry), Some(repository))
-                if !registry.is_empty() && !repository.is_empty() =>
-            {
-                (registry, repository)
-            }
-            _ => {
-                let message = "A package source requires a nonempty registry and repository.";
-                eprintln!("component-frontend: {message}");
-                return Err(Box::new(
-                    (
-                        StatusCode::BAD_REQUEST,
-                        [(header::CACHE_CONTROL, "no-cache")],
-                        Html(crate::pages::error::render(message)),
-                    )
-                        .into_response(),
-                ));
-            }
+        let Some(pkg) = self.fetch_package(client, namespace, name).await? else {
+            return Ok(None);
         };
+        if matches_release(&pkg, namespace, name, version) {
+            return Ok(Some(pkg));
+        }
+        eprintln!("component-frontend: version not found for {namespace}/{name}: {version}");
+        Ok(None)
+    }
+
+    /// Resolve a package identity, including for a source-pinned latest-version redirect.
+    pub(crate) async fn fetch_package(
+        &self,
+        client: &RegistryClient,
+        namespace: &str,
+        name: &str,
+    ) -> Result<Option<KnownPackage>, Box<Response>> {
+        let selected = self.selected_repository()?;
         if crate::reserved::is_reserved(namespace) {
             return Ok(None);
         }
-        match client.fetch_package(registry, repository).await {
-            Ok(Some(pkg)) if matches_release(&pkg, namespace, name, version) => Ok(Some(pkg)),
+        let result = match selected {
+            Some((registry, repository)) => client.fetch_package(registry, repository).await,
+            None => client.fetch_package_by_wit(namespace, name).await,
+        };
+        match result {
+            Ok(Some(pkg)) if matches_identity(&pkg, namespace, name) => Ok(Some(pkg)),
             Ok(_) => {
-                eprintln!(
-                    "component-frontend: matching release not found: {namespace}:{name}@{version} in {registry}/{repository}"
-                );
+                eprintln!("component-frontend: matching package not found: {namespace}:{name}");
                 Ok(None)
             }
             Err(error) => {
@@ -60,16 +60,54 @@ impl PackageSource {
             }
         }
     }
+
+    /// Preserve a complete source query when redirecting a legacy detail path.
+    pub(crate) fn redirect_href(&self, path: &str) -> Result<String, Box<Response>> {
+        Ok(match self.selected_repository()? {
+            Some((registry, repository)) => urls::with_source(path, registry, repository),
+            None => path.to_owned(),
+        })
+    }
+
+    fn selected_repository(&self) -> Result<Option<(&str, &str)>, Box<Response>> {
+        match (&self.registry, &self.repository) {
+            (None, None) => Ok(None),
+            (Some(registry), Some(repository))
+                if !registry.is_empty() && !repository.is_empty() =>
+            {
+                Ok(Some((registry, repository)))
+            }
+            _ => {
+                let message = "A package source requires a nonempty registry and repository.";
+                eprintln!("component-frontend: {message}");
+                Err(Box::new(
+                    (
+                        StatusCode::BAD_REQUEST,
+                        [(header::CACHE_CONTROL, "no-cache")],
+                        Html(crate::pages::error::render(message)),
+                    )
+                        .into_response(),
+                ))
+            }
+        }
+    }
+}
+
+fn matches_identity(pkg: &KnownPackage, namespace: &str, name: &str) -> bool {
+    pkg.wit_namespace.as_deref() == Some(namespace) && pkg.wit_name.as_deref() == Some(name)
 }
 
 fn matches_release(pkg: &KnownPackage, namespace: &str, name: &str, version: &str) -> bool {
-    pkg.wit_namespace.as_deref() == Some(namespace)
-        && pkg.wit_name.as_deref() == Some(name)
-        && pkg.tags.iter().any(|tag| tag == version)
+    matches_identity(pkg, namespace, name) && pkg.tags.iter().any(|tag| tag == version)
 }
 
 #[cfg(test)]
 mod tests {
+    mod fixtures;
+    mod navigation;
+    mod registry;
+    mod routes;
+
     use super::*;
     use crate::relationship_routes::tests::registry_response;
 

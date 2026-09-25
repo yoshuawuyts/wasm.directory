@@ -124,8 +124,8 @@ pub(crate) enum SidebarItem {
 
 /// Render the version selector as a native `<select>` dropdown.
 ///
-/// `base_url` should end with `/` (e.g. `"/wasi/http/"`). Each option
-/// navigates to `{base_url}{version}` on change.
+/// The path in `base_url` should end with `/` (e.g. `"/wasi/http/"`).
+/// Each option appends its version before any source query parameters.
 ///
 /// Returns `None` if `versions` is empty.
 pub(crate) fn render_version_selector(
@@ -150,7 +150,10 @@ pub(crate) fn render_version_selector(
         } else {
             format!("v{v}")
         };
-        let value = escape_html_attr(&format!("{base_url}{v}"));
+        let value = escape_html_attr(&crate::package_source::urls::append_path(
+            base_url,
+            &crate::package_source::urls::encode_segment(v),
+        ));
         let label = escape_html_text(&label);
         let _ = write!(
             options,

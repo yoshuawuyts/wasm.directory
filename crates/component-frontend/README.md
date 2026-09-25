@@ -182,6 +182,13 @@ in compiled components link to the owning component page using the API's
 `root` retain their own world-detail link. Relationship rows keep matching-release
 metadata separate from ordinary listings' latest-release ages and direct counts.
 
+Once a repository is resolved, generated package-local links retain that source
+through the sidebar, breadcrumbs, version selector, WIT references, interfaces,
+types, functions, worlds, and child modules/components. Latest-version and legacy
+dependency redirects preserve it too. Missing sources, mismatched WIT identities,
+and unavailable tags never fall back to another mirror. Links to other packages
+and version-independent relationship searches remain unscoped.
+
 All three pages accept `offset` and `limit` (default 100, capped at 100).
 Pagination follows the API's deduplicated result page, independently of optional
 display totals. Empty results, out-of-range pages, invalid queries, and registry

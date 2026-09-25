@@ -6,6 +6,7 @@
 use crate::components::ds::sidebar::{self, SidebarEntry, SidebarGroup, SidebarItem};
 use crate::components::ds::sigil as s;
 use crate::escape::{escape_html_attr, escape_html_text, escape_js_string, sanitize_url};
+use crate::package_source::urls::{append_path, encode_segment, with_source};
 use crate::wit_doc::WitDocument;
 use html::content::Aside;
 use wasm_meta_registry_client::{ComponentSummary, OciAnnotations};
@@ -112,7 +113,11 @@ pub(crate) fn render_sidebar(ctx: &SidebarContext<'_>) -> Aside {
     push_component_children_nav(&mut items, ctx);
 
     let version_strs: Vec<&str> = ctx.versions.iter().map(String::as_str).collect();
-    let base_url = format!("/{}/", ctx.display_name.replace(':', "/"));
+    let base_url = with_source(
+        &format!("/{}/", ctx.display_name.replace(':', "/")),
+        ctx.registry,
+        ctx.repository,
+    );
     let header_html = build_sidebar_header(ctx);
     let project_html = build_project_section(ctx);
     let version_html = sidebar::render_version_selector(ctx.version, &version_strs, &base_url);
@@ -212,11 +217,10 @@ fn build_dependency_entries(
 
 /// Build the sidebar header with icon, title, version subtitle, and description.
 fn build_sidebar_header(ctx: &SidebarContext<'_>) -> String {
-    let ns = escape_html_attr(&ctx.display_name.replace(':', "/"));
+    let href = escape_html_attr(ctx.url_base);
     let desc = escape_html_text(ctx.description.unwrap_or("No description available."));
     let display_name = escape_html_text(ctx.display_name);
     let version_text = escape_html_text(ctx.version);
-    let version_attr = escape_html_attr(ctx.version);
     let kind_label = escape_html_text(ctx.kind_label);
     let icon = match ctx.kind_label {
         "Component" => SVG_PACKAGE,
@@ -225,7 +229,7 @@ fn build_sidebar_header(ctx: &SidebarContext<'_>) -> String {
     };
 
     format!(
-        r#"<div class="pb-4 border-b-[1.5px] border-rule"><div class="flex items-center gap-2.5"><span class="sigil" style="background:{};color:{};width:28px;height:28px;">{icon}</span><div><a href="/{ns}/{version_attr}" class="text-[15px] font-semibold text-ink-900 hover:underline no-underline">{display_name}</a><div class="text-[11px] text-ink-500 mono">v{version_text} · {kind_label}</div></div></div><p class="mt-2 text-[12px] text-ink-700 leading-relaxed">{desc}</p></div>"#,
+        r#"<div class="pb-4 border-b-[1.5px] border-rule"><div class="flex items-center gap-2.5"><span class="sigil" style="background:{};color:{};width:28px;height:28px;">{icon}</span><div><a href="{href}" class="text-[15px] font-semibold text-ink-900 hover:underline no-underline">{display_name}</a><div class="text-[11px] text-ink-500 mono">v{version_text} · {kind_label}</div></div></div><p class="mt-2 text-[12px] text-ink-700 leading-relaxed">{desc}</p></div>"#,
         s::ROOT.bg,
         s::ROOT.color,
     )
@@ -635,9 +639,12 @@ fn push_component_children_nav(items: &mut Vec<SidebarItem>, ctx: &SidebarContex
                     .unwrap_or_else(|| format!("{kind_url}[{idx}]"));
                 let active = matches!(ctx.active, SidebarActive::Child(name) if name == display);
                 let href = if kind_url == "module" {
-                    format!("{}/{}/{}", ctx.url_base, kind_url, display)
+                    append_path(
+                        ctx.url_base,
+                        &format!("/{kind_url}/{}", encode_segment(&display)),
+                    )
                 } else {
-                    format!("{}/{}/{}", ctx.url_base, kind_url, idx)
+                    append_path(ctx.url_base, &format!("/{kind_url}/{idx}"))
                 };
                 SidebarEntry {
                     sigil_bg: sigil.bg,

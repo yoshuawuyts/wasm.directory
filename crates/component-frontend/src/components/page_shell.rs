@@ -280,12 +280,26 @@ pub(crate) fn kind_label_for(pkg: &KnownPackage) -> &'static str {
     }
 }
 
-/// Compute the URL base for sub-page links.
+/// Compute the source-pinned URL base for package-local navigation.
 pub(crate) fn url_base_for(pkg: &KnownPackage, version: &str) -> String {
-    match (&pkg.wit_namespace, &pkg.wit_name) {
-        (Some(ns), Some(name)) => format!("/{ns}/{name}/{version}"),
-        _ => format!("/{}/{version}", pkg.repository),
-    }
+    use crate::package_source::urls::{encode_segment, with_source};
+
+    let version = encode_segment(version);
+    let (Some(ns), Some(name)) = (&pkg.wit_namespace, &pkg.wit_name) else {
+        let repository = pkg
+            .repository
+            .split('/')
+            .map(encode_segment)
+            .collect::<Vec<_>>()
+            .join("/");
+        return with_source(
+            &format!("/{repository}/{version}"),
+            &pkg.registry,
+            &pkg.repository,
+        );
+    };
+    let path = format!("/{}/{}/{version}", encode_segment(ns), encode_segment(name));
+    with_source(&path, &pkg.registry, &pkg.repository)
 }
 
 /// Render the version selector dropdown.

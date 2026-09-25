@@ -5,6 +5,7 @@
 use crate::components::ds::wit_item::{self, WitItem, WitItemKind};
 use crate::components::ds::{metadata_table, page_header};
 use crate::components::page_sidebar::SidebarActive;
+use crate::package_source::urls::{append_path, encode_segment};
 use crate::wit_doc::WitDocument;
 use html::content::Section;
 use html::text_content::Division;
@@ -378,9 +379,9 @@ fn render_children_overview(
             let fallback = format!("{kind}[{i}]");
             let name = child.name.as_deref().unwrap_or(&fallback).to_owned();
             let href = if kind == "module" {
-                format!("{url_base}/module/{name}")
+                append_path(url_base, &format!("/module/{}", encode_segment(&name)))
             } else {
-                format!("{url_base}/component/{i}")
+                append_path(url_base, &format!("/component/{i}"))
             };
             let item_kind = if kind == "component" {
                 WitItemKind::Component

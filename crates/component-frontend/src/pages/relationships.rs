@@ -6,7 +6,7 @@ use wasm_meta_registry_client::{
     RelationshipTarget,
 };
 
-use crate::components::ds::{listing, package_row, pagination::PaginationState, search_bar};
+use crate::components::ds::{listing, package_row, pagination::PaginationState};
 use crate::escape::{escape_html_attr, escape_html_text};
 use crate::layout;
 use crate::relationships::Relationship;
@@ -166,27 +166,15 @@ fn target_link(target: &RelationshipTarget) -> Division {
 
 /// Keep the matching repository as well as the matching tag when mirrors differ.
 fn matching_href(pkg: &KnownPackage, version: &str, world: Option<&str>) -> Option<String> {
-    let namespace = pkg.wit_namespace.as_deref()?;
-    let name = pkg.wit_name.as_deref()?;
-    let mut href = format!(
-        "/{}/{}/{}",
-        encode_segment(namespace),
-        encode_segment(name),
-        encode_segment(version)
-    );
-    if let Some(world) = world {
-        href.push_str("/world/");
-        href.push_str(&encode_segment(world));
-    }
-    Some(format!(
-        "{href}?registry={}&repository={}",
-        search_bar::encode_query(&pkg.registry),
-        search_bar::encode_query(&pkg.repository)
-    ))
-}
+    use crate::package_source::urls::{append_path, encode_segment};
 
-fn encode_segment(segment: &str) -> String {
-    search_bar::encode_query(segment).replace('+', "%20")
+    pkg.wit_namespace.as_ref()?;
+    pkg.wit_name.as_ref()?;
+    let href = crate::components::page_shell::url_base_for(pkg, version);
+    Some(match world {
+        Some(world) => append_path(&href, &format!("/world/{}", encode_segment(world))),
+        None => href,
+    })
 }
 
 #[cfg(test)]
