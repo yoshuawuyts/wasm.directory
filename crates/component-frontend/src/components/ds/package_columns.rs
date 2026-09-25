@@ -13,12 +13,12 @@
 
 use std::fmt::Write as _;
 
-use chrono::{DateTime, SecondsFormat, Utc};
+use chrono::{DateTime, Utc};
 use wasm_meta_registry_client::{KnownPackage, NewPackage, PackageRelease, PopularPackage};
 
 use super::package_row;
 use crate::escape::{escape_html_attr, escape_html_text};
-use crate::relative_time::relative_age;
+use crate::relative_time::Age;
 
 /// A single row in a highlight column.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,34 +34,6 @@ pub(crate) struct ColumnRow {
     /// How long ago the row's event happened (a release was published, or
     /// a package was first indexed), when the column tracks one.
     pub age: Option<Age>,
-}
-
-/// When something happened, rendered as a relative age with the event and
-/// exact date on hover.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Age {
-    /// Machine-readable timestamp for the `<time datetime>` attribute.
-    pub datetime: String,
-    /// Tooltip naming the event and its date (e.g. `Released 2026-07-08`).
-    pub title: String,
-    /// Relative age (e.g. `3 days ago`).
-    pub label: String,
-}
-
-impl Age {
-    /// Describe an RFC 3339 timestamp of `event` (e.g. `"Released"`)
-    /// relative to `now`. Returns `None` when the timestamp can't be parsed.
-    #[must_use]
-    pub(crate) fn parse(event: &str, rfc3339: &str, now: DateTime<Utc>) -> Option<Self> {
-        let then = DateTime::parse_from_rfc3339(rfc3339)
-            .ok()?
-            .with_timezone(&Utc);
-        Some(Self {
-            datetime: then.to_rfc3339_opts(SecondsFormat::Secs, true),
-            title: format!("{event} {}", then.format("%Y-%m-%d")),
-            label: relative_age(then, now),
-        })
-    }
 }
 
 impl ColumnRow {
@@ -270,6 +242,8 @@ mod tests {
             wit_namespace: Some(ns.into()),
             wit_name: Some(name.into()),
             dependencies: vec![],
+            dependents: None,
+            latest_release_at: None,
         }
     }
 

@@ -70,7 +70,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn renders_flowing_rows_without_column_headings() {
+    fn renders_two_row_items_without_column_headings() {
         let packages: Vec<_> = package_row::tests::packages()
             .into_iter()
             .filter(|pkg| pkg.wit_namespace.as_deref() == Some("example"))

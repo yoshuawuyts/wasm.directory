@@ -110,6 +110,8 @@ impl Fixture {
             wit_namespace: Some("test".to_owned()),
             wit_name: Some("markdown".to_owned()),
             dependencies: vec![],
+            dependents: None,
+            latest_release_at: None,
         };
         let version = PackageVersion {
             tag: Some("1.0.0".to_owned()),

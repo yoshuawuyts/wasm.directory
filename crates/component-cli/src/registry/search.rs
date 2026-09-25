@@ -170,6 +170,8 @@ mod tests {
                 created_at: "2025-01-01 00:00:00".into(),
                 wit_namespace: None,
                 wit_name: None,
+                dependents: None,
+                latest_release_at: None,
                 dependencies: vec![],
             },
             KnownPackage {
@@ -184,6 +186,8 @@ mod tests {
                 created_at: "2025-01-01 00:00:00".into(),
                 wit_namespace: None,
                 wit_name: None,
+                dependents: None,
+                latest_release_at: None,
                 dependencies: vec![],
             },
         ];
@@ -227,6 +231,8 @@ mod tests {
                 created_at: "2025-01-01 00:00:00".into(),
                 wit_namespace: None,
                 wit_name: None,
+                dependents: None,
+                latest_release_at: None,
                 dependencies: vec![],
             },
             KnownPackage {
@@ -241,6 +247,8 @@ mod tests {
                 created_at: "2025-01-01 00:00:00".into(),
                 wit_namespace: None,
                 wit_name: None,
+                dependents: None,
+                latest_release_at: None,
                 dependencies: vec![],
             },
         ];

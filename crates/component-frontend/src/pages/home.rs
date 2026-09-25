@@ -372,6 +372,8 @@ mod tests {
             wit_namespace: Some(ns.into()),
             wit_name: Some(name.into()),
             dependencies: vec![],
+            dependents: None,
+            latest_release_at: None,
         }
     }
 

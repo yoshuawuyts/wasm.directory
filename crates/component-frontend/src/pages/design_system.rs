@@ -635,7 +635,8 @@ fn render_landing_components() -> String {
 
 /// Demo content for the package-columns component (C14).
 fn render_package_columns_demo() -> String {
-    use crate::components::ds::package_columns::{self, Age, Column, ColumnRow, ColumnState};
+    use crate::components::ds::package_columns::{self, Column, ColumnRow, ColumnState};
+    use crate::relative_time::Age;
 
     let row =
         |name: &str, detail: &str, description: Option<&str>, event: &str, age: &str| ColumnRow {
