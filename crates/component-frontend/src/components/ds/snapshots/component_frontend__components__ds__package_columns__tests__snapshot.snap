@@ -6,34 +6,45 @@ expression: "crate::components::ds::pretty_html(&sample())"
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
     <div class="min-w-0 flex flex-col rounded-lg border border-line bg-surface shadow-card overflow-hidden">
       <div class="flex items-center h-10 px-4 border-b border-lineSoft">
-        <h2 class="text-[12px] mono uppercase tracking-wider text-ink-500">
+        <h2 class="text-[12px] font-sans uppercase tracking-wider text-ink-500">
           New releases
         </h2>
       </div>
       <ol class="divide-y divide-lineSoft">
         <li>
-          <a href="/wasi/http" class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-0.5 px-4 py-3 no-underline hover:bg-surfaceMuted focus-visible:bg-surfaceMuted">
-            <span class="h-5 leading-5 mono text-[14px] font-medium text-ink-900 truncate">
+          <a href="/wasi/http" class="grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[repeat(3,1.25rem)] items-center gap-x-4 gap-y-0.5 px-4 py-3 no-underline hover:bg-surfaceMuted focus-visible:bg-surfaceMuted">
+            <span class="h-5 leading-5 font-sans text-[14px] font-medium text-ink-900 truncate">
               wasi:http
             </span>
-            <span title="0.2.0" class="h-5 leading-5 max-w-[20ch] mono text-[12px] text-ink-500 tabular-nums text-right truncate">
-              0.2.0
+            <span title="0.2.0" class="col-start-2 row-start-1 h-5 leading-5 max-w-[20ch] mono text-[12px] text-ink-500 tabular-nums text-right truncate">
+              v0.2.0
             </span>
             <span class="col-start-1 row-start-2 row-span-2 self-start h-10 leading-5 text-[13px] text-ink-500 line-clamp-2 break-words">
               HTTP &lt;types&gt;
             </span>
-            <time datetime="2026-09-21T06:30:00Z" title="Released 2026-09-21" class="col-start-2 row-start-2 h-5 leading-5 mono text-[12px] text-ink-500 tabular-nums text-right whitespace-nowrap">
-              3 days ago
+            <time datetime="2026-09-21T06:30:00Z" title="Released 2026-09-21" class="col-start-2 row-start-2 h-5 leading-5 max-w-[20ch] mono text-[12px] text-ink-500 tabular-nums text-right whitespace-nowrap inline-flex items-center justify-end gap-1">
+              <span aria-hidden="true" class="inline-flex shrink-0">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+              </span>
+              <span aria-hidden="true" class="truncate">
+                3 days
+              </span>
+              <span class="sr-only">
+                Released 2026-09-21, 3 days ago
+              </span>
             </time>
           </a>
         </li>
         <li>
-          <a href="/wasi/io" class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-0.5 px-4 py-3 no-underline hover:bg-surfaceMuted focus-visible:bg-surfaceMuted">
-            <span class="h-5 leading-5 mono text-[14px] font-medium text-ink-900 truncate">
+          <a href="/wasi/io" class="grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[repeat(3,1.25rem)] items-center gap-x-4 gap-y-0.5 px-4 py-3 no-underline hover:bg-surfaceMuted focus-visible:bg-surfaceMuted">
+            <span class="h-5 leading-5 font-sans text-[14px] font-medium text-ink-900 truncate">
               wasi:io
             </span>
-            <span title="0.2.0" class="h-5 leading-5 max-w-[20ch] mono text-[12px] text-ink-500 tabular-nums text-right truncate">
-              0.2.0
+            <span title="0.2.0" class="col-start-2 row-start-1 h-5 leading-5 max-w-[20ch] mono text-[12px] text-ink-500 tabular-nums text-right truncate">
+              v0.2.0
             </span>
             <span class="col-start-1 row-start-2 row-span-2 self-start h-10 leading-5 text-[13px] text-ink-500 line-clamp-2 break-words italic">
               No description
@@ -44,24 +55,35 @@ expression: "crate::components::ds::pretty_html(&sample())"
     </div>
     <div class="min-w-0 flex flex-col rounded-lg border border-line bg-surface shadow-card overflow-hidden">
       <div class="flex items-center h-10 px-4 border-b border-lineSoft">
-        <h2 class="text-[12px] mono uppercase tracking-wider text-ink-500">
+        <h2 class="text-[12px] font-sans uppercase tracking-wider text-ink-500">
           New packages
         </h2>
       </div>
       <ol class="divide-y divide-lineSoft">
         <li>
-          <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-0.5 px-4 py-3">
-            <span class="h-5 leading-5 mono text-[14px] font-medium text-ink-900 truncate">
+          <div class="grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[repeat(3,1.25rem)] items-center gap-x-4 gap-y-0.5 px-4 py-3">
+            <span class="h-5 leading-5 font-sans text-[14px] font-medium text-ink-900 truncate">
               x/y
             </span>
-            <span title="1.0.0" class="h-5 leading-5 max-w-[20ch] mono text-[12px] text-ink-500 tabular-nums text-right truncate">
-              1.0.0
+            <span title="1.0.0" class="col-start-2 row-start-1 h-5 leading-5 max-w-[20ch] mono text-[12px] text-ink-500 tabular-nums text-right truncate">
+              v1.0.0
             </span>
             <span class="col-start-1 row-start-2 row-span-2 self-start h-10 leading-5 text-[13px] text-ink-500 line-clamp-2 break-words italic">
               No description
             </span>
-            <time datetime="2026-08-24T12:00:00Z" title="First indexed 2026-08-24" class="col-start-2 row-start-2 h-5 leading-5 mono text-[12px] text-ink-500 tabular-nums text-right whitespace-nowrap">
-              4 weeks ago
+            <time datetime="2026-08-24T12:00:00Z" title="First indexed 2026-08-24" class="col-start-2 row-start-2 h-5 leading-5 max-w-[20ch] mono text-[12px] text-ink-500 tabular-nums text-right whitespace-nowrap inline-flex items-center justify-end gap-1">
+              <span aria-hidden="true" class="inline-flex shrink-0">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+              </span>
+              <span aria-hidden="true" class="truncate">
+                4 weeks
+              </span>
+              <span class="sr-only">
+                First indexed 2026-08-24, 4 weeks ago
+              </span>
             </time>
           </div>
         </li>
@@ -69,34 +91,60 @@ expression: "crate::components::ds::pretty_html(&sample())"
     </div>
     <div class="min-w-0 flex flex-col rounded-lg border border-line bg-surface shadow-card overflow-hidden">
       <div class="flex items-center h-10 px-4 border-b border-lineSoft">
-        <h2 class="text-[12px] mono uppercase tracking-wider text-ink-500">
+        <h2 class="text-[12px] font-sans uppercase tracking-wider text-ink-500">
           Popular packages
         </h2>
       </div>
       <ol class="divide-y divide-lineSoft">
         <li>
-          <a href="/wasi/io" class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-0.5 px-4 py-3 no-underline hover:bg-surfaceMuted focus-visible:bg-surfaceMuted">
-            <span class="h-5 leading-5 mono text-[14px] font-medium text-ink-900 truncate">
+          <a href="/wasi/io" class="grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[repeat(3,1.25rem)] items-center gap-x-4 gap-y-0.5 px-4 py-3 no-underline hover:bg-surfaceMuted focus-visible:bg-surfaceMuted">
+            <span class="h-5 leading-5 font-sans text-[14px] font-medium text-ink-900 truncate">
               wasi:io
             </span>
-            <span title="12 dependents" class="h-5 leading-5 max-w-[20ch] mono text-[12px] text-ink-500 tabular-nums text-right truncate">
-              12 dependents
+            <span title="0.2.0" class="col-start-2 row-start-1 h-5 leading-5 max-w-[20ch] mono text-[12px] text-ink-500 tabular-nums text-right truncate">
+              v0.2.0
             </span>
             <span class="col-start-1 row-start-2 row-span-2 self-start h-10 leading-5 text-[13px] text-ink-500 line-clamp-2 break-words italic">
               No description
             </span>
+            <span title="12 dependents. Other indexed repositories that directly depend on this package, counted once each." class="col-start-2 row-start-2 h-5 leading-5 max-w-[20ch] mono text-[12px] text-ink-500 tabular-nums text-right whitespace-nowrap inline-flex items-center justify-end gap-1 cursor-help">
+              <span aria-hidden="true" class="inline-flex shrink-0">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M6.122.392a1.75 1.75 0 0 1 1.756 0l5.25 3.045c.54.313.872.89.872 1.514V7.25a.75.75 0 0 1-1.5 0V5.677L7.75 8.432v6.384a1 1 0 0 1-1.502.865L.872 12.563A1.75 1.75 0 0 1 0 11.049V4.951c0-.624.332-1.2.872-1.514ZM7.125 1.69a.248.248 0 0 0-.25 0l-4.63 2.685L7 7.133l4.755-2.758ZM1.5 11.049a.25.25 0 0 0 .125.216l4.625 2.683V8.432L1.5 5.677Zm10.828 3.684 1.173-1.233H10.25a.75.75 0 0 1 0-1.5h3.251l-1.173-1.233a.75.75 0 1 1 1.087-1.034l2.378 2.5a.75.75 0 0 1 0 1.034l-2.378 2.5a.75.75 0 0 1-1.087-1.034Z"/>
+                </svg>
+              </span>
+              <span aria-hidden="true" class="truncate">
+                12
+              </span>
+              <span class="sr-only">
+                12 dependents
+              </span>
+            </span>
           </a>
         </li>
         <li>
-          <a href="/wasi/http" class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-0.5 px-4 py-3 no-underline hover:bg-surfaceMuted focus-visible:bg-surfaceMuted">
-            <span class="h-5 leading-5 mono text-[14px] font-medium text-ink-900 truncate">
+          <a href="/wasi/http" class="grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[repeat(3,1.25rem)] items-center gap-x-4 gap-y-0.5 px-4 py-3 no-underline hover:bg-surfaceMuted focus-visible:bg-surfaceMuted">
+            <span class="h-5 leading-5 font-sans text-[14px] font-medium text-ink-900 truncate">
               wasi:http
             </span>
-            <span title="1 dependent" class="h-5 leading-5 max-w-[20ch] mono text-[12px] text-ink-500 tabular-nums text-right truncate">
-              1 dependent
+            <span title="0.2.1" class="col-start-2 row-start-1 h-5 leading-5 max-w-[20ch] mono text-[12px] text-ink-500 tabular-nums text-right truncate">
+              v0.2.1
             </span>
             <span class="col-start-1 row-start-2 row-span-2 self-start h-10 leading-5 text-[13px] text-ink-500 line-clamp-2 break-words">
               HTTP &lt;types&gt;
+            </span>
+            <span title="1 dependent. Other indexed repositories that directly depend on this package, counted once each." class="col-start-2 row-start-2 h-5 leading-5 max-w-[20ch] mono text-[12px] text-ink-500 tabular-nums text-right whitespace-nowrap inline-flex items-center justify-end gap-1 cursor-help">
+              <span aria-hidden="true" class="inline-flex shrink-0">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M6.122.392a1.75 1.75 0 0 1 1.756 0l5.25 3.045c.54.313.872.89.872 1.514V7.25a.75.75 0 0 1-1.5 0V5.677L7.75 8.432v6.384a1 1 0 0 1-1.502.865L.872 12.563A1.75 1.75 0 0 1 0 11.049V4.951c0-.624.332-1.2.872-1.514ZM7.125 1.69a.248.248 0 0 0-.25 0l-4.63 2.685L7 7.133l4.755-2.758ZM1.5 11.049a.25.25 0 0 0 .125.216l4.625 2.683V8.432L1.5 5.677Zm10.828 3.684 1.173-1.233H10.25a.75.75 0 0 1 0-1.5h3.251l-1.173-1.233a.75.75 0 1 1 1.087-1.034l2.378 2.5a.75.75 0 0 1 0 1.034l-2.378 2.5a.75.75 0 0 1-1.087-1.034Z"/>
+                </svg>
+              </span>
+              <span aria-hidden="true" class="truncate">
+                1
+              </span>
+              <span class="sr-only">
+                1 dependent
+              </span>
             </span>
           </a>
         </li>
