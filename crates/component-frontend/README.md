@@ -112,6 +112,52 @@ warning is expected; JavaScript errors or missing styles are not. Run the
 frontend tests and WASI build as well; string-only checks do not establish
 rendering equivalence.
 
+## Relationship pages
+
+Package pages group **Dependents**, **Imported by**, and **Exported by** links
+separately from the left sidebar's item tree, without a visible section heading.
+Each applicable link has the same small, decorative arrow directly after its
+label, using a 4px inline gap, to indicate navigation to a search page in
+the current tab. The full row remains clickable. The group retains an accessible
+Relationships name. Dependents always targets the package; import/export links
+appear for interface packages and individual interfaces, where they are scoped
+to that interface. Links remain available when there are no matches.
+
+On mobile, the navbar menu button opens that same sidebar and relationship
+group in the style guide's C06 drawer, preserving its C01 navigation and
+expanded groups. Relationship links are not duplicated in the page content.
+The drawer closes with its close button, Escape, the scrim, or a switch to
+desktop width. Keyboard focus stays within the open drawer and returns to its
+menu button on close.
+
+The dedicated result pages use fixed queries, separate from ordinary text search:
+
+| Route | Results |
+| --- | --- |
+| `/search/dependents?package=wasi%3Aio` | Direct and transitive dependent packages |
+| `/search/imported-by?package=wasi%3Aio` | Worlds importing any interface from the package |
+| `/search/exported-by?package=wasi%3Aio&interface=streams` | Worlds exporting the named interface |
+
+Both world queries accept an optional `interface` parameter. Package identities
+are version-independent `namespace:name` values. The old versioned
+`/{namespace}/{name}/{version}/dependents` route redirects to the new page.
+
+Results search all indexed releases and show each package or world once, at its
+newest **matching** release rather than an unrelated newer release. Result links
+carry the OCI registry and repository to disambiguate mirrors. Worlds embedded
+in compiled components link to the owning component page.
+
+All three pages accept `offset` and `limit` (default 100, capped at 100).
+Pagination follows the API's deduplicated result page, independently of optional
+display totals. Empty results, out-of-range pages, invalid queries, and registry
+failures have distinct responses; upstream failures are not cached as empty
+results.
+
+Relationships reflect indexed WIT declarations, not dependency-range solving.
+Only Dependents follows transitive relationships. Import/export searches use
+each world's own declarations, and completeness depends on what the index has
+extracted.
+
 ## Favicon
 
 Every page uses the shared document head's `/favicon.svg`, with `/favicon.ico`

@@ -120,9 +120,9 @@ pub(crate) fn render_sidebar(ctx: &SidebarContext<'_>) -> Aside {
 
     let mut aside = Aside::builder();
     aside
+        .id(crate::components::mobile_sidebar::SIDEBAR_ID)
         .aria_label("Package navigation")
-        .class("hidden md:block sticky self-start overflow-y-auto px-4 md:px-6 pt-8 pb-8 space-y-4")
-        .style("top: var(--navbar-offset); max-height: calc(100vh - var(--navbar-offset)); transform: translateZ(0); will-change: transform; overscroll-behavior: contain;");
+        .class("hidden md:block self-start px-3 py-3 md:px-6 md:py-8 space-y-4 [overflow-wrap:anywhere]");
     aside.text(header_html);
 
     // Version + Digest + Revision block (single bordered section)
@@ -150,6 +150,7 @@ pub(crate) fn render_sidebar(ctx: &SidebarContext<'_>) -> Aside {
         aside.text(project.clone());
     }
     aside.text(items_html);
+    aside.text(crate::components::relationship_links::render(ctx));
 
     // Dependencies section
     if !ctx.dependencies.is_empty() {

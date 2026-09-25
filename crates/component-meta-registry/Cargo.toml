@@ -37,6 +37,7 @@ wasm-package-manager = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
 reqwest = { workspace = true }
+sea-orm = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]

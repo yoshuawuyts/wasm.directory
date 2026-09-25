@@ -23,7 +23,7 @@ pub(crate) fn render(
 
     // Interface content — heading + docs in a two-column row
 
-    let header_row = page_header::page_header_block(
+    let header_row = page_header::page_header_markdown(
         &format!("v{version} \u{00b7} Interface"),
         &iface.name,
         iface.docs.as_deref().unwrap_or("No description available."),
@@ -158,8 +158,6 @@ pub(crate) fn render(
         sidebar_active: SidebarActive::Interface(&iface.name),
         extra_crumbs: &[],
         toc_html: toc_html.as_deref(),
-        importers: &[],
-        exporters: &[],
     })
 }
 
@@ -171,10 +169,7 @@ fn render_type_section(heading: &str, types: &[&TypeDoc], pkg_name: &str) -> Div
             kind: WitItemKind::Type(TypeTag::from_kind(&ty.kind)),
             name: ty.name.clone(),
             href: ty.url.clone(),
-            docs: ty
-                .docs
-                .as_deref()
-                .map(|d| crate::markdown::render_inline(&first_sentence(d))),
+            docs: ty.docs.as_deref().map(first_sentence),
             version: String::new(),
             meta: ty.stability.meta_string(),
             meta_title: ty.stability.meta_title(pkg_name),
@@ -193,10 +188,7 @@ fn render_function_section(functions: &[FunctionDoc], pkg_name: &str) -> Divisio
             kind: WitItemKind::Function,
             name: func.name.clone(),
             href: func.url.clone(),
-            docs: func
-                .docs
-                .as_deref()
-                .map(|d| crate::markdown::render_inline(&first_sentence(d))),
+            docs: func.docs.as_deref().map(first_sentence),
             version: String::new(),
             meta: func.stability.meta_string(),
             meta_title: func.stability.meta_title(pkg_name),

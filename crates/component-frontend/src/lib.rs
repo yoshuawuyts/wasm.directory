@@ -18,7 +18,10 @@ mod footer;
 mod install;
 mod layout;
 mod markdown;
+mod package_source;
 mod pages;
+mod relationship_routes;
+mod relationships;
 mod relative_time;
 mod reserved;
 mod server;
@@ -42,6 +45,9 @@ fn app() -> Router {
         .route("/", get(home))
         .route("/all", get(all_packages))
         .route("/search", get(search))
+        .route("/search/dependents", get(relationship_routes::dependents))
+        .route("/search/imported-by", get(relationship_routes::imported_by))
+        .route("/search/exported-by", get(relationship_routes::exported_by))
         .route("/about", get(about))
         .route("/docs", get(docs))
         .route("/docs/{page}", get(docs_page))
@@ -277,9 +283,10 @@ async fn resolve_package_redirect(
 async fn package_detail(
     headers: HeaderMap,
     Path((namespace, name, version)): Path<(String, String, String)>,
+    Query(source): Query<package_source::PackageSource>,
 ) -> Response {
     let client = RegistryClient::from_env();
-    let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
+    let pkg = match source.fetch(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
@@ -289,22 +296,7 @@ async fn package_detail(
         .await
         .ok()
         .flatten();
-    let display_name = format!("{namespace}:{name}");
-    let importers = client
-        .search_packages_by_import(&display_name)
-        .await
-        .unwrap_or_default();
-    let exporters = client
-        .search_packages_by_export(&display_name)
-        .await
-        .unwrap_or_default();
-    let html = pages::package::render(
-        &pkg,
-        &version,
-        version_detail.as_ref(),
-        &importers,
-        &exporters,
-    );
+    let html = pages::package::render(&pkg, &version, version_detail.as_ref());
     with_cache_control(&headers, html, "public, max-age=300")
 }
 
@@ -315,11 +307,18 @@ async fn package_dependencies(
     Redirect::permanent(&format!("/{namespace}/{name}/{version}")).into_response()
 }
 
-/// Legacy dependents route — redirects to the main package page.
+/// Legacy dependents route, now pointing to version-independent relationships.
 async fn package_dependents(
-    Path((namespace, name, version)): Path<(String, String, String)>,
+    Path((namespace, name, _version)): Path<(String, String, String)>,
 ) -> Response {
-    Redirect::permanent(&format!("/{namespace}/{name}/{version}")).into_response()
+    match wasm_meta_registry_client::RelationshipTarget::new(&format!("{namespace}:{name}"), None) {
+        Ok(target) => Redirect::permanent(&relationships::Relationship::Dependents.href(&target))
+            .into_response(),
+        Err(error) => {
+            eprintln!("component-frontend: invalid legacy dependents target: {error}");
+            not_found_response()
+        }
+    }
 }
 
 /// Interface detail page at `/<namespace>/<name>/<version>/interface/<iface>`.
@@ -394,9 +393,10 @@ async fn item_detail(
 async fn world_detail(
     headers: HeaderMap,
     Path((namespace, name, version, world_name)): Path<(String, String, String, String)>,
+    Query(source): Query<package_source::PackageSource>,
 ) -> Response {
     let client = RegistryClient::from_env();
-    let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
+    let pkg = match source.fetch(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
@@ -865,6 +865,7 @@ mod tests {
         let response = package_detail(
             HeaderMap::new(),
             Path(("all".to_string(), "demo".to_string(), "1.0.0".to_string())),
+            Query(package_source::PackageSource::default()),
         )
         .await;
 

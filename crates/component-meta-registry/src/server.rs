@@ -16,6 +16,8 @@ use wasm_package_manager::manager::Manager;
 
 use crate::stats_cache::{STATS_TTL, StatsCache};
 
+mod relationships;
+
 /// Shared application state wrapping a `Manager` in a `tokio::sync::RwLock`.
 ///
 /// All `Manager` query/mutation methods take `&self` and `Manager` performs
@@ -165,6 +167,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/search", get(search))
         .route("/v1/search/by-import", get(search_by_import))
         .route("/v1/search/by-export", get(search_by_export))
+        .merge(relationships::routes())
         .route("/v1/packages", get(list_packages))
         .route("/v1/packages/recent", get(list_recent_packages))
         .route("/v1/packages/new", get(list_new_packages))

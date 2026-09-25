@@ -4,6 +4,16 @@
 //! meta-registry server and its clients.  It has no HTTP, database, or
 //! runtime dependencies — only `serde`.
 
+mod dependent_package;
+mod matching_world;
+mod relationship_page;
+mod relationship_target;
+
+pub use dependent_package::DependentPackage;
+pub use matching_world::MatchingWorld;
+pub use relationship_page::RelationshipPage;
+pub use relationship_target::{RelationshipTarget, RelationshipTargetError};
+
 // ============================================================
 // Existing types (moved from wasm-meta-registry-client)
 // ============================================================
