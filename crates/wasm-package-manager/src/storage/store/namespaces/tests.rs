@@ -41,7 +41,7 @@ async fn seed(
 }
 
 #[tokio::test]
-async fn namespaces_are_unique_sorted_and_match_registry_stats() {
+async fn registered_namespaces_include_empty_and_pending_but_exclude_unregistered_names() {
     let store = Store::open_in_memory()
         .await
         .expect("open namespace test store");
@@ -68,8 +68,12 @@ async fn namespaces_are_unique_sorted_and_match_registry_stats() {
         seed(&store, registry, repository, namespace, &tags).await;
     }
 
+    let registered = [
+        "pending", "alpha", "beta", "empty", "ignored", "untagged", "alpha",
+    ]
+    .map(str::to_owned);
     let page = store
-        .list_namespaces(0, 100)
+        .list_namespaces(&registered, 0, 100)
         .await
         .expect("list namespaces");
     assert_eq!(
@@ -84,12 +88,24 @@ async fn namespaces_are_unique_sorted_and_match_registry_stats() {
                 packages: 1
             },
             KnownNamespace {
-                name: "solo".into(),
-                packages: 1
+                name: "empty".into(),
+                packages: 0
+            },
+            KnownNamespace {
+                name: "ignored".into(),
+                packages: 0
+            },
+            KnownNamespace {
+                name: "pending".into(),
+                packages: 0
+            },
+            KnownNamespace {
+                name: "untagged".into(),
+                packages: 0
             },
         ]
     );
-    assert_eq!(page.total, 3);
+    assert_eq!(page.total, 6);
     assert!(!page.has_next);
     assert_eq!(
         store
@@ -97,16 +113,17 @@ async fn namespaces_are_unique_sorted_and_match_registry_stats() {
             .await
             .expect("registry stats")
             .namespaces,
-        page.total
+        3
     );
 }
 
 #[tokio::test]
-async fn namespace_pagination_covers_the_whole_index_without_duplicates() {
+async fn namespace_pagination_covers_all_registrations_without_requiring_indexed_packages() {
     let store = Store::open_in_memory()
         .await
         .expect("open namespace test store");
-    for n in 0..205 {
+    let registered: Vec<_> = (0..205).rev().map(|n| format!("ns-{n:03}")).collect();
+    for n in 0..2 {
         seed(
             &store,
             "ghcr.io",
@@ -124,7 +141,7 @@ async fn namespace_pagination_covers_the_whole_index_without_duplicates() {
         (300, 0, false),
     ] {
         let page = store
-            .list_namespaces(offset, 100)
+            .list_namespaces(&registered, offset, 100)
             .await
             .expect("list namespace page");
         assert_eq!(page.total, 205);
@@ -187,22 +204,46 @@ async fn empty_index_and_extreme_offsets_return_empty_pages() {
         .await
         .expect("open namespace test store");
     let empty = store
-        .list_namespaces(0, 100)
+        .list_namespaces(&[], 0, 100)
         .await
         .expect("empty namespaces");
     assert_eq!(empty.total, 0);
     assert!(empty.results.is_empty());
     assert!(!empty.has_next);
     seed(&store, "ghcr.io", "wasi/io", Some("wasi"), &["0.2.0"]).await;
+    let registered = ["wasi".to_owned()];
     let end = store
-        .list_namespaces(u32::MAX, 100)
+        .list_namespaces(&registered, u32::MAX, 100)
         .await
         .expect("past end");
     assert_eq!(end.total, 1);
     assert!(end.results.is_empty());
     assert!(!end.has_next);
-    let zero = store.list_namespaces(0, 0).await.expect("zero limit");
+    let zero = store
+        .list_namespaces(&registered, 0, 0)
+        .await
+        .expect("zero limit");
     assert_eq!(zero.limit, 1);
     assert_eq!(zero.results.len(), 1);
     assert!(!zero.has_next);
+}
+
+#[tokio::test]
+async fn failed_counts_are_errors_not_fabricated_zeroes_for_registered_namespaces() {
+    use sea_orm::ConnectionTrait;
+
+    let store = Store::open_in_memory()
+        .await
+        .expect("open namespace test store");
+    store
+        .db
+        .execute_unprepared("DROP TABLE oci_tag")
+        .await
+        .expect("break count query");
+    assert!(
+        store
+            .list_namespaces(&["registered".into()], 0, 100)
+            .await
+            .is_err()
+    );
 }

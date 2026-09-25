@@ -7,7 +7,7 @@ use clap::Parser;
 use tracing::{error, info, warn};
 use wasm_package_manager::manager::Manager;
 
-use component_meta_registry::{Config, Indexer, router};
+use component_meta_registry::{Config, Indexer, router_with_namespaces};
 
 /// An HTTP server that indexes OCI registries for WebAssembly package
 /// metadata and exposes a search API.
@@ -136,7 +136,7 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Build and start HTTP server
-    let app = router(state);
+    let app = router_with_namespaces(state, &config.namespaces);
     let bind_addr = config.bind.clone();
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
     info!("Listening on {}", bind_addr);

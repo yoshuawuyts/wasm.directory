@@ -32,6 +32,33 @@ Then visit <http://localhost:8080> in your browser.
 - **Data**: Fetched from the `component-meta-registry` API via
   `wstd::http::Client`
 
+## HTTP compression and caching
+
+The shared router streams Brotli and gzip responses through `tower-http`,
+including on `wasm32-wasip2`; it does not need a Tokio runtime or native codec
+library. HTML, ordinary text, JavaScript, JSON, and SVG are eligible, with
+case-insensitive media-type matching. Already
+encoded responses, byte ranges, binary media, server-sent events, and bodyless
+statuses are not recompressed.
+
+`Accept-Encoding` quality values and wildcards select the representation, with
+Brotli preferred over gzip at equal quality. Missing, empty, unsupported, or
+disabled encodings fall back to identity when allowed. Malformed quality values
+are ignored by the negotiator. If no supported encoding or identity is
+acceptable, the response is an empty, non-cacheable `406 Not Acceptable`.
+Eligible responses include `Vary: Accept-Encoding`, including identity and
+conditional responses, while retaining their original content type and cache
+policy (the homepage remains `public, max-age=60`).
+
+HTML ETags are weak content-derived validators (`W/"..."`): the same rendered
+content is semantically equivalent across identity, gzip, and Brotli, but its
+encoded bytes differ. `If-None-Match` is checked after negotiation using weak
+comparison, including lists, multiple header fields, and `*`. Matching GET/HEAD
+requests return an empty `304` with the negotiated representation's ETag,
+cache policy, and Vary metadata. Compression is streamed, so encoded responses
+omit `Content-Length`. HEAD keeps GET's negotiated metadata but sends no
+compressor output; the WASI adapter also removes its optional Content-Length.
+
 ## Package listings
 
 Search results, namespace pages, and the all-packages page share a two-row item:
@@ -66,15 +93,20 @@ MIT license and rendered using the current text color; no icon package is needed
 
 ## Namespace directory
 
-`/namespaces` lists indexed namespaces alphabetically, using the same heading,
+`/namespaces` lists all registered namespaces alphabetically, using the same heading,
 result summary, flowing rows, and pagination as `/all`. Each row shows the
-namespace and its released-package count and links to `/{namespace}`.
+namespace and its indexed-package count and links to `/{namespace}`.
 The homepage navigation and shared footer link to the directory.
 
-Namespaces follow the registry's stats semantics: a registered WIT namespace
-is preferred, with the repository owner as fallback, and a repository must have
-at least one semver release to appear. Namespace-only configuration files and
-packages still awaiting release indexing are not included.
+Membership comes from the backend's per-namespace TOML registrations, including
+empty namespaces and those whose packages have not yet been indexed.
+Repository-owner fallbacks alone never create directory entries. Counts are
+explicitly labeled "indexed packages": repositories in that namespace with at
+least one semver release, not the number of configured packages. Empty and
+pending namespaces can therefore show zero and still link to valid empty
+package listings. Failed lookups show errors rather than invented zero counts.
+The directory's total counts registrations, independently of `/v1/stats`,
+which continues to count only namespaces present in the released package index.
 
 Both the directory and individual namespace pages accept `offset` and `limit`
 (default 100, clamped to 1–100). Exact, paginated namespace queries replace the
@@ -93,7 +125,8 @@ either script changes. The Docker build includes only these two files from
 `scripts/`; no runtime script directory or registry API is needed.
 
 Each URL serves the exact script as browser-readable plain text, with GET/HEAD
-support and one-hour public caching. GET includes the script's `Content-Length`.
+support and one-hour public caching. Identity GET includes the script's
+`Content-Length`; negotiated compression decodes to those same script bytes.
 The shared HTTP adapter omits this optional header from HEAD responses: WASI
 otherwise checks the empty transmitted body against the GET length and rejects
 the response. HEAD keeps the remaining metadata and sends no body.

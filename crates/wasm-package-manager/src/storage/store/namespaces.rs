@@ -1,4 +1,4 @@
-//! Namespace discovery using the same release and identity rules as registry stats.
+//! Registered namespace discovery, with indexed-release counts separate from membership.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -13,6 +13,7 @@ use super::{Store, known_packages_from_repos};
 impl Store {
     pub(crate) async fn list_namespaces(
         &self,
+        registered: &[String],
         offset: u32,
         limit: u32,
     ) -> anyhow::Result<RegistryPage<KnownNamespace>> {
@@ -25,11 +26,14 @@ impl Store {
             .into_tuple()
             .all(&self.db)
             .await?;
-        let mut namespaces = BTreeMap::<String, u64>::new();
+        let mut namespaces: BTreeMap<String, u64> =
+            registered.iter().map(|name| (name.clone(), 0)).collect();
         for (id, repository, wit_namespace) in repos {
             let name = namespace_name(&repository, wit_namespace.as_deref());
-            if releases.contains_key(&id) && !name.is_empty() {
-                *namespaces.entry(name.to_owned()).or_default() += 1;
+            if releases.contains_key(&id)
+                && let Some(count) = namespaces.get_mut(name)
+            {
+                *count += 1;
             }
         }
         let results = namespaces

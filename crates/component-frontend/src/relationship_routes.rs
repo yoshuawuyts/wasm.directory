@@ -1,7 +1,7 @@
 //! HTTP handlers for the three fixed relationship queries.
 
 use axum::extract::{Query, rejection::QueryRejection};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use serde::Deserialize;
 use wasm_meta_registry_client::{RegistryClient, RelationshipTarget};
@@ -24,47 +24,25 @@ fn default_limit() -> u32 {
 }
 
 pub(crate) async fn dependents(
-    headers: HeaderMap,
     query: Result<Query<RelationshipParams>, QueryRejection>,
 ) -> Response {
-    handle(
-        &RegistryClient::from_env(),
-        &headers,
-        Relationship::Dependents,
-        query,
-    )
-    .await
+    handle(&RegistryClient::from_env(), Relationship::Dependents, query).await
 }
 
 pub(crate) async fn imported_by(
-    headers: HeaderMap,
     query: Result<Query<RelationshipParams>, QueryRejection>,
 ) -> Response {
-    handle(
-        &RegistryClient::from_env(),
-        &headers,
-        Relationship::ImportedBy,
-        query,
-    )
-    .await
+    handle(&RegistryClient::from_env(), Relationship::ImportedBy, query).await
 }
 
 pub(crate) async fn exported_by(
-    headers: HeaderMap,
     query: Result<Query<RelationshipParams>, QueryRejection>,
 ) -> Response {
-    handle(
-        &RegistryClient::from_env(),
-        &headers,
-        Relationship::ExportedBy,
-        query,
-    )
-    .await
+    handle(&RegistryClient::from_env(), Relationship::ExportedBy, query).await
 }
 
 async fn handle(
     client: &RegistryClient,
-    headers: &HeaderMap,
     relation: Relationship,
     query: Result<Query<RelationshipParams>, QueryRejection>,
 ) -> Response {
@@ -81,7 +59,7 @@ async fn handle(
     };
     let limit = params.limit.clamp(1, 100);
     match relationships::render(client, relation, &target, params.offset, limit).await {
-        Ok(html) => crate::with_cache_control(headers, html, "public, max-age=60"),
+        Ok(html) => crate::with_cache_control(html, "public, max-age=60"),
         Err(error) => {
             eprintln!(
                 "component-frontend: {} for {} failed: {error}",

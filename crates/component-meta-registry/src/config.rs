@@ -9,7 +9,7 @@
 
 use std::path::Path;
 
-use crate::registry_file::RegistryFile;
+use crate::registry_file::{Namespace, RegistryFile};
 
 /// Top-level configuration for the meta-registry server.
 ///
@@ -24,6 +24,7 @@ use crate::registry_file::RegistryFile;
 /// let config = Config {
 ///     sync_interval: 3600,
 ///     bind: "0.0.0.0:8080".to_string(),
+///     namespaces: vec![],
 ///     packages: vec![PackageSource {
 ///         registry: "ghcr.io/webassembly".to_string(),
 ///         repository: "wasi/io".to_string(),
@@ -44,6 +45,9 @@ pub struct Config {
 
     /// HTTP server bind address.
     pub bind: String,
+
+    /// All registered namespaces, including declarations with no packages.
+    pub namespaces: Vec<Namespace>,
 
     /// List of OCI packages to index, expanded from registry files.
     pub packages: Vec<PackageSource>,
@@ -116,6 +120,7 @@ impl Config {
     /// ```
     pub fn from_registry_dir(dir: &Path, sync_interval: u64, bind: String) -> anyhow::Result<Self> {
         let mut packages = Vec::new();
+        let mut namespaces = Vec::new();
 
         let mut entries: Vec<_> = std::fs::read_dir(dir)?.collect::<Result<Vec<_>, _>>()?;
         entries.sort_by_key(std::fs::DirEntry::file_name);
@@ -136,6 +141,7 @@ impl Config {
                     );
                 }
 
+                namespaces.push(registry_file.namespace.clone());
                 packages.extend(registry_file.into_package_sources());
             }
         }
@@ -143,6 +149,7 @@ impl Config {
         Ok(Config {
             sync_interval,
             bind,
+            namespaces,
             packages,
         })
     }
@@ -352,6 +359,30 @@ repository = "sample-wasi-http-rust/sample-wasi-http-rust"
         assert_eq!(config.sync_interval, 1800);
         assert_eq!(config.bind, "127.0.0.1:9090");
         assert_eq!(config.packages.len(), 2);
+        assert_eq!(
+            config
+                .namespaces
+                .iter()
+                .map(|ns| ns.name.as_str())
+                .collect::<Vec<_>>(),
+            ["ba", "wasi"]
+        );
+    }
+
+    #[test]
+    fn namespace_only_registration_survives_config_loading() {
+        let dir = tempfile::tempdir().expect("registration fixture directory");
+        fs::write(
+            dir.path().join("empty.toml"),
+            "[namespace]\nname = 'empty'\nregistry = 'registry.test/empty'\n",
+        )
+        .expect("write empty registration");
+        let config = Config::from_registry_dir(dir.path(), 3600, "127.0.0.1:0".into())
+            .expect("load registrations");
+        assert!(config.packages.is_empty());
+        assert_eq!(config.namespaces.len(), 1);
+        assert_eq!(config.namespaces[0].name, "empty");
+        assert_eq!(config.namespaces[0].registry, "registry.test/empty");
     }
 
     // r[verify registry.dir.filename-match]
@@ -382,6 +413,7 @@ registry = "ghcr.io/webassembly"
         let config =
             Config::from_registry_dir(dir.path(), 3600, "0.0.0.0:8080".to_string()).unwrap();
         assert!(config.packages.is_empty());
+        assert!(config.namespaces.is_empty());
     }
 
     // r[verify registry.dir.ignore-non-toml]

@@ -978,15 +978,19 @@ impl Manager {
         }
     }
 
-    /// List released namespaces alphabetically, with repository counts.
+    /// List registered namespaces alphabetically, including those without indexed releases.
+    ///
+    /// Membership is supplied by the registry configuration; counts describe
+    /// indexed repositories with semver releases, not configured package entries.
     pub async fn list_namespaces(
         &self,
+        registered: &[String],
         offset: u32,
         limit: u32,
     ) -> anyhow::Result<
         wasm_meta_registry_types::RegistryPage<wasm_meta_registry_types::KnownNamespace>,
     > {
-        self.store.list_namespaces(offset, limit).await
+        self.store.list_namespaces(registered, offset, limit).await
     }
 
     /// List released packages in one exact namespace, including owner fallbacks.

@@ -3,7 +3,7 @@ use wasm_meta_registry_types::{KnownNamespace, KnownPackage, RegistryPage};
 use super::{ApiError, RegistryClient, percent_encode_query_component};
 
 impl RegistryClient {
-    /// Fetch namespaces alphabetically with their released-package counts.
+    /// Fetch all registered namespaces alphabetically with indexed-release package counts.
     pub async fn fetch_namespaces(
         &self,
         offset: u32,

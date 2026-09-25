@@ -80,7 +80,6 @@ async fn each_handler_calls_only_its_fixed_query_and_caps_page_size() {
         let interface = (relation != Relationship::Dependents).then(|| "streams".to_owned());
         let response = handle(
             &client,
-            &HeaderMap::new(),
             relation,
             Ok(Query(RelationshipParams {
                 package: "wasi:io".to_owned(),
@@ -115,7 +114,6 @@ async fn upstream_failures_are_uncached_errors_not_empty_pages() {
     .await;
     let response = handle(
         &client,
-        &HeaderMap::new(),
         Relationship::Dependents,
         Ok(Query(RelationshipParams {
             package: "wasi:io".to_owned(),

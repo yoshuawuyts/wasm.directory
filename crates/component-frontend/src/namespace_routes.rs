@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use wasm_meta_registry_client::{ApiError, RegistryClient};
 
@@ -11,11 +11,9 @@ use crate::{AllPackagesParams, pages, reserved};
 
 pub(crate) async fn all(
     State(client): State<Arc<RegistryClient>>,
-    headers: HeaderMap,
     Query(params): Query<AllPackagesParams>,
 ) -> Response {
     respond(
-        &headers,
         "All Namespaces",
         "Unable to load namespaces",
         pages::namespaces::render(&client, params.offset, params.limit.clamp(1, 100)).await,
@@ -24,7 +22,6 @@ pub(crate) async fn all(
 
 pub(crate) async fn packages(
     State(client): State<Arc<RegistryClient>>,
-    headers: HeaderMap,
     Path(namespace): Path<String>,
     Query(params): Query<AllPackagesParams>,
 ) -> Response {
@@ -32,7 +29,6 @@ pub(crate) async fn packages(
         return crate::not_found_response();
     }
     respond(
-        &headers,
         &namespace,
         "Unable to load packages",
         pages::namespace::render(
@@ -45,14 +41,9 @@ pub(crate) async fn packages(
     )
 }
 
-fn respond(
-    headers: &HeaderMap,
-    title: &str,
-    error_message: &str,
-    result: Result<String, ApiError>,
-) -> Response {
+fn respond(title: &str, error_message: &str, result: Result<String, ApiError>) -> Response {
     match result {
-        Ok(html) => crate::with_cache_control(headers, html, "public, max-age=60"),
+        Ok(html) => crate::with_cache_control(html, "public, max-age=60"),
         Err(error) => {
             eprintln!("component-frontend: {title} lookup failed: {error}");
             (

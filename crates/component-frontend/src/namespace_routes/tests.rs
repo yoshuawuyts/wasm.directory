@@ -66,6 +66,71 @@ async fn directory_routes_use_the_namespace_api_and_support_conditional_requests
 }
 
 #[tokio::test]
+async fn namespace_pages_negotiate_compression_before_revalidation() {
+    use std::io::Read;
+
+    for path in ["/namespaces", "/wasi"] {
+        let (client, upstream) = registry_response("200 OK", EMPTY_PAGE).await;
+        let identity = request(client, path).await;
+        let etag = identity.headers()[header::ETAG].clone();
+        assert!(etag.to_str().expect("ETag text").starts_with("W/"));
+        let original = body(identity).await;
+        upstream.await.expect("identity request");
+
+        for (encoding, validator, expected_status) in [
+            ("gzip", "\"stale\"", StatusCode::OK),
+            (
+                "gzip",
+                etag.to_str().expect("ETag text"),
+                StatusCode::NOT_MODIFIED,
+            ),
+            (
+                "identity;q=0, gzip;q=0, br;q=0",
+                "*",
+                StatusCode::NOT_ACCEPTABLE,
+            ),
+        ] {
+            let (client, upstream) = registry_response("200 OK", EMPTY_PAGE).await;
+            let response = crate::app_with_client(client)
+                .oneshot(
+                    Request::builder()
+                        .uri(path)
+                        .header(header::ACCEPT_ENCODING, encoding)
+                        .header(header::IF_NONE_MATCH, validator)
+                        .body(Body::empty())
+                        .expect("negotiated namespace request"),
+                )
+                .await
+                .expect("negotiated namespace response");
+            assert_eq!(response.status(), expected_status);
+            match expected_status {
+                StatusCode::NOT_ACCEPTABLE => {
+                    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+                    assert!(!response.headers().contains_key(header::ETAG));
+                }
+                _ => {
+                    assert_eq!(response.headers()[header::CONTENT_ENCODING], "gzip");
+                    assert_eq!(response.headers()[header::ETAG], etag);
+                }
+            }
+            let bytes = to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("response bytes");
+            if expected_status == StatusCode::OK {
+                let mut decoded = String::new();
+                flate2::read::GzDecoder::new(bytes.as_ref())
+                    .read_to_string(&mut decoded)
+                    .expect("decode namespace HTML");
+                assert_eq!(decoded, original);
+            } else {
+                assert!(bytes.is_empty());
+            }
+            upstream.await.expect("negotiated upstream request");
+        }
+    }
+}
+
+#[tokio::test]
 async fn directory_and_namespace_pages_preserve_offsets_and_cap_limits() {
     for (path, expected) in [
         ("/namespaces", "/v1/namespaces"),
@@ -107,6 +172,20 @@ async fn namespace_destination_renders_packages_and_real_pagination() {
 }
 
 #[tokio::test]
+async fn registered_empty_and_pending_namespace_destinations_are_valid_empty_pages() {
+    for name in ["empty", "pending"] {
+        let payload = r#"{"results":[],"total":0,"offset":0,"limit":100,"has_next":false}"#;
+        let (client, upstream) = registry_response("200 OK", payload).await;
+        let response = request(client, &format!("/{name}")).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = body(response).await;
+        assert!(html.contains("No indexed packages found under this namespace yet."));
+        assert!(html.contains("showing 0 of 0 results"));
+        upstream.await.expect("empty namespace request");
+    }
+}
+
+#[tokio::test]
 async fn failures_are_visible_uncached_errors_not_empty_results() {
     for path in ["/namespaces", "/wasi"] {
         for (status, payload) in [
@@ -121,8 +200,8 @@ async fn failures_are_visible_uncached_errors_not_empty_results() {
             assert!(!response.headers().contains_key(header::ETAG));
             let html = body(response).await;
             assert!(html.contains("Unable to load"));
-            assert!(!html.contains("No namespaces found"));
-            assert!(!html.contains("No packages found"));
+            assert!(!html.contains("No namespaces have been registered"));
+            assert!(!html.contains("No indexed packages found"));
             assert!(!html.contains("showing 0"));
             upstream.await.expect("failed upstream request");
         }

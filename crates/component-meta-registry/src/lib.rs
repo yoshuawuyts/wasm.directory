@@ -31,7 +31,7 @@
 //! # Example
 //!
 //! ```no_run
-//! use component_meta_registry::{Config, Indexer, router};
+//! use component_meta_registry::{Config, Indexer, router_with_namespaces};
 //! use wasm_package_manager::manager::Manager;
 //! use std::sync::Arc;
 //! use std::path::Path;
@@ -48,7 +48,7 @@
 //!     // Create the HTTP router backed by a package manager with its own data directory
 //!     let manager = Manager::open_at("/tmp/wasm-registry").await?;
 //!     let state = Arc::new(tokio::sync::RwLock::new(manager));
-//!     let app = router(state);
+//!     let app = router_with_namespaces(state, &config.namespaces);
 //!
 //!     // Start the server
 //!     let listener = tokio::net::TcpListener::bind(&config.bind).await?;
@@ -67,4 +67,4 @@ pub mod stats_cache;
 pub use config::Config;
 pub use indexer::Indexer;
 pub use registry_file::RegistryFile;
-pub use server::router;
+pub use server::{router, router_with_namespaces};

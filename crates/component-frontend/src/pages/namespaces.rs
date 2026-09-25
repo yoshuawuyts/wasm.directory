@@ -25,7 +25,7 @@ fn render_namespaces(page: &RegistryPage<KnownNamespace>) -> String {
     ));
     if page.results.is_empty() {
         let message = if page.offset == 0 {
-            "No namespaces found. The registry may still be syncing."
+            "No namespaces have been registered yet."
         } else {
             "No namespaces on this page. Return to the previous page to keep browsing."
         };
@@ -56,8 +56,9 @@ fn namespace_list(namespaces: &[KnownNamespace]) -> Division {
                     })
                     .span(|s| {
                         s.class("text-[12px] sm:text-[13px] text-ink-500")
+                            .title("Indexed packages with at least one semver release; packages awaiting indexing are not counted.")
                             .text(format!(
-                                "{} package{}",
+                                "{} indexed package{}",
                                 namespace.packages,
                                 if namespace.packages == 1 { "" } else { "s" }
                             ))

@@ -1,7 +1,7 @@
-/// An indexed namespace with at least one released package.
+/// A registered namespace, including registrations without indexed packages.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct KnownNamespace {
-    /// WIT namespace, or the repository owner when no WIT mapping is available.
+    /// Namespace name from the registry configuration.
     pub name: String,
     /// Number of indexed repositories in this namespace with semver releases.
     pub packages: u64,

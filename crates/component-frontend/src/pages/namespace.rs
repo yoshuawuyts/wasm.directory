@@ -30,7 +30,7 @@ fn render_packages(namespace: &str, page: &RegistryPage<KnownPackage>) -> String
     ));
     if page.results.is_empty() {
         let message = if page.offset == 0 {
-            "No packages found under this namespace."
+            "No indexed packages found under this namespace yet."
         } else {
             "No packages on this page. Return to the previous page to keep browsing."
         };
