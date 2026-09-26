@@ -97,6 +97,34 @@ the last scan time.
 The [package-dependents SVG](../../vendor/octicons/README.md) is vendored with its
 MIT license and rendered using the current text color; no icon package is needed.
 
+## Namespace directory
+
+`/namespaces` lists all registered namespaces alphabetically, using the same heading,
+result summary, flowing rows, and pagination as `/all`. Each row shows the
+namespace and its indexed-package count and links to `/{namespace}`, or to
+`/namespaces/{namespace}` when the name collides with a reserved application
+route such as `all` or `search`.
+The homepage navigation and shared footer link to the directory.
+
+Membership comes from the backend's per-namespace TOML registrations, including
+empty namespaces and those whose packages have not yet been indexed.
+Repository-owner fallbacks alone never create directory entries. Counts are
+explicitly labeled "indexed packages": repositories in that namespace with at
+least one semver release, not the number of configured packages. Empty and
+pending namespaces can therefore show zero and still link to valid empty
+package listings. Failed lookups show errors rather than invented zero counts.
+The directory's total counts registrations, independently of `/v1/stats`,
+which continues to count only namespaces present in the released package index.
+
+Both the directory and individual namespace pages accept `offset` and `limit`
+(default 100, clamped to 1–100). Exact, paginated namespace queries replace the
+old capped substring search, including for repository-owner fallbacks. Counts
+and next-page availability come from the same API response. Out-of-range pages
+retain Previous navigation; API failures return an uncached 502 error rather
+than looking like an empty registry. Successful pages retain one-minute caching
+and conditional requests. `/namespaces` is reserved for the application route;
+`/namespaces/{namespace}` serves the same paginated listing for any namespace.
+
 ## Installers
 
 The `/install/linux` and `/install/macos` routes serve the shared

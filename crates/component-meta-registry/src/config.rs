@@ -9,7 +9,7 @@
 
 use std::path::Path;
 
-use crate::registry_file::RegistryFile;
+use crate::registry_file::{Namespace, RegistryFile};
 
 /// Top-level configuration for the meta-registry server.
 ///
@@ -115,7 +115,42 @@ impl Config {
     /// println!("Loaded {} packages", config.packages.len());
     /// ```
     pub fn from_registry_dir(dir: &Path, sync_interval: u64, bind: String) -> anyhow::Result<Self> {
+        Self::from_registry_dir_with_namespaces(dir, sync_interval, bind).map(|(config, _)| config)
+    }
+
+    /// Load configuration and every `[namespace]` declaration from a registry directory.
+    ///
+    /// The returned namespaces include declarations with no packages, so they
+    /// can be passed to [`crate::router_with_namespaces`]. Validation matches
+    /// [`Config::from_registry_dir`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the directory cannot be read, any TOML file is
+    /// invalid, or a filename does not match its namespace name.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use std::path::Path;
+    /// use component_meta_registry::Config;
+    ///
+    /// let (config, namespaces) = Config::from_registry_dir_with_namespaces(
+    ///     Path::new("registry/"),
+    ///     3600,
+    ///     "0.0.0.0:8080".to_string(),
+    /// )
+    /// .expect("failed to load registry config");
+    ///
+    /// println!("Loaded {} packages in {} namespaces", config.packages.len(), namespaces.len());
+    /// ```
+    pub fn from_registry_dir_with_namespaces(
+        dir: &Path,
+        sync_interval: u64,
+        bind: String,
+    ) -> anyhow::Result<(Self, Vec<Namespace>)> {
         let mut packages = Vec::new();
+        let mut namespaces = Vec::new();
 
         let mut entries: Vec<_> = std::fs::read_dir(dir)?.collect::<Result<Vec<_>, _>>()?;
         entries.sort_by_key(std::fs::DirEntry::file_name);
@@ -136,15 +171,17 @@ impl Config {
                     );
                 }
 
+                namespaces.push(registry_file.namespace.clone());
                 packages.extend(registry_file.into_package_sources());
             }
         }
 
-        Ok(Config {
+        let config = Config {
             sync_interval,
             bind,
             packages,
-        })
+        };
+        Ok((config, namespaces))
     }
 }
 
@@ -347,11 +384,39 @@ repository = "sample-wasi-http-rust/sample-wasi-http-rust"
         )
         .unwrap();
 
-        let config =
-            Config::from_registry_dir(dir.path(), 1800, "127.0.0.1:9090".to_string()).unwrap();
+        let (config, namespaces) = Config::from_registry_dir_with_namespaces(
+            dir.path(),
+            1800,
+            "127.0.0.1:9090".to_string(),
+        )
+        .unwrap();
         assert_eq!(config.sync_interval, 1800);
         assert_eq!(config.bind, "127.0.0.1:9090");
         assert_eq!(config.packages.len(), 2);
+        assert_eq!(
+            namespaces
+                .iter()
+                .map(|ns| ns.name.as_str())
+                .collect::<Vec<_>>(),
+            ["ba", "wasi"]
+        );
+    }
+
+    #[test]
+    fn namespace_only_registration_survives_config_loading() {
+        let dir = tempfile::tempdir().expect("registration fixture directory");
+        fs::write(
+            dir.path().join("empty.toml"),
+            "[namespace]\nname = 'empty'\nregistry = 'registry.test/empty'\n",
+        )
+        .expect("write empty registration");
+        let (config, namespaces) =
+            Config::from_registry_dir_with_namespaces(dir.path(), 3600, "127.0.0.1:0".into())
+                .expect("load registrations");
+        assert!(config.packages.is_empty());
+        assert_eq!(namespaces.len(), 1);
+        assert_eq!(namespaces[0].name, "empty");
+        assert_eq!(namespaces[0].registry, "registry.test/empty");
     }
 
     // r[verify registry.dir.filename-match]
@@ -379,9 +444,11 @@ registry = "ghcr.io/webassembly"
     #[test]
     fn test_from_registry_dir_empty() {
         let dir = tempfile::tempdir().unwrap();
-        let config =
-            Config::from_registry_dir(dir.path(), 3600, "0.0.0.0:8080".to_string()).unwrap();
+        let (config, namespaces) =
+            Config::from_registry_dir_with_namespaces(dir.path(), 3600, "0.0.0.0:8080".to_string())
+                .unwrap();
         assert!(config.packages.is_empty());
+        assert!(namespaces.is_empty());
     }
 
     // r[verify registry.dir.ignore-non-toml]

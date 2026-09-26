@@ -19,6 +19,7 @@ mod footer;
 mod install;
 mod layout;
 mod markdown;
+mod namespace_routes;
 mod package_source;
 mod pages;
 mod relationship_routes;
@@ -39,8 +40,6 @@ use serde::Deserialize;
 
 use wasm_meta_registry_client::{KnownPackage, RegistryClient};
 
-use crate::reserved::is_reserved;
-
 /// Build the application router with all frontend routes.
 fn app() -> Router {
     app_with_client(RegistryClient::from_env())
@@ -50,6 +49,16 @@ fn app_with_client(client: RegistryClient) -> Router {
     let router = Router::new()
         .route("/", get(home))
         .route("/all", get(all_packages))
+        .route("/namespaces", get(namespace_routes::all))
+        .route("/namespaces/", get(namespace_routes::all))
+        .route(
+            "/namespaces/{namespace}",
+            get(namespace_routes::directory_packages),
+        )
+        .route(
+            "/namespaces/{namespace}/",
+            get(namespace_routes::directory_packages),
+        )
         .route("/search", get(search))
         .route("/search/dependents", get(relationship_routes::dependents))
         .route("/search/imported-by", get(relationship_routes::imported_by))
@@ -71,8 +80,8 @@ fn app_with_client(client: RegistryClient) -> Router {
         .route(tailwind::LICENSE_PATH, get(tailwind::license))
         .route("/{namespace}/{name}", get(package_redirect))
         .route("/{namespace}/{name}/", get(package_redirect))
-        .route("/{namespace}", get(namespace_page))
-        .route("/{namespace}/", get(namespace_page))
+        .route("/{namespace}", get(namespace_routes::packages))
+        .route("/{namespace}/", get(namespace_routes::packages))
         .route("/{namespace}/{name}/{version}", get(package_detail))
         .route(
             "/{namespace}/{name}/{version}/dependencies",
@@ -159,7 +168,7 @@ struct SearchParams {
     q: String,
 }
 
-/// Query parameters for the all-packages page.
+/// Query parameters shared by package and namespace listings.
 #[derive(Deserialize)]
 struct AllPackagesParams {
     /// Pagination offset.
@@ -227,17 +236,6 @@ async fn queue_status() -> Response {
     let client = RegistryClient::from_env();
     let html = pages::queue::render(&client).await;
     with_cache_control(html, "no-cache")
-}
-
-/// Namespace page — list all packages under a publisher.
-async fn namespace_page(Path(namespace): Path<String>) -> Response {
-    if is_reserved(&namespace) {
-        return not_found_response();
-    }
-
-    let client = RegistryClient::from_env();
-    let html = pages::namespace::render(&client, &namespace).await;
-    with_cache_control(html, "public, max-age=60")
 }
 
 // r[impl frontend.pages.package-redirect]

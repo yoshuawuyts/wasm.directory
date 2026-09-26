@@ -1,67 +1,63 @@
 //! Namespace (publisher) page — lists all packages under a given namespace.
 
 use html::text_content::Division;
-use wasm_meta_registry_client::RegistryClient;
+use wasm_meta_registry_client::{ApiError, KnownPackage, RegistryClient, RegistryPage};
 
-use crate::components::ds::package_row;
+use crate::components::ds::{listing, package_row, pagination::PaginationState};
 use crate::layout;
+use crate::package_source::urls::encode_segment;
 
 /// Render the namespace page listing all packages for a publisher.
-pub(crate) async fn render(client: &RegistryClient, namespace: &str) -> String {
-    match client.search_packages(namespace).await {
-        Ok(packages) => {
-            let filtered: Vec<_> = packages
-                .iter()
-                .filter(|p| p.wit_namespace.as_deref().is_some_and(|ns| ns == namespace))
-                .collect();
-            render_packages(namespace, &filtered)
-        }
-        Err(err) => {
-            eprintln!("component-frontend: namespace page error for {namespace}: {err}");
-            render_packages(namespace, &[])
-        }
+pub(crate) async fn render(
+    client: &RegistryClient,
+    namespace: &str,
+    offset: u32,
+    limit: u32,
+) -> Result<String, ApiError> {
+    let page = client
+        .fetch_namespace_packages(namespace, offset, limit)
+        .await?;
+    Ok(render_packages(namespace, &page))
+}
+
+/// Link to a namespace listing without colliding with reserved application routes.
+pub(crate) fn href(namespace: &str) -> String {
+    if crate::reserved::is_reserved(namespace) {
+        format!("/namespaces/{}", encode_segment(namespace))
+    } else {
+        format!("/{}", encode_segment(namespace))
     }
 }
 
 /// Render the package listing for a namespace.
-fn render_packages(
-    namespace: &str,
-    packages: &[&wasm_meta_registry_client::KnownPackage],
-) -> String {
+fn render_packages(namespace: &str, page: &RegistryPage<KnownPackage>) -> String {
     let mut body = Division::builder();
-
-    body.division(|div| {
-        div.class("pt-8 pb-8")
-            .heading_1(|h1| {
-                h1.class(crate::components::ds::typography::H1_CLASS)
-                    .text(namespace.to_owned())
-            })
-            .paragraph(|p| {
-                p.class(crate::components::ds::typography::SUBTITLE_CLASS)
-                    .text(format!(
-                        "{} package{}",
-                        packages.len(),
-                        if packages.len() == 1 { "" } else { "s" }
-                    ))
-            })
-    });
-
-    if packages.is_empty() {
+    body.push(listing::header(
+        namespace,
+        page.results.len(),
+        Some(page.total),
+    ));
+    if page.results.is_empty() {
+        let message = if page.offset == 0 {
+            "No indexed packages found under this namespace yet."
+        } else {
+            "No packages on this page. Return to the previous page to keep browsing."
+        };
         body.division(|div| {
-            div.class("py-16 text-center").paragraph(|p| {
-                p.class("text-ink-500")
-                    .text("No packages found under this namespace.")
-            })
+            div.class("py-16 text-center")
+                .paragraph(|p| p.class("text-ink-500").text(message))
         });
-    } else {
-        let mut list = Division::builder();
-        list.class("divide-y divide-lineSoft");
-        for pkg in packages {
-            list.push(package_row::render(pkg));
-        }
-        body.push(list.build());
     }
-
+    let mut list = Division::builder();
+    list.class("divide-y divide-lineSoft");
+    for pkg in &page.results {
+        list.push(package_row::render(pkg));
+    }
+    body.push(list.build());
+    body.push(
+        PaginationState::with_next(page.results.len(), page.offset, page.limit, page.has_next)
+            .render(|offset, limit| format!("{}?offset={offset}&limit={limit}", href(namespace))),
+    );
     layout::document_with_nav(namespace, &body.build().to_string())
 }
 
@@ -75,9 +71,34 @@ mod tests {
             .into_iter()
             .filter(|pkg| pkg.wit_namespace.as_deref() == Some("example"))
             .collect();
-        let refs: Vec<_> = packages.iter().collect();
-        let html = render_packages("example", &refs);
+        let page = RegistryPage {
+            results: packages.clone(),
+            total: 3,
+            offset: 0,
+            limit: 100,
+            has_next: false,
+        };
+        let html = render_packages("example", &page);
         package_row::tests::assert_listing(&html, &packages);
-        assert!(html.contains("3 packages"));
+        assert!(html.contains("showing 3 of 3 results"));
+    }
+
+    #[test]
+    fn reserved_namespaces_link_to_non_colliding_destinations() {
+        assert_eq!(href("wasi"), "/wasi");
+        assert_eq!(href("a&b"), "/a%26b");
+        for name in ["all", "search", "namespaces"] {
+            assert_eq!(href(name), format!("/namespaces/{name}"));
+        }
+        let page = RegistryPage {
+            results: Vec::new(),
+            total: 3,
+            offset: 1,
+            limit: 1,
+            has_next: true,
+        };
+        let html = render_packages("all", &page);
+        assert!(html.contains("href=\"/namespaces/all?offset=0&limit=1\""));
+        assert!(html.contains("href=\"/namespaces/all?offset=2&limit=1\""));
     }
 }
