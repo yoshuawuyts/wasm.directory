@@ -15,6 +15,7 @@
 
 use crate::components::page_shell;
 use crate::components::page_sidebar::{self, SidebarActive, SidebarContext};
+use crate::relationship_counts::RelationshipCounts;
 use crate::wit_doc::WitDocument;
 use wasm_meta_registry_client::{KnownPackage, PackageVersion};
 
@@ -41,6 +42,8 @@ pub(crate) struct DetailSpec<'a> {
     pub extra_crumbs: &'a [crate::components::ds::breadcrumb::Crumb],
     /// Optional "On this page" ToC HTML.
     pub toc_html: Option<&'a str>,
+    /// Totals shown beside the sidebar relationship links.
+    pub relationship_counts: RelationshipCounts,
 }
 
 /// Render a package-family detail page.
@@ -70,6 +73,7 @@ pub(crate) fn render(spec: &DetailSpec<'_>) -> String {
         repository: &spec.pkg.repository,
         digest: spec.version_detail.map(|d| d.digest.as_str()),
         dependencies: &spec.pkg.dependencies,
+        relationship_counts: spec.relationship_counts,
     };
     let nav = page_sidebar::render_sidebar(&sidebar_ctx);
 

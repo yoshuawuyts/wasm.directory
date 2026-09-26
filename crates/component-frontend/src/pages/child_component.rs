@@ -16,6 +16,7 @@ pub(crate) fn render(
     version_detail: Option<&PackageVersion>,
     child: &ComponentSummary,
     display_name: &str,
+    relationship_counts: crate::relationship_counts::RelationshipCounts,
 ) -> String {
     let pkg_display = crate::components::page_shell::display_name_for(pkg);
     let kind = child.kind.as_deref().unwrap_or("module");
@@ -84,6 +85,7 @@ pub(crate) fn render(
             href: None,
         }],
         toc_html: None,
+        relationship_counts,
     })
 }
 
@@ -173,7 +175,14 @@ mod tests {
     fn render_module_uses_module_kicker() {
         let pkg = sample_pkg();
         let child = sample_child("module");
-        let html = render(&pkg, "1.0.0", None, &child, "inner");
+        let html = render(
+            &pkg,
+            "1.0.0",
+            None,
+            &child,
+            "inner",
+            crate::relationship_counts::RelationshipCounts::default(),
+        );
         assert!(html.contains("Module"));
         assert!(html.contains("inner"));
         assert!(html.contains("Imports"));
@@ -189,7 +198,14 @@ mod tests {
     fn render_component_uses_component_kicker() {
         let pkg = sample_pkg();
         let child = sample_child("component");
-        let html = render(&pkg, "1.0.0", None, &child, "inner");
+        let html = render(
+            &pkg,
+            "1.0.0",
+            None,
+            &child,
+            "inner",
+            crate::relationship_counts::RelationshipCounts::default(),
+        );
         assert!(html.contains("Component"));
     }
 
@@ -208,7 +224,14 @@ mod tests {
         child.exports = vec![];
         child.languages = vec![];
         child.size_bytes = None;
-        let html = render(&pkg, "1.0.0", None, &child, "inner");
+        let html = render(
+            &pkg,
+            "1.0.0",
+            None,
+            &child,
+            "inner",
+            crate::relationship_counts::RelationshipCounts::default(),
+        );
         // Producer/dependency sub-sections should be absent
         assert!(!html.contains("wit-component"));
         assert!(!html.contains(">Dependencies<"));

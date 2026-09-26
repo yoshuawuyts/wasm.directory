@@ -36,7 +36,12 @@ pub(super) fn assert_source_destinations(html: &str, expected_paths: &[&str]) {
 
 #[test]
 fn package_navigation_preserves_the_selected_mirror() {
-    let html = crate::pages::package::render(&package(), "0.1.0", Some(&version(Some(WIT))));
+    let html = crate::pages::package::render(
+        &package(),
+        "0.1.0",
+        Some(&version(Some(WIT))),
+        crate::relationship_counts::RelationshipCounts::default(),
+    );
     assert_source_destinations(
         &html,
         &[
@@ -64,7 +69,14 @@ fn world_navigation_preserves_the_selected_mirror() {
         &HashMap::new(),
     )
     .expect("parse world navigation fixture");
-    let html = crate::pages::world::render(&pkg, "0.1.0", Some(&version), &doc.worlds[0], &doc);
+    let html = crate::pages::world::render(
+        &pkg,
+        "0.1.0",
+        Some(&version),
+        &doc.worlds[0],
+        &doc,
+        crate::relationship_counts::RelationshipCounts::default(),
+    );
     assert_source_destinations(
         &html,
         &[
@@ -76,7 +88,12 @@ fn world_navigation_preserves_the_selected_mirror() {
 
 #[test]
 fn child_navigation_preserves_the_selected_mirror() {
-    let html = crate::pages::package::render(&package(), "0.1.0", Some(&version(None)));
+    let html = crate::pages::package::render(
+        &package(),
+        "0.1.0",
+        Some(&version(None)),
+        crate::relationship_counts::RelationshipCounts::default(),
+    );
     assert_source_destinations(
         &html,
         &[

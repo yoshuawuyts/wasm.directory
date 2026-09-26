@@ -20,6 +20,7 @@ pub(crate) fn render(
     pkg: &KnownPackage,
     version: &str,
     version_detail: Option<&PackageVersion>,
+    relationship_counts: crate::relationship_counts::RelationshipCounts,
 ) -> String {
     let display_name = page_shell::display_name_for(pkg);
     let url_base = page_shell::url_base_for(pkg, version);
@@ -176,6 +177,7 @@ pub(crate) fn render(
         sidebar_active: SidebarActive::None,
         extra_crumbs: &[],
         toc_html: toc_html.as_deref(),
+        relationship_counts,
     })
 }
 
@@ -604,7 +606,12 @@ mod tests {
     #[test]
     fn dependency_versions_shown_in_sidebar() {
         let pkg = sample_pkg();
-        let html = render(&pkg, "1.0.0", None);
+        let html = render(
+            &pkg,
+            "1.0.0",
+            None,
+            crate::relationship_counts::RelationshipCounts::default(),
+        );
         // Sidebar temporarily removed — just verify the page renders
         assert!(html.contains("<!DOCTYPE html>"));
     }

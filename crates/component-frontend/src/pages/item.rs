@@ -55,6 +55,7 @@ pub(crate) fn render_type(
     iface_name: &str,
     ty: &TypeDoc,
     doc: &WitDocument,
+    relationship_counts: crate::relationship_counts::RelationshipCounts,
 ) -> String {
     let display_name = crate::components::page_shell::display_name_for(pkg);
     let title = format!("{display_name} \u{2014} {iface_name}::{}", ty.name);
@@ -104,6 +105,7 @@ pub(crate) fn render_type(
         sidebar_active: SidebarActive::Item(iface_name, &ty.name),
         extra_crumbs: &extra,
         toc_html: None,
+        relationship_counts,
     })
 }
 
@@ -112,6 +114,7 @@ pub(crate) fn render_type(
 /// `owner_label` is the breadcrumb/sidebar label of the parent (interface
 /// or world) and `owner_url` is the URL of its detail page.
 #[must_use]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_function(
     pkg: &KnownPackage,
     version: &str,
@@ -120,6 +123,7 @@ pub(crate) fn render_function(
     owner_url: &str,
     func: &FunctionDoc,
     doc: &WitDocument,
+    relationship_counts: crate::relationship_counts::RelationshipCounts,
 ) -> String {
     let display_name = crate::components::page_shell::display_name_for(pkg);
     let title = format!("{display_name} \u{2014} {owner_label}::{}", func.name);
@@ -164,6 +168,7 @@ pub(crate) fn render_function(
         },
         extra_crumbs: &extra,
         toc_html: None,
+        relationship_counts,
     })
 }
 

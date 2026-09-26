@@ -17,6 +17,7 @@ pub(crate) fn render(
     version_detail: Option<&PackageVersion>,
     world: &WorldDoc,
     doc: &WitDocument,
+    relationship_counts: crate::relationship_counts::RelationshipCounts,
 ) -> String {
     let display_name = crate::components::page_shell::display_name_for(pkg);
     let title = format!("{display_name} \u{2014} {}", world.name);
@@ -65,6 +66,7 @@ pub(crate) fn render(
             href: None,
         }],
         toc_html: None,
+        relationship_counts,
     })
 }
 
