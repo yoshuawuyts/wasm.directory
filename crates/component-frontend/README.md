@@ -66,8 +66,14 @@ Search results, namespace pages, and the all-packages page share a two-row item:
 count, and relative last-update time. Identities and metadata wrap on narrow
 screens, and version tags are never truncated. Descriptions are visually
 truncated to one line with an ellipsis; the full summary remains accessible and
-the source description is available on hover. Landing-page highlight cards are
-unchanged.
+the source description is available on hover.
+
+The homepage's New releases, New packages, and Popular packages cards link
+directly to the displayed version at `/{namespace}/{name}/{version}`, without
+`registry` or `repository` query parameters. New releases keep their individual
+release versions rather than redirecting to the latest release. Packages without
+a version retain the latest-version link; packages without a WIT identity remain
+unlinked.
 
 Kind uses the style guide's compact inline label, in lowercase, before the
 version. Rendered versions have one lowercase `v` prefix; stored tags and routes

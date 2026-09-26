@@ -10,6 +10,7 @@
 //! Release rows also show how long ago they were published, and new-package
 //! rows how long ago the registry first indexed them. Clock and dependents
 //! icons accompany compact labels; version labels have a single `v` prefix.
+//! Links go directly to the displayed version without OCI source query parameters.
 //! Cards stack on narrow viewports and sit side by side from `md` up.
 
 use std::fmt::Write as _;
@@ -19,6 +20,7 @@ use wasm_meta_registry_client::{KnownPackage, NewPackage, PackageRelease, Popula
 
 use super::{icons, package_row};
 use crate::escape::{escape_html_attr, escape_html_text};
+use crate::package_source::urls::encode_segment;
 use crate::relative_time::Age;
 
 /// A single row in a highlight column.
@@ -26,7 +28,7 @@ use crate::relative_time::Age;
 pub(crate) struct ColumnRow {
     /// Display name (e.g. `wasi:http`, or the repository path).
     pub name: String,
-    /// Link target, when the package has a WIT identity.
+    /// Link target for the displayed version, when the package has a WIT identity.
     pub href: Option<String>,
     /// The original version tag, before display formatting.
     pub version: String,
@@ -80,6 +82,13 @@ impl ColumnRow {
 
     fn with_metadata(pkg: &KnownPackage, version: String, metric: Option<ColumnMetric>) -> Self {
         let (name, href) = package_row::identity(pkg);
+        let href = href.map(|path| {
+            if version.is_empty() {
+                path
+            } else {
+                format!("{path}/{}", encode_segment(&version))
+            }
+        });
         let description = pkg
             .description
             .as_deref()
@@ -396,7 +405,7 @@ mod tests {
     #[test]
     fn rows_show_details_and_escape_text() {
         let html = sample();
-        assert!(html.contains(r#"href="/wasi/http""#));
+        assert!(html.contains(r#"href="/wasi/http/0.2.0""#));
         assert!(html.contains(">v0.2.0</span>"), "release shows its version");
         assert!(
             html.contains(r#"title="0.2.0""#),
@@ -445,15 +454,19 @@ mod tests {
 
     #[test]
     fn version_prefix_is_display_only_and_never_doubled() {
-        for (tag, label) in [
-            ("0.2.0", "v0.2.0"),
-            ("v0.2.0", "v0.2.0"),
-            ("vv1.2.3", "v1.2.3"),
-            ("vV1.2.3", "v1.2.3"),
-            ("VVv1.2.3", "v1.2.3"),
-            ("V1.0.0-rc.1+build.42", "v1.0.0-rc.1+build.42"),
-            ("", ""),
-            ("<tag>", "v&lt;tag&gt;"),
+        for (tag, label, suffix) in [
+            ("0.2.0", "v0.2.0", "/0.2.0"),
+            ("v0.2.0", "v0.2.0", "/v0.2.0"),
+            ("vv1.2.3", "v1.2.3", "/vv1.2.3"),
+            ("vV1.2.3", "v1.2.3", "/vV1.2.3"),
+            ("VVv1.2.3", "v1.2.3", "/VVv1.2.3"),
+            (
+                "V1.0.0-rc.1+build.42",
+                "v1.0.0-rc.1+build.42",
+                "/V1.0.0-rc.1%2Bbuild.42",
+            ),
+            ("", "", ""),
+            ("<tag>", "v&lt;tag&gt;", "/%3Ctag%3E"),
         ] {
             let package = pkg("wasi", "http", &[tag], None);
             let release = ColumnRow::release(
@@ -479,7 +492,7 @@ mod tests {
                 assert_eq!(row.version, tag);
                 let html = render_row(&row);
                 assert!(html.contains(&format!(r#"class="{VERSION_CLASS}">{label}</span>"#)));
-                assert!(html.contains(r#"href="/wasi/http""#));
+                assert!(html.contains(&format!(r#"href="/wasi/http{suffix}""#)));
             }
         }
     }
@@ -494,6 +507,7 @@ mod tests {
             now(),
         );
         let html = render_row(&row);
+        assert!(html.contains(r#"href="/wasi/http""#));
         assert!(html.contains(&format!(r#"class="{VERSION_CLASS}"></span>"#)));
         assert!(!html.contains("<time"));
         assert!(!html.contains("<svg"));
