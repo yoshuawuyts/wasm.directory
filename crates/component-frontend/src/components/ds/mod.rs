@@ -90,6 +90,7 @@ pub(crate) mod principles_grid;
 pub(crate) mod progress;
 pub(crate) mod quick_start;
 pub(crate) mod regions;
+pub(crate) mod results_page;
 pub(crate) mod sidebar;
 pub(crate) mod sigil;
 pub(crate) mod spacing;

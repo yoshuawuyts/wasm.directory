@@ -82,12 +82,14 @@ fn total_does_not_change_repository_offset_pagination() {
 
 #[test]
 fn header_with_long_total_snapshot() {
-    insta::assert_snapshot!(render_header(100, Some(u64::MAX)).to_string());
+    insta::assert_snapshot!(
+        crate::components::ds::listing::header(TITLE, 100, Some(u64::MAX)).to_string()
+    );
 }
 
 #[test]
 fn header_with_unavailable_total_snapshot() {
-    insta::assert_snapshot!(render_header(100, None).to_string());
+    insta::assert_snapshot!(crate::components::ds::listing::header(TITLE, 100, None).to_string());
 }
 
 // r[verify frontend.pages.all]

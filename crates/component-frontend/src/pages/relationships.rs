@@ -6,9 +6,9 @@ use wasm_meta_registry_client::{
     RelationshipTarget,
 };
 
-use crate::components::ds::{listing, package_row, pagination::PaginationState};
-use crate::escape::{escape_html_attr, escape_html_text};
-use crate::layout;
+use crate::components::ds::results_page::{Notice, ResultsPage};
+use crate::components::ds::{package_row, pagination::PaginationState};
+use crate::escape::escape_html_attr;
 use crate::relationships::Relationship;
 
 /// Load only the selected relationship page; propagate unavailable data.
@@ -67,51 +67,23 @@ fn render_page<T>(
     render_row: impl Fn(&T) -> Division,
 ) -> String {
     let title = relation.heading(target);
-    let mut body = Division::builder();
-    body.push(listing::header(&title, page.results.len(), page.total));
-    body.paragraph(|p| {
-        p.class("mb-6 text-[13px] text-ink-500")
-            .text(relation.description())
-    });
-    body.push(target_link(target));
-    if page.results.is_empty() {
-        body.division(|div| {
-            div.class("py-16 text-center").paragraph(|p| {
-                p.class("text-ink-500").text(match page.offset {
-                    0 => relation.empty_message(),
-                    _ => "No results on this page. Return to an earlier page to see matches.",
-                })
-            })
-        });
-    } else {
-        body.push(result_rows(&page.results, render_row));
-    }
     let base = relation.href(target);
-    body.push(
-        PaginationState::with_next(page.results.len(), page.offset, page.limit, page.has_next)
-            .render(|offset, limit| {
-                escape_html_attr(&format!("{base}&offset={offset}&limit={limit}"))
-            }),
-    );
-    if page.results.is_empty() && page.offset > 0 {
-        body.paragraph(|p| {
-            p.class("mt-4 text-[13px]").anchor(|a| {
-                a.href(escape_html_attr(&base))
-                    .class("text-accent hover:underline")
-                    .text("Back to first page")
-            })
-        });
-    }
-    layout::document_with_nav(&title, &body.build().to_string())
-}
-
-fn result_rows<T>(results: &[T], render_row: impl Fn(&T) -> Division) -> Division {
-    let mut list = Division::builder();
-    list.class("divide-y divide-lineSoft");
-    for result in results {
-        list.push(render_row(result));
-    }
-    list.build()
+    let empty = match page.offset {
+        0 => Notice::new(relation.empty_message()),
+        _ => Notice::new("No results on this page. Return to an earlier page to see matches.")
+            .action("Back to first page", base.clone()),
+    };
+    page_shell(relation, target, &title)
+        .total(page.total)
+        .rows(page.results.iter().map(render_row))
+        .empty(empty)
+        .pagination(
+            PaginationState::with_next(page.results.len(), page.offset, page.limit, page.has_next)
+                .render(|offset, limit| {
+                    escape_html_attr(&format!("{base}&offset={offset}&limit={limit}"))
+                }),
+        )
+        .render()
 }
 
 /// Render a visible failure with retry/navigation, never a success-shaped empty list.
@@ -123,34 +95,30 @@ pub(crate) fn render_error(
     limit: u32,
 ) -> String {
     let title = relation.heading(target);
-    let mut body = Division::builder();
-    body.division(|div| {
-        div.class("pt-8 pb-6 border-b-[1.5px] border-rule mb-6")
-            .push(listing::heading(&title))
-    });
-    body.push(target_link(target));
-    body.division(|div| {
-        div.class("py-16 text-center")
-            .paragraph(|p| {
-                p.class("text-ink-900 font-medium")
-                    .text("Unable to load relationship results")
-            })
-            .paragraph(|p| {
-                p.class(crate::components::ds::typography::SUBTITLE_CLASS)
-                    .text(escape_html_text(message))
-            })
-            .paragraph(|p| {
-                p.class("mt-4").anchor(|a| {
-                    a.href(escape_html_attr(&format!(
-                        "{}&offset={offset}&limit={limit}",
-                        relation.href(target)
-                    )))
-                    .class("text-[13px] text-accent hover:underline")
-                    .text("Try again")
+    let retry = format!("{}&offset={offset}&limit={limit}", relation.href(target));
+    page_shell(relation, target, &title).render_error(
+        &Notice::new("Unable to load relationship results")
+            .detail(message)
+            .action("Try again", retry),
+    )
+}
+
+/// The heading, description, and target link shared by results and errors.
+fn page_shell<'a>(
+    relation: Relationship,
+    target: &RelationshipTarget,
+    title: &'a str,
+) -> ResultsPage<'a> {
+    ResultsPage::new(title)
+        .intro(
+            Division::builder()
+                .paragraph(|p| {
+                    p.class("mb-6 text-[13px] text-ink-500")
+                        .text(relation.description())
                 })
-            })
-    });
-    layout::document_with_nav(&title, &body.build().to_string())
+                .build(),
+        )
+        .intro(target_link(target))
 }
 
 fn target_link(target: &RelationshipTarget) -> Division {
