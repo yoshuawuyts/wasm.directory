@@ -21,6 +21,7 @@ mod layout;
 mod markdown;
 mod package_source;
 mod pages;
+mod relationship_counts;
 mod relationship_routes;
 mod relationships;
 mod relative_time;
@@ -39,6 +40,9 @@ use serde::Deserialize;
 
 use wasm_meta_registry_client::{KnownPackage, RegistryClient};
 
+use futures_concurrency::prelude::*;
+
+use crate::relationship_counts::RelationshipCounts;
 use crate::reserved::is_reserved;
 
 /// Build the application router with all frontend routes.
@@ -287,12 +291,14 @@ async fn package_detail(
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
     };
-    let version_detail = client
-        .fetch_package_version(&pkg.registry, &pkg.repository, &version)
-        .await
-        .ok()
-        .flatten();
-    let html = pages::package::render(&pkg, &version, version_detail.as_ref());
+    let (version_detail, counts) = (
+        client.fetch_package_version(&pkg.registry, &pkg.repository, &version),
+        RelationshipCounts::fetch(&client, &pkg, None),
+    )
+        .join()
+        .await;
+    let version_detail = version_detail.ok().flatten();
+    let html = pages::package::render(&pkg, &version, version_detail.as_ref(), counts);
     with_cache_control(html, "public, max-age=300")
 }
 
@@ -340,13 +346,26 @@ async fn interface_detail(
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
     };
-    let Some((doc, version_detail)) = fetch_wit_doc(&client, &pkg, &version).await else {
+    let (doc, counts) = (
+        fetch_wit_doc(&client, &pkg, &version),
+        RelationshipCounts::fetch(&client, &pkg, Some(&iface)),
+    )
+        .join()
+        .await;
+    let Some((doc, version_detail)) = doc else {
         return not_found_response();
     };
     let Some(iface_doc) = doc.interfaces.iter().find(|i| i.name == iface) else {
         return not_found_response();
     };
-    let html = pages::interface::render(&pkg, &version, Some(&version_detail), iface_doc, &doc);
+    let html = pages::interface::render(
+        &pkg,
+        &version,
+        Some(&version_detail),
+        iface_doc,
+        &doc,
+        counts,
+    );
     with_cache_control(html, "public, max-age=300")
 }
 
@@ -367,7 +386,13 @@ async fn item_detail(
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
     };
-    let Some((doc, version_detail)) = fetch_wit_doc(&client, &pkg, &version).await else {
+    let (doc, counts) = (
+        fetch_wit_doc(&client, &pkg, &version),
+        RelationshipCounts::fetch(&client, &pkg, Some(&iface)),
+    )
+        .join()
+        .await;
+    let Some((doc, version_detail)) = doc else {
         return not_found_response();
     };
     let Some(iface_doc) = doc.interfaces.iter().find(|i| i.name == iface) else {
@@ -376,8 +401,15 @@ async fn item_detail(
 
     // Try types first, then functions.
     if let Some(ty) = iface_doc.types.iter().find(|t| t.name == item_name) {
-        let html =
-            pages::item::render_type(&pkg, &version, Some(&version_detail), &iface, ty, &doc);
+        let html = pages::item::render_type(
+            &pkg,
+            &version,
+            Some(&version_detail),
+            &iface,
+            ty,
+            &doc,
+            counts,
+        );
         return with_cache_control(html, "public, max-age=300");
     }
     if let Some(func) = iface_doc.functions.iter().find(|f| f.name == item_name) {
@@ -393,6 +425,7 @@ async fn item_detail(
             &iface_url,
             func,
             &doc,
+            counts,
         );
         return with_cache_control(html, "public, max-age=300");
     }
@@ -411,7 +444,13 @@ async fn world_detail(
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
     };
-    let Some((doc, version_detail)) = fetch_wit_doc(&client, &pkg, &version).await else {
+    let (doc, counts) = (
+        fetch_wit_doc(&client, &pkg, &version),
+        RelationshipCounts::fetch(&client, &pkg, None),
+    )
+        .join()
+        .await;
+    let Some((doc, version_detail)) = doc else {
         return not_found_response();
     };
     let Some(world_doc) = doc.worlds.iter().find(|w| w.name == world_name) else {
@@ -421,7 +460,14 @@ async fn world_detail(
         // Synthetic worlds are inlined into the package page; no detail page.
         return not_found_response();
     }
-    let html = pages::world::render(&pkg, &version, Some(&version_detail), world_doc, &doc);
+    let html = pages::world::render(
+        &pkg,
+        &version,
+        Some(&version_detail),
+        world_doc,
+        &doc,
+        counts,
+    );
     with_cache_control(html, "public, max-age=300")
 }
 
@@ -445,7 +491,13 @@ async fn world_function_detail(
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
     };
-    let Some((doc, version_detail)) = fetch_wit_doc(&client, &pkg, &version).await else {
+    let (doc, counts) = (
+        fetch_wit_doc(&client, &pkg, &version),
+        RelationshipCounts::fetch(&client, &pkg, None),
+    )
+        .join()
+        .await;
+    let Some((doc, version_detail)) = doc else {
         return not_found_response();
     };
     let Some(world_doc) = doc.worlds.iter().find(|w| w.name == world_name) else {
@@ -474,6 +526,7 @@ async fn world_function_detail(
         &world_url,
         func,
         &doc,
+        counts,
     );
     with_cache_control(html, "public, max-age=300")
 }
@@ -494,7 +547,13 @@ async fn package_function_detail(
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
     };
-    let Some((doc, version_detail)) = fetch_wit_doc(&client, &pkg, &version).await else {
+    let (doc, counts) = (
+        fetch_wit_doc(&client, &pkg, &version),
+        RelationshipCounts::fetch(&client, &pkg, None),
+    )
+        .join()
+        .await;
+    let Some((doc, version_detail)) = doc else {
         return not_found_response();
     };
     // For component packages the `/function/` URL space belongs exclusively to
@@ -524,6 +583,7 @@ async fn package_function_detail(
         &pkg_url,
         func,
         &doc,
+        counts,
     );
     with_cache_control(html, "public, max-age=300")
 }
@@ -580,11 +640,13 @@ async fn module_detail(
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
     };
-    let version_detail = client
-        .fetch_package_version(&pkg.registry, &pkg.repository, &version)
-        .await
-        .ok()
-        .flatten();
+    let (version_detail, counts) = (
+        client.fetch_package_version(&pkg.registry, &pkg.repository, &version),
+        RelationshipCounts::fetch(&client, &pkg, None),
+    )
+        .join()
+        .await;
+    let version_detail = version_detail.ok().flatten();
     let child = version_detail.as_ref().and_then(|d| {
         let modules: Vec<&wasm_meta_registry_client::ComponentSummary> = d
             .components
@@ -616,8 +678,14 @@ async fn module_detail(
     let Some(child) = child else {
         return not_found_response();
     };
-    let html =
-        pages::child_component::render(&pkg, &version, version_detail.as_ref(), child, &child_name);
+    let html = pages::child_component::render(
+        &pkg,
+        &version,
+        version_detail.as_ref(),
+        child,
+        &child_name,
+        counts,
+    );
     with_cache_control(html, "public, max-age=300")
 }
 
@@ -632,11 +700,13 @@ async fn child_component_detail(
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
     };
-    let version_detail = client
-        .fetch_package_version(&pkg.registry, &pkg.repository, &version)
-        .await
-        .ok()
-        .flatten();
+    let (version_detail, counts) = (
+        client.fetch_package_version(&pkg.registry, &pkg.repository, &version),
+        RelationshipCounts::fetch(&client, &pkg, None),
+    )
+        .join()
+        .await;
+    let version_detail = version_detail.ok().flatten();
     let idx: usize = child_index.parse().unwrap_or(usize::MAX);
     let child = version_detail.as_ref().and_then(|d| {
         d.components
@@ -658,6 +728,7 @@ async fn child_component_detail(
         version_detail.as_ref(),
         child,
         &display_name,
+        counts,
     );
     with_cache_control(html, "public, max-age=300")
 }

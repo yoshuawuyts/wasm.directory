@@ -1,4 +1,5 @@
 use super::*;
+use crate::relationship_counts::RelationshipCounts;
 use crate::wit_doc::WitDocument;
 
 fn document() -> WitDocument {
@@ -30,6 +31,7 @@ fn context<'a>(
         repository: "wasi/io",
         digest: None,
         dependencies: &[],
+        relationship_counts: RelationshipCounts::default(),
     }
 }
 
@@ -197,6 +199,7 @@ fn detail_pages_render_relationships_once_and_never_in_main_content() {
         sidebar_active: SidebarActive::Interface("streams"),
         extra_crumbs: &[],
         toc_html: None,
+        relationship_counts: RelationshipCounts::default(),
     });
     assert_eq!(html.matches(r#"aria-label="Relationships""#).count(), 1);
     for slug in ["dependents", "imported-by", "exported-by"] {
@@ -220,4 +223,25 @@ fn invalid_package_identity_does_not_render_an_empty_section() {
     let mut ctx = context(&doc, SidebarActive::None, "Component");
     ctx.display_name = "unregistered/repository";
     assert!(render(&ctx).is_empty());
+}
+
+#[test]
+fn loaded_totals_trail_their_links_and_unavailable_totals_are_omitted() {
+    let doc = document();
+    let mut ctx = context(&doc, SidebarActive::Interface("streams"), "Interface Types");
+    ctx.relationship_counts = RelationshipCounts {
+        dependents: Some(12),
+        imported_by: Some(0),
+        exported_by: None,
+    };
+    let section = render(&ctx);
+    let meta = r#"<span class="ml-auto mono text-[10.5px] text-ink-400">"#;
+    assert_eq!(section.matches(meta).count(), 2);
+    assert!(section.contains(&format!("{meta}12</span></a>")));
+    assert!(section.contains(&format!("{meta}0</span></a>")));
+    let exported = section
+        .split_once("/search/exported-by?")
+        .expect("exported-by link")
+        .1;
+    assert!(!exported.contains(meta));
 }

@@ -6,7 +6,7 @@ use axum::response::Response;
 
 use super::fixtures::WIT;
 use super::navigation::{assert_source_destinations, package_destinations};
-use super::registry::RegistryFixture;
+use super::registry::{RELATIONSHIP_TOTAL, RegistryFixture};
 
 const SOURCE: &str = "?registry=mirror.test&repository=mirrors%2Fhttp";
 const DETAIL_PATHS: &[&str] = &[
@@ -44,6 +44,43 @@ async fn every_detail_handler_resolves_the_selected_mirror_and_release() {
         assert_eq!(
             pair[1],
             "/v1/packages/version/mirror.test/0.1.0/mirrors/http"
+        );
+    }
+}
+
+#[tokio::test]
+async fn sidebar_relationship_links_show_totals_for_their_scope() {
+    let count = format!(
+        r#"<span class="ml-auto mono text-[10.5px] text-ink-400">{RELATIONSHIP_TOTAL}</span></a>"#
+    );
+    for (suffix, interface) in [("", ""), ("/interface/types", "&interface=types")] {
+        let registry = RegistryFixture::new(Some(WIT)).await;
+        let uri = format!("/example/http/0.1.0{suffix}{SOURCE}");
+        let response = registry.request(Method::GET, &uri).await;
+        assert_eq!(response.status(), StatusCode::OK, "{uri}");
+        let page = html(response).await;
+        let section = page
+            .split_once(r#"aria-label="Relationships""#)
+            .expect("relationships section")
+            .1
+            .split_once("</nav>")
+            .expect("relationships section end")
+            .0;
+        assert_eq!(section.matches(&count).count(), 3, "{uri}");
+        let mut requests = registry.relationship_requests();
+        requests.sort();
+        assert_eq!(
+            requests,
+            [
+                "/v1/relationships/dependents?package=example%3Ahttp&offset=0&limit=1".to_owned(),
+                format!(
+                    "/v1/relationships/exported-by?package=example%3Ahttp{interface}&offset=0&limit=1"
+                ),
+                format!(
+                    "/v1/relationships/imported-by?package=example%3Ahttp{interface}&offset=0&limit=1"
+                ),
+            ],
+            "{uri}"
         );
     }
 }

@@ -13,9 +13,13 @@ use wasm_meta_registry_client::{KnownPackage, RegistryClient};
 
 use super::fixtures::{package, version};
 
+/// Every relationship-count lookup reports this total.
+pub(super) const RELATIONSHIP_TOTAL: u64 = 7;
+
 pub(super) struct RegistryFixture {
     app: Router,
     requests: Arc<Mutex<Vec<String>>>,
+    relationship_requests: Arc<Mutex<Vec<String>>>,
     task: JoinHandle<()>,
 }
 
@@ -34,7 +38,11 @@ impl RegistryFixture {
         add_mirror(&mut responses, &package(), wit);
         add_mirror(&mut responses, &other_mirror, wit);
         let requests = Arc::new(Mutex::new(Vec::new()));
-        let captured = Arc::clone(&requests);
+        let relationship_requests = Arc::new(Mutex::new(Vec::new()));
+        let captured = Captured {
+            requests: Arc::clone(&requests),
+            relationship_requests: Arc::clone(&relationship_requests),
+        };
         let task = tokio::spawn(async move {
             loop {
                 let (stream, _) = listener.accept().await.expect("accept source request");
@@ -44,6 +52,7 @@ impl RegistryFixture {
         Self {
             app: crate::app_with_client(RegistryClient::new(format!("http://{address}"))),
             requests,
+            relationship_requests,
             task,
         }
     }
@@ -67,9 +76,23 @@ impl RegistryFixture {
             .expect("detail response")
     }
 
+    /// Package and release lookups; version-independent relationship
+    /// counts are recorded separately in [`Self::relationship_requests`].
     pub(super) fn requests(&self) -> Vec<String> {
         self.requests.lock().expect("fixture requests lock").clone()
     }
+
+    pub(super) fn relationship_requests(&self) -> Vec<String> {
+        self.relationship_requests
+            .lock()
+            .expect("fixture relationship requests lock")
+            .clone()
+    }
+}
+
+struct Captured {
+    requests: Arc<Mutex<Vec<String>>>,
+    relationship_requests: Arc<Mutex<Vec<String>>>,
 }
 
 impl Drop for RegistryFixture {
@@ -100,7 +123,7 @@ async fn respond(
     stream: TcpStream,
     responses: &HashMap<String, String>,
     search: &str,
-    requests: &Mutex<Vec<String>>,
+    captured: &Captured,
 ) {
     let mut stream = BufReader::new(stream);
     let mut request = String::new();
@@ -114,12 +137,19 @@ async fn respond(
             break;
         }
     }
-    requests
-        .lock()
-        .expect("capture request")
-        .push(path.to_owned());
+    let relationship_page = format!(
+        r#"{{"results":[],"total":{RELATIONSHIP_TOTAL},"offset":0,"limit":1,"has_next":true}}"#
+    );
+    let is_relationship = path.starts_with("/v1/relationships/");
+    let log = if is_relationship {
+        &captured.relationship_requests
+    } else {
+        &captured.requests
+    };
+    log.lock().expect("capture request").push(path.to_owned());
     let (status, body) = match responses.get(path) {
         Some(body) => ("200 OK", body.as_str()),
+        None if is_relationship => ("200 OK", relationship_page.as_str()),
         None if path.starts_with("/v1/search?") => ("200 OK", search),
         None => ("404 Not Found", r#"{"error":"fixture source not found"}"#),
     };

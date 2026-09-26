@@ -31,10 +31,10 @@ pub(crate) fn render(ctx: &SidebarContext<'_>) -> String {
     let mut links = Division::builder();
     links
         .class("space-y-0.5 text-[13px]")
-        .push(link(Relationship::Dependents, &package));
+        .push(link(Relationship::Dependents, &package, ctx));
     if let Some(target) = interface_target(ctx, package) {
-        links.push(link(Relationship::ImportedBy, &target));
-        links.push(link(Relationship::ExportedBy, &target));
+        links.push(link(Relationship::ImportedBy, &target, ctx));
+        links.push(link(Relationship::ExportedBy, &target, ctx));
     }
     Navigation::builder()
         .aria_label("Relationships")
@@ -44,13 +44,14 @@ pub(crate) fn render(ctx: &SidebarContext<'_>) -> String {
         .to_string()
 }
 
-fn link(relation: Relationship, target: &RelationshipTarget) -> Anchor {
+fn link(relation: Relationship, target: &RelationshipTarget, ctx: &SidebarContext<'_>) -> Anchor {
     // The builder emits a valueless aria-hidden attribute, not the required token.
     let arrow = format!(
         r#"<span aria-hidden="true" class="shrink-0 inline-flex items-center h-[18px]">{}</span>"#,
         icons::ARROW_UP_RIGHT
     );
-    Anchor::builder()
+    let mut anchor = Anchor::builder();
+    anchor
         .href(escape_html_attr(&relation.href(target)))
         .class("tree-link")
         .span(|content| {
@@ -58,8 +59,14 @@ fn link(relation: Relationship, target: &RelationshipTarget) -> Anchor {
                 .class("inline-flex items-center gap-1")
                 .text(relation.label())
                 .text(arrow)
-        })
-        .build()
+        });
+    if let Some(count) = ctx.relationship_counts.get(relation) {
+        anchor.span(|meta| {
+            meta.class("ml-auto mono text-[10.5px] text-ink-400")
+                .text(count.to_string())
+        });
+    }
+    anchor.build()
 }
 
 fn interface_target(

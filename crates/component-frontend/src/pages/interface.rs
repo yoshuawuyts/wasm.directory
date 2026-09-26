@@ -17,6 +17,7 @@ pub(crate) fn render(
     version_detail: Option<&PackageVersion>,
     iface: &InterfaceDoc,
     doc: &WitDocument,
+    relationship_counts: crate::relationship_counts::RelationshipCounts,
 ) -> String {
     let display_name = crate::components::page_shell::display_name_for(pkg);
     let title = format!("{display_name} — {}", iface.name);
@@ -158,6 +159,7 @@ pub(crate) fn render(
         sidebar_active: SidebarActive::Interface(&iface.name),
         extra_crumbs: &[],
         toc_html: toc_html.as_deref(),
+        relationship_counts,
     })
 }
 

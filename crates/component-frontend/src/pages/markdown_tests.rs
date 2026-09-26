@@ -183,8 +183,22 @@ fn interface_and_world_docs_are_full_blocks_but_rows_are_summaries() {
     let iface = fixture.doc.interfaces.first().expect("fixture interface");
     let world = fixture.doc.worlds.first().expect("fixture world");
     for html in [
-        interface::render(&fixture.pkg, "1.0.0", None, iface, &fixture.doc),
-        world::render(&fixture.pkg, "1.0.0", None, world, &fixture.doc),
+        interface::render(
+            &fixture.pkg,
+            "1.0.0",
+            None,
+            iface,
+            &fixture.doc,
+            crate::relationship_counts::RelationshipCounts::default(),
+        ),
+        world::render(
+            &fixture.pkg,
+            "1.0.0",
+            None,
+            world,
+            &fixture.doc,
+            crate::relationship_counts::RelationshipCounts::default(),
+        ),
     ] {
         assert_full_docs(&html, 1);
         assert_summary_rows(&html);
@@ -201,7 +215,15 @@ fn type_and_member_docs_are_not_truncated() {
             TypeKind::Resource { .. } => 4,
             _ => 2,
         };
-        let html = item::render_type(&fixture.pkg, "1.0.0", None, &iface.name, ty, &fixture.doc);
+        let html = item::render_type(
+            &fixture.pkg,
+            "1.0.0",
+            None,
+            &iface.name,
+            ty,
+            &fixture.doc,
+            crate::relationship_counts::RelationshipCounts::default(),
+        );
         assert_full_docs(&html, count);
         if matches!(ty.kind, TypeKind::Resource { .. }) {
             assert_eq!(
@@ -246,8 +268,16 @@ fn interface_and_world_function_docs_are_not_truncated() {
         .map(|func| (func, &iface.name, &iface.url))
         .chain(world_functions)
     {
-        let html =
-            item::render_function(&fixture.pkg, "1.0.0", None, owner, url, func, &fixture.doc);
+        let html = item::render_function(
+            &fixture.pkg,
+            "1.0.0",
+            None,
+            owner,
+            url,
+            func,
+            &fixture.doc,
+            crate::relationship_counts::RelationshipCounts::default(),
+        );
         assert_full_docs(&html, 1);
     }
 }
@@ -255,7 +285,12 @@ fn interface_and_world_function_docs_are_not_truncated() {
 #[test]
 fn package_overviews_render_markdown_once_and_keep_first_line_excerpts() {
     let fixture = Fixture::new();
-    let html = package::render(&fixture.pkg, "1.0.0", Some(&fixture.version));
+    let html = package::render(
+        &fixture.pkg,
+        "1.0.0",
+        Some(&fixture.version),
+        crate::relationship_counts::RelationshipCounts::default(),
+    );
     assert_summary_rows(&html);
     assert!(!html.contains("A soft-wrapped line."));
     assert!(!html.contains("Second paragraph."));
@@ -279,7 +314,12 @@ fn api_enriched_and_fallback_summaries_render_markdown_once() {
         imports: vec![iface.clone()],
         exports: vec![iface.clone()],
     }];
-    let html = package::render(&fixture.pkg, "1.0.0", Some(&fixture.version));
+    let html = package::render(
+        &fixture.pkg,
+        "1.0.0",
+        Some(&fixture.version),
+        crate::relationship_counts::RelationshipCounts::default(),
+    );
     assert_summary_rows(&html);
     assert!(!html.contains("Second paragraph."));
     assert!(html.contains("href=\"https://example.com/spec?a=1&amp;b=2\""));
@@ -317,9 +357,31 @@ fn detail_pages_keep_the_missing_documentation_fallback() {
     ty.docs = None;
     func.docs = None;
     for html in [
-        interface::render(&fixture.pkg, "1.0.0", None, &iface, &fixture.doc),
-        world::render(&fixture.pkg, "1.0.0", None, &world, &fixture.doc),
-        item::render_type(&fixture.pkg, "1.0.0", None, &iface.name, &ty, &fixture.doc),
+        interface::render(
+            &fixture.pkg,
+            "1.0.0",
+            None,
+            &iface,
+            &fixture.doc,
+            crate::relationship_counts::RelationshipCounts::default(),
+        ),
+        world::render(
+            &fixture.pkg,
+            "1.0.0",
+            None,
+            &world,
+            &fixture.doc,
+            crate::relationship_counts::RelationshipCounts::default(),
+        ),
+        item::render_type(
+            &fixture.pkg,
+            "1.0.0",
+            None,
+            &iface.name,
+            &ty,
+            &fixture.doc,
+            crate::relationship_counts::RelationshipCounts::default(),
+        ),
         item::render_function(
             &fixture.pkg,
             "1.0.0",
@@ -328,6 +390,7 @@ fn detail_pages_keep_the_missing_documentation_fallback() {
             &iface.url,
             &func,
             &fixture.doc,
+            crate::relationship_counts::RelationshipCounts::default(),
         ),
     ] {
         assert!(html.contains("<p>No description available.</p>"));

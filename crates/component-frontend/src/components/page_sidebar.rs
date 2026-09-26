@@ -82,6 +82,8 @@ pub(crate) struct SidebarContext<'a> {
     pub digest: Option<&'a str>,
     /// Package dependencies.
     pub dependencies: &'a [wasm_meta_registry_client::PackageDependencyRef],
+    /// Totals shown beside the relationship links.
+    pub relationship_counts: crate::relationship_counts::RelationshipCounts,
 }
 
 /// Which item in the sidebar is currently active.
