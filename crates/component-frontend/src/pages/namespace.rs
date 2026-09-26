@@ -20,6 +20,15 @@ pub(crate) async fn render(
     Ok(render_packages(namespace, &page))
 }
 
+/// Link to a namespace listing without colliding with reserved application routes.
+pub(crate) fn href(namespace: &str) -> String {
+    if crate::reserved::is_reserved(namespace) {
+        format!("/namespaces/{}", encode_segment(namespace))
+    } else {
+        format!("/{}", encode_segment(namespace))
+    }
+}
+
 /// Render the package listing for a namespace.
 fn render_packages(namespace: &str, page: &RegistryPage<KnownPackage>) -> String {
     let mut body = Division::builder();
@@ -47,12 +56,7 @@ fn render_packages(namespace: &str, page: &RegistryPage<KnownPackage>) -> String
     body.push(list.build());
     body.push(
         PaginationState::with_next(page.results.len(), page.offset, page.limit, page.has_next)
-            .render(|offset, limit| {
-                format!(
-                    "/{}?offset={offset}&limit={limit}",
-                    encode_segment(namespace)
-                )
-            }),
+            .render(|offset, limit| format!("{}?offset={offset}&limit={limit}", href(namespace))),
     );
     layout::document_with_nav(namespace, &body.build().to_string())
 }
@@ -77,5 +81,24 @@ mod tests {
         let html = render_packages("example", &page);
         package_row::tests::assert_listing(&html, &packages);
         assert!(html.contains("showing 3 of 3 results"));
+    }
+
+    #[test]
+    fn reserved_namespaces_link_to_non_colliding_destinations() {
+        assert_eq!(href("wasi"), "/wasi");
+        assert_eq!(href("a&b"), "/a%26b");
+        for name in ["all", "search", "namespaces"] {
+            assert_eq!(href(name), format!("/namespaces/{name}"));
+        }
+        let page = RegistryPage {
+            results: Vec::new(),
+            total: 3,
+            offset: 1,
+            limit: 1,
+            has_next: true,
+        };
+        let html = render_packages("all", &page);
+        assert!(html.contains("href=\"/namespaces/all?offset=0&limit=1\""));
+        assert!(html.contains("href=\"/namespaces/all?offset=2&limit=1\""));
     }
 }

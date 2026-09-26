@@ -51,6 +51,14 @@ fn app_with_client(client: RegistryClient) -> Router {
         .route("/all", get(all_packages))
         .route("/namespaces", get(namespace_routes::all))
         .route("/namespaces/", get(namespace_routes::all))
+        .route(
+            "/namespaces/{namespace}",
+            get(namespace_routes::directory_packages),
+        )
+        .route(
+            "/namespaces/{namespace}/",
+            get(namespace_routes::directory_packages),
+        )
         .route("/search", get(search))
         .route("/search/dependents", get(relationship_routes::dependents))
         .route("/search/imported-by", get(relationship_routes::imported_by))

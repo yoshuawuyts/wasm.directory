@@ -214,10 +214,38 @@ async fn invalid_pagination_and_reserved_package_paths_do_not_fetch() {
         ("/namespaces?offset=-1", StatusCode::BAD_REQUEST),
         ("/namespaces?limit=no", StatusCode::BAD_REQUEST),
         ("/wasi?offset=4294967296", StatusCode::BAD_REQUEST),
-        ("/namespaces/pkg", StatusCode::NOT_FOUND),
         ("/namespaces/pkg/1.0.0", StatusCode::NOT_FOUND),
     ] {
         let response = request(RegistryClient::new("http://127.0.0.1:1"), path).await;
         assert_eq!(response.status(), status, "{path}");
+    }
+}
+
+#[tokio::test]
+async fn reserved_namespaces_are_listed_through_non_colliding_destinations() {
+    for name in ["all", "search", "namespaces"] {
+        let directory = format!(
+            r#"{{"results":[{{"name":"{name}","packages":1}}],"total":1,"offset":0,"limit":100,"has_next":false}}"#
+        );
+        let (client, upstream) = registry_response("200 OK", &directory).await;
+        let html = body(request(client, "/namespaces").await).await;
+        assert!(
+            html.contains(&format!("href=\"/namespaces/{name}\"")),
+            "{name}"
+        );
+        upstream.await.expect("directory request");
+
+        for path in [
+            format!("/namespaces/{name}"),
+            format!("/namespaces/{name}/"),
+        ] {
+            let (client, upstream) = registry_response("200 OK", EMPTY_PAGE).await;
+            let response = request(client, &format!("{path}?offset=100&limit=5")).await;
+            assert_eq!(response.status(), StatusCode::OK, "{path}");
+            assert_eq!(
+                upstream.await.expect("namespace request").trim(),
+                format!("GET /v1/namespaces/{name}/packages?offset=100&limit=5 HTTP/1.1")
+            );
+        }
     }
 }

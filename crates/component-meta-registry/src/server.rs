@@ -150,7 +150,8 @@ pub fn router(state: AppState) -> Router {
 
 /// Build the API router with namespace membership from the registry configuration.
 ///
-/// Pass `Config::namespaces` to include empty and not-yet-indexed registrations.
+/// Pass the namespaces from [`crate::Config::from_registry_dir_with_namespaces`] to
+/// include empty and not-yet-indexed registrations.
 /// The storage-only [`router`] supplies no registrations, so its directory is empty.
 pub fn router_with_namespaces(
     state: AppState,

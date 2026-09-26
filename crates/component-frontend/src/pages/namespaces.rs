@@ -5,7 +5,7 @@ use wasm_meta_registry_client::{ApiError, KnownNamespace, RegistryClient, Regist
 
 use crate::components::ds::{listing, pagination::PaginationState};
 use crate::escape::{escape_html_attr, escape_html_text};
-use crate::{layout, package_source::urls::encode_segment};
+use crate::layout;
 
 pub(crate) async fn render(
     client: &RegistryClient,
@@ -48,7 +48,7 @@ fn namespace_list(namespaces: &[KnownNamespace]) -> Division {
     for namespace in namespaces {
         list.division(|row| {
             row.anchor(|a| {
-                a.href(escape_html_attr(&format!("/{}", encode_segment(&namespace.name))))
+                a.href(escape_html_attr(&super::namespace::href(&namespace.name)))
                     .class("flex flex-col gap-1 py-3 -mx-2 px-2 hover:bg-surfaceMuted focus-visible:bg-surfaceMuted transition-colors motion-reduce:transition-none")
                     .span(|s| {
                         s.class("min-w-0 max-w-full mono text-[14px] font-medium text-ink-900 [overflow-wrap:anywhere]")

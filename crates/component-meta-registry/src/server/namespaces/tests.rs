@@ -39,7 +39,7 @@ async fn seed_index(dir: &std::path::Path) {
     db.close().await.expect("close fixture writer");
 }
 
-fn registered_config(dir: &std::path::Path) -> crate::Config {
+fn registered_namespaces(dir: &std::path::Path) -> Vec<crate::registry_file::Namespace> {
     for name in ["populated", "empty", "pending"] {
         let package = if name == "empty" {
             ""
@@ -52,20 +52,19 @@ fn registered_config(dir: &std::path::Path) -> crate::Config {
         )
         .expect("write registration");
     }
-    crate::Config::from_registry_dir(dir, 3600, "127.0.0.1:0".into()).expect("load registrations")
+    crate::Config::from_registry_dir_with_namespaces(dir, 3600, "127.0.0.1:0".into())
+        .expect("load registrations")
+        .1
 }
 
 #[tokio::test]
 async fn configured_membership_includes_empty_and_pending_namespaces_before_indexing() {
     let registrations = tempfile::tempdir().expect("registration directory");
-    let config = registered_config(registrations.path());
+    let namespaces = registered_namespaces(registrations.path());
     let data = tempfile::tempdir().expect("index directory");
     let manager = Manager::open_at(data.path()).await.expect("open index");
     seed_index(data.path()).await;
-    let app = router_with_namespaces(
-        Arc::new(tokio::sync::RwLock::new(manager)),
-        &config.namespaces,
-    );
+    let app = router_with_namespaces(Arc::new(tokio::sync::RwLock::new(manager)), &namespaces);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind API");

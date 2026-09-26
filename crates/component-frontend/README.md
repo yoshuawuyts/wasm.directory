@@ -95,7 +95,9 @@ MIT license and rendered using the current text color; no icon package is needed
 
 `/namespaces` lists all registered namespaces alphabetically, using the same heading,
 result summary, flowing rows, and pagination as `/all`. Each row shows the
-namespace and its indexed-package count and links to `/{namespace}`.
+namespace and its indexed-package count and links to `/{namespace}`, or to
+`/namespaces/{namespace}` when the name collides with a reserved application
+route such as `all` or `search`.
 The homepage navigation and shared footer link to the directory.
 
 Membership comes from the backend's per-namespace TOML registrations, including
@@ -114,7 +116,8 @@ old capped substring search, including for repository-owner fallbacks. Counts
 and next-page availability come from the same API response. Out-of-range pages
 retain Previous navigation; API failures return an uncached 502 error rather
 than looking like an empty registry. Successful pages retain one-minute caching
-and conditional requests. `/namespaces` is reserved for the application route.
+and conditional requests. `/namespaces` is reserved for the application route;
+`/namespaces/{namespace}` serves the same paginated listing for any namespace.
 
 ## Installers
 

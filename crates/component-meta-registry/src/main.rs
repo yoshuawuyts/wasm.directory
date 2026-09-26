@@ -55,7 +55,8 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     // Read and parse configuration from registry directory
-    let config = Config::from_registry_dir(&cli.registry_dir, cli.sync_interval, cli.bind)?;
+    let (config, namespaces) =
+        Config::from_registry_dir_with_namespaces(&cli.registry_dir, cli.sync_interval, cli.bind)?;
 
     // Determine the registry data directory (separate from the CLI cache)
     let data_dir = match cli.data_dir {
@@ -136,7 +137,7 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Build and start HTTP server
-    let app = router_with_namespaces(state, &config.namespaces);
+    let app = router_with_namespaces(state, &namespaces);
     let bind_addr = config.bind.clone();
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
     info!("Listening on {}", bind_addr);

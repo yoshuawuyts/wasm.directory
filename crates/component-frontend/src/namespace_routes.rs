@@ -28,6 +28,15 @@ pub(crate) async fn packages(
     if reserved::is_reserved(&namespace) {
         return crate::not_found_response();
     }
+    directory_packages(State(client), Path(namespace), Query(params)).await
+}
+
+/// Non-colliding namespace listing, reachable even for reserved namespace names.
+pub(crate) async fn directory_packages(
+    State(client): State<Arc<RegistryClient>>,
+    Path(namespace): Path<String>,
+    Query(params): Query<AllPackagesParams>,
+) -> Response {
     respond(
         &namespace,
         "Unable to load packages",

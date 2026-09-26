@@ -247,3 +247,34 @@ async fn failed_counts_are_errors_not_fabricated_zeroes_for_registered_namespace
             .is_err()
     );
 }
+
+#[tokio::test]
+async fn owner_fallback_matching_escapes_wildcards_and_is_case_sensitive() {
+    let store = Store::open_in_memory()
+        .await
+        .expect("open namespace test store");
+    for repository in ["a_b/one", "axb/two", "a%b/three", "A_B/four", "a_b"] {
+        seed(&store, "ghcr.io", repository, None, &["1.0.0"]).await;
+    }
+    let packages = store
+        .list_namespace_packages("a_b", 0, 100)
+        .await
+        .expect("namespace packages");
+    let repositories: Vec<_> = packages
+        .results
+        .iter()
+        .map(|pkg| pkg.repository.as_str())
+        .collect();
+    assert_eq!(repositories, ["a_b", "a_b/one"]);
+    let registered = ["a_b", "a%b", "axb"].map(str::to_owned);
+    let page = store
+        .list_namespaces(&registered, 0, 100)
+        .await
+        .expect("namespace counts");
+    let counts: Vec<_> = page
+        .results
+        .iter()
+        .map(|ns| (ns.name.as_str(), ns.packages))
+        .collect();
+    assert_eq!(counts, [("a%b", 1), ("a_b", 2), ("axb", 1)]);
+}
