@@ -43,7 +43,7 @@ async fn directory_routes_use_the_namespace_api_and_support_conditional_requests
         let etag = response.headers()[header::ETAG].clone();
         let html = body(response).await;
         assert!(html.contains("showing 1 of 1 result"));
-        assert!(html.contains("href=\"/wasi\""));
+        assert!(html.contains("href=\"/namespaces/wasi\""));
         assert_eq!(
             upstream.await.expect("upstream request").trim(),
             "GET /v1/namespaces?offset=0&limit=100 HTTP/1.1"
@@ -166,8 +166,8 @@ async fn namespace_destination_renders_packages_and_real_pagination() {
     let html = body(response).await;
     crate::components::ds::package_row::tests::assert_listing(&html, &packages);
     assert!(html.contains("showing 4 of 25 results"));
-    assert!(html.contains("href=\"/example?offset=16&limit=4\""));
-    assert!(html.contains("href=\"/example?offset=24&limit=4\""));
+    assert!(html.contains("href=\"/namespaces/example?offset=16&limit=4\""));
+    assert!(html.contains("href=\"/namespaces/example?offset=24&limit=4\""));
     upstream.await.expect("namespace request");
 }
 
@@ -222,8 +222,20 @@ async fn invalid_pagination_and_reserved_package_paths_do_not_fetch() {
 }
 
 #[tokio::test]
-async fn reserved_namespaces_are_listed_through_non_colliding_destinations() {
-    for name in ["all", "search", "namespaces"] {
+async fn all_namespaces_are_listed_through_non_colliding_destinations() {
+    for name in [
+        "all",
+        "search",
+        "namespaces",
+        "status",
+        "design-system",
+        "health",
+        "docs",
+        "robots.txt",
+        "favicon.svg",
+        "favicon.ico",
+        "wasi",
+    ] {
         let directory = format!(
             r#"{{"results":[{{"name":"{name}","packages":1}}],"total":1,"offset":0,"limit":100,"has_next":false}}"#
         );
@@ -242,6 +254,9 @@ async fn reserved_namespaces_are_listed_through_non_colliding_destinations() {
             let (client, upstream) = registry_response("200 OK", EMPTY_PAGE).await;
             let response = request(client, &format!("{path}?offset=100&limit=5")).await;
             assert_eq!(response.status(), StatusCode::OK, "{path}");
+            let html = body(response).await;
+            assert!(html.contains("No packages on this page."));
+            assert!(html.contains(&format!("href=\"/namespaces/{name}?offset=0&limit=100\"")));
             assert_eq!(
                 upstream.await.expect("namespace request").trim(),
                 format!("GET /v1/namespaces/{name}/packages?offset=100&limit=5 HTTP/1.1")

@@ -95,9 +95,11 @@ MIT license and rendered using the current text color; no icon package is needed
 
 `/namespaces` lists all registered namespaces alphabetically, using the same heading,
 result summary, flowing rows, and pagination as `/all`. Each row shows the
-namespace and its indexed-package count and links to `/{namespace}`, or to
-`/namespaces/{namespace}` when the name collides with a reserved application
-route such as `all` or `search`.
+namespace and its indexed-package count and links to `/namespaces/{namespace}`.
+All namespace links and pagination use this explicit path, independently of the
+reserved-name list, so application routes such as `all`, `status`, or
+`design-system` cannot intercept directory navigation. Existing `/{namespace}`
+shortcuts remain available for non-reserved names without a conflicting route.
 The homepage navigation and shared footer link to the directory.
 
 Membership comes from the backend's per-namespace TOML registrations, including

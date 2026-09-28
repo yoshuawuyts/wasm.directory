@@ -24,8 +24,8 @@ fn namespaces_share_all_packages_heading_and_pagination() {
     let html = render_namespaces(&page());
     assert!(html.contains("All Namespaces"));
     assert!(html.contains("showing 2 of 5 results"));
-    assert!(html.contains("href=\"/ba\""));
-    assert!(html.contains("href=\"/wasi\""));
+    assert!(html.contains("href=\"/namespaces/ba\""));
+    assert!(html.contains("href=\"/namespaces/wasi\""));
     assert!(html.contains(">1 indexed package</span>"));
     assert!(html.contains(">12 indexed packages</span>"));
     assert!(html.contains("Showing 3\u{2013}4"));
@@ -73,8 +73,8 @@ fn registered_namespaces_without_indexed_packages_remain_linked() {
         })
         .to_vec();
     let html = render_namespaces(&page);
-    assert!(html.contains("href=\"/empty\""));
-    assert!(html.contains("href=\"/pending\""));
+    assert!(html.contains("href=\"/namespaces/empty\""));
+    assert!(html.contains("href=\"/namespaces/pending\""));
     assert_eq!(html.matches(">0 indexed packages</span>").count(), 2);
     assert!(!html.contains("No namespaces"));
 }
@@ -85,7 +85,7 @@ fn namespace_names_are_escaped_and_encoded_as_single_path_segments() {
     page.results[0].name = "<bad>/?\"&#".into();
     let html = render_namespaces(&page);
     assert!(html.contains("&lt;bad&gt;/?&quot;&amp;#"));
-    assert!(html.contains("href=\"/%3Cbad%3E%2F%3F%22%26%23\""));
+    assert!(html.contains("href=\"/namespaces/%3Cbad%3E%2F%3F%22%26%23\""));
     assert!(!html.contains("<bad>"));
 }
 

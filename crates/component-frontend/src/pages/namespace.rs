@@ -20,13 +20,9 @@ pub(crate) async fn render(
     Ok(render_packages(namespace, &page))
 }
 
-/// Link to a namespace listing without colliding with reserved application routes.
+/// Use the directory route so namespace links cannot collide with application routes.
 pub(crate) fn href(namespace: &str) -> String {
-    if crate::reserved::is_reserved(namespace) {
-        format!("/namespaces/{}", encode_segment(namespace))
-    } else {
-        format!("/{}", encode_segment(namespace))
-    }
+    format!("/namespaces/{}", encode_segment(namespace))
 }
 
 /// Render the package listing for a namespace.
@@ -84,10 +80,16 @@ mod tests {
     }
 
     #[test]
-    fn reserved_namespaces_link_to_non_colliding_destinations() {
-        assert_eq!(href("wasi"), "/wasi");
-        assert_eq!(href("a&b"), "/a%26b");
-        for name in ["all", "search", "namespaces"] {
+    fn all_namespace_links_use_non_colliding_destinations() {
+        assert_eq!(href("a&b"), "/namespaces/a%26b");
+        for name in [
+            "wasi",
+            "all",
+            "search",
+            "namespaces",
+            "status",
+            "design-system",
+        ] {
             assert_eq!(href(name), format!("/namespaces/{name}"));
         }
         let page = RegistryPage {
