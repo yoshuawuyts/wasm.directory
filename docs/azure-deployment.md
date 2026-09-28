@@ -130,9 +130,18 @@ Pick any region that prints `OK` and set it with
 
 ## 4. Provision the infrastructure
 
+After signing in with `az login` and configuring an `azd` environment above,
+run the repository's [just](https://just.systems/) recipe:
+
 ```sh
-azd provision
+just provision
 ```
+
+This selects the environment's `AZURE_SUBSCRIPTION_ID` as the Azure CLI's
+active subscription, configures `azd` to reuse Azure CLI authentication
+(`auth.useAzCliAuth = true`), and runs `azd provision`. Both settings persist
+for subsequent CLI commands. The existing `azd` hooks handle provider
+registration and custom-domain binding; no separate hook invocations are needed.
 
 What happens:
 
@@ -182,12 +191,12 @@ azd env set FRONTEND_IMAGE 'ghcr.io/<OWNER>/component-cli/frontend:latest'
 
 ## 6. Deploy
 
-Run `azd provision` (or re-run it if you already provisioned the
+Run `just provision` (or re-run it if you already provisioned the
 infrastructure). It picks up `BACKEND_IMAGE` and `FRONTEND_IMAGE` from
 the environment and deploys the Container Apps with those images:
 
 ```sh
-azd provision
+just provision
 ```
 
 The service URLs are printed at the end. You can also retrieve them later:
@@ -204,7 +213,7 @@ example `wasm.directory`), set `CUSTOM_DOMAIN_NAME` before provisioning:
 
 ```sh
 azd env set CUSTOM_DOMAIN_NAME wasm.directory
-azd provision
+just provision
 ```
 
 With the variable set, `azd provision` also deploys
