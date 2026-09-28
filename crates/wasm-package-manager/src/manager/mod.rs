@@ -978,6 +978,41 @@ impl Manager {
         }
     }
 
+    /// List registered namespaces alphabetically, including those without indexed releases.
+    ///
+    /// Membership is supplied by the registry configuration; counts describe
+    /// indexed repositories with semver releases, not configured package entries.
+    pub async fn list_namespaces(
+        &self,
+        registered: &[String],
+        offset: u32,
+        limit: u32,
+    ) -> anyhow::Result<
+        wasm_meta_registry_types::RegistryPage<wasm_meta_registry_types::KnownNamespace>,
+    > {
+        self.store.list_namespaces(registered, offset, limit).await
+    }
+
+    /// List released packages in one exact namespace, including owner fallbacks.
+    pub async fn list_namespace_packages(
+        &self,
+        namespace: &str,
+        offset: u32,
+        limit: u32,
+    ) -> anyhow::Result<wasm_meta_registry_types::RegistryPage<KnownPackage>> {
+        let mut page = self
+            .store
+            .list_namespace_packages(namespace, offset, limit)
+            .await?;
+        for pkg in &mut page.results {
+            pkg.dependencies = self
+                .store
+                .get_package_dependencies(&pkg.registry, &pkg.repository)
+                .await?;
+        }
+        Ok(page)
+    }
+
     /// Get recently updated known packages.
     ///
     /// Uses pagination with `offset` and `limit` parameters.

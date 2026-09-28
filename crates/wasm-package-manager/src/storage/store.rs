@@ -45,6 +45,7 @@ use wasm_package_manager_migration::entities::{
 mod dependents;
 mod highlights;
 mod manifest_config;
+mod namespaces;
 mod package_data;
 mod package_metadata;
 mod relationships;
@@ -3017,24 +3018,7 @@ impl Store {
     ) -> anyhow::Result<wasm_meta_registry_types::RegistryStats> {
         use std::collections::BTreeSet;
 
-        // Pre-filter the common non-release tags (`latest`, and the
-        // `sha256-*` signature/attestation tags) in the database; the exact
-        // semver check below still runs in Rust.
-        let tags: Vec<(i64, String)> = oci_tag::Entity::find()
-            .select_only()
-            .column(oci_tag::Column::OciRepositoryId)
-            .column(oci_tag::Column::Tag)
-            .filter(oci_tag::Column::Tag.ne("latest"))
-            .filter(oci_tag::Column::Tag.not_like("sha256-%"))
-            .into_tuple()
-            .all(&self.db)
-            .await?;
-        let mut versions_per_repo: HashMap<i64, u64> = HashMap::new();
-        for (repo_id, tag) in tags {
-            if crate::manager::parse_tag_as_semver(&tag).is_some() {
-                *versions_per_repo.entry(repo_id).or_default() += 1;
-            }
-        }
+        let versions_per_repo = namespaces::release_counts(&self.db).await?;
 
         let repos: Vec<(i64, String, Option<String>)> = oci_repository::Entity::find()
             .select_only()
@@ -3053,11 +3037,9 @@ impl Store {
             };
             stats.packages += 1;
             stats.versions += versions;
-            let ns = wit_namespace
-                .or_else(|| repository.split('/').next().map(str::to_owned))
-                .unwrap_or_default();
+            let ns = namespaces::namespace_name(&repository, wit_namespace.as_deref());
             if !ns.is_empty() {
-                namespaces.insert(ns);
+                namespaces.insert(ns.to_owned());
             }
         }
         stats.namespaces = namespaces.len() as u64;

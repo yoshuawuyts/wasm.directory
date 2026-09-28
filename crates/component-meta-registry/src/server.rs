@@ -16,6 +16,7 @@ use wasm_package_manager::manager::Manager;
 
 use crate::stats_cache::{STATS_TTL, StatsCache};
 
+mod namespaces;
 mod relationships;
 
 /// Shared application state wrapping a `Manager` in a `tokio::sync::RwLock`.
@@ -144,6 +145,24 @@ pub const MAX_REPOSITORY_LEN: usize = 512;
 /// # }
 /// ```
 pub fn router(state: AppState) -> Router {
+    router_with_namespaces(state, &[])
+}
+
+/// Build the API router with namespace membership from the registry configuration.
+///
+/// Pass the namespaces from [`crate::Config::from_registry_dir_with_namespaces`] to
+/// include empty and not-yet-indexed registrations.
+/// The storage-only [`router`] supplies no registrations, so its directory is empty.
+pub fn router_with_namespaces(
+    state: AppState,
+    namespaces: &[crate::registry_file::Namespace],
+) -> Router {
+    let registered = Arc::new(
+        namespaces
+            .iter()
+            .map(|ns| ns.name.clone())
+            .collect::<Vec<_>>(),
+    );
     // Routes with explicit suffixes must be registered before the catch-all
     // wildcard `{*repository}` to avoid conflicts.  We achieve this by
     // nesting the version/detail routes under a separate "prefix" router
@@ -165,6 +184,11 @@ pub fn router(state: AppState) -> Router {
             get(move |state: State<AppState>| get_stats(state, stats_cache.clone())),
         )
         .route("/v1/search", get(search))
+        .route("/v1/namespaces", get(namespaces::list))
+        .route(
+            "/v1/namespaces/{namespace}/packages",
+            get(namespaces::packages),
+        )
         .route("/v1/search/by-import", get(search_by_import))
         .route("/v1/search/by-export", get(search_by_export))
         .merge(relationships::routes())
@@ -187,6 +211,7 @@ pub fn router(state: AppState) -> Router {
         )
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
+        .layer(axum::Extension(registered))
         .with_state(state)
 }
 

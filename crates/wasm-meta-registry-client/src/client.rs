@@ -8,6 +8,7 @@
 
 use std::fmt;
 
+mod namespaces;
 mod relationships;
 
 use crate::KnownPackage;

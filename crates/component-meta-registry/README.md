@@ -68,6 +68,8 @@ component-meta-registry registry/ --sync-interval 3600 --bind 0.0.0.0:8080
 
 - `GET /v1/health` — Health check
 - `GET /v1/stats` — Package, namespace, and version counts for the whole index
+- `GET /v1/namespaces?offset={n}&limit={n}` — Namespaces in alphabetical order with package counts
+- `GET /v1/namespaces/{namespace}/packages?offset={n}&limit={n}` — Packages in one exact namespace
 - `GET /v1/search?q={query}&offset={n}&limit={n}` — Search packages
 - `GET /v1/search/by-import?interface={package}&offset={n}&limit={n}` — Existing package-level import search
 - `GET /v1/search/by-export?interface={package}&offset={n}&limit={n}` — Existing package-level export search
@@ -76,6 +78,34 @@ component-meta-registry registry/ --sync-interval 3600 --bind 0.0.0.0:8080
 - `GET /v1/relationships/exported-by?package={namespace:name}&interface={member}&offset={n}&limit={n}` — Worlds exporting the package or exact interface
 - `GET /v1/packages?offset={n}&limit={n}` — List all packages
 - `GET /v1/packages/{registry}/{repository}` — Get a specific package
+
+### Namespace discovery
+
+Namespace endpoints return `RegistryPage<T>` with `results`, `total`, `offset`,
+`limit`, and `has_next`. Namespace entries have `name` and `packages` fields;
+namespace package entries use the existing `KnownPackage` shape.
+The default limit is 20, capped at 100; zero selects the default.
+
+Directory membership comes from every `[namespace]` declaration loaded from the
+registry directory, including namespace-only files and packages awaiting indexing.
+Unregistered WIT namespaces and repository-owner fallbacks do not create
+directory entries. The server retains these registrations at startup and passes
+them to `router_with_namespaces`; embedded servers should load them with
+`Config::from_registry_dir_with_namespaces` and pass them to that constructor
+as well; `Config` itself is unchanged. The storage-only `router` has no registrations.
+Configuration edits take effect on server restart, as with configured packages.
+
+The `packages` count describes indexed repositories with semver releases, not
+configured package entries. Each repository counts once, regardless of how many
+release tags it has. Package assignment prefers the registered WIT namespace,
+falling back to the first repository path segment when no WIT mapping exists.
+Registered namespaces with no indexed releases have zero counts and valid empty
+package listings; database errors still fail the request. Membership and sorting
+happen before pagination; counts are computed only for the namespaces on the
+requested page, and namespace package queries select only that namespace's
+candidate repositories. Namespace package matching is exact,
+not a capped substring search. `/v1/stats` retains its existing indexed-release
+semantics, so its namespace count can differ from the directory's registration total.
 
 ### Relationship discovery
 
