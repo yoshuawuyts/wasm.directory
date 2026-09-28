@@ -17,6 +17,7 @@ Install the following tools:
 
 - [Azure Developer CLI (`azd`)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) — v1.25 or newer
 - [Azure CLI (`az`)](https://learn.microsoft.com/cli/azure/install-azure-cli)
+- [just](https://just.systems/) - runs the `just provision` recipe
 - [Docker](https://docs.docker.com/get-docker/) — required to build the
   `frontend` and `backend` service images during `azd deploy`
 
@@ -26,14 +27,18 @@ resource groups and register resource providers).
 
 ## 1. Sign in
 
-Sign into both CLIs against the same tenant and subscription:
+Sign into Azure CLI and configure `azd` to reuse that session:
 
 ```sh
 az login
 az account set --subscription <SUBSCRIPTION_ID_OR_NAME>
 
-azd auth login
+azd config set auth.useAzCliAuth true
 ```
+
+No separate `azd auth login` is required for this workflow. Setting this before
+creating an environment lets `azd` use your Azure CLI session during setup;
+`just provision` also ensures the same setting before provisioning.
 
 Verify:
 
