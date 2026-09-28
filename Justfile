@@ -41,3 +41,12 @@ test:
 # Run the server
 serve:
     cargo xtask serve
+
+# Provision Azure infrastructure using the selected azd environment
+provision:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    subscription="$(azd env get-value AZURE_SUBSCRIPTION_ID)"
+    az account set --subscription "$subscription"
+    azd config set auth.useAzCliAuth true
+    azd provision

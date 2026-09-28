@@ -17,6 +17,7 @@ Install the following tools:
 
 - [Azure Developer CLI (`azd`)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) — v1.25 or newer
 - [Azure CLI (`az`)](https://learn.microsoft.com/cli/azure/install-azure-cli)
+- [just](https://just.systems/) - runs the `just provision` recipe
 - [Docker](https://docs.docker.com/get-docker/) — required to build the
   `frontend` and `backend` service images during `azd deploy`
 
@@ -26,14 +27,18 @@ resource groups and register resource providers).
 
 ## 1. Sign in
 
-Sign into both CLIs against the same tenant and subscription:
+Sign into Azure CLI and configure `azd` to reuse that session:
 
 ```sh
 az login
 az account set --subscription <SUBSCRIPTION_ID_OR_NAME>
 
-azd auth login
+azd config set auth.useAzCliAuth true
 ```
+
+No separate `azd auth login` is required for this workflow. Setting this before
+creating an environment lets `azd` use your Azure CLI session during setup;
+`just provision` also ensures the same setting before provisioning.
 
 Verify:
 
@@ -130,9 +135,18 @@ Pick any region that prints `OK` and set it with
 
 ## 4. Provision the infrastructure
 
+After signing in with `az login` and configuring an `azd` environment above,
+run the repository's [just](https://just.systems/) recipe:
+
 ```sh
-azd provision
+just provision
 ```
+
+This selects the environment's `AZURE_SUBSCRIPTION_ID` as the Azure CLI's
+active subscription, configures `azd` to reuse Azure CLI authentication
+(`auth.useAzCliAuth = true`), and runs `azd provision`. Both settings persist
+for subsequent CLI commands. The existing `azd` hooks handle provider
+registration and custom-domain binding; no separate hook invocations are needed.
 
 What happens:
 
@@ -182,12 +196,12 @@ azd env set FRONTEND_IMAGE 'ghcr.io/<OWNER>/component-cli/frontend:latest'
 
 ## 6. Deploy
 
-Run `azd provision` (or re-run it if you already provisioned the
+Run `just provision` (or re-run it if you already provisioned the
 infrastructure). It picks up `BACKEND_IMAGE` and `FRONTEND_IMAGE` from
 the environment and deploys the Container Apps with those images:
 
 ```sh
-azd provision
+just provision
 ```
 
 The service URLs are printed at the end. You can also retrieve them later:
@@ -204,7 +218,7 @@ example `wasm.directory`), set `CUSTOM_DOMAIN_NAME` before provisioning:
 
 ```sh
 azd env set CUSTOM_DOMAIN_NAME wasm.directory
-azd provision
+just provision
 ```
 
 With the variable set, `azd provision` also deploys
