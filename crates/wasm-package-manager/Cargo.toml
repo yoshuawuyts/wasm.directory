@@ -30,6 +30,7 @@ docker_credential = { workspace = true }
 futures-concurrency = { workspace = true }
 oci-client = { workspace = true }
 oci-wasm = { workspace = true }
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
