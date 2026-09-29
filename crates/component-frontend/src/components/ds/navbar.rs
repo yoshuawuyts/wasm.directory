@@ -178,9 +178,18 @@ pub(crate) fn render_bar(crumbs: &[Crumb], links: &[NavLink]) -> String {
 /// align with the content tracks below.
 #[must_use]
 pub(crate) fn render_bar_grid(crumbs: &[Crumb], links: &[NavLink]) -> String {
-    let breadcrumb_html = super::breadcrumb::render_breadcrumb(crumbs);
+    grid_bar(crumbs, links, false)
+}
 
-    let left = Division::builder()
+/// Render package-page chrome with the C06 mobile sidebar controls.
+#[must_use]
+pub(crate) fn render_package_bar_grid(crumbs: &[Crumb], links: &[NavLink]) -> String {
+    grid_bar(crumbs, links, true)
+}
+
+fn grid_brand(crumbs: &[Crumb]) -> Division {
+    let breadcrumb_html = super::breadcrumb::render_breadcrumb(crumbs);
+    Division::builder()
         .class("flex items-center gap-3 min-w-0")
         .anchor(|a| {
             a.href("/")
@@ -191,8 +200,9 @@ pub(crate) fn render_bar_grid(crumbs: &[Crumb], links: &[NavLink]) -> String {
         .division(|d| d.class("w-px h-4 bg-line flex-shrink-0"))
         .text(breadcrumb_html)
         .build()
-        .to_string();
+}
 
+fn grid_actions(links: &[NavLink]) -> Division {
     let search = search_button(SVG_SEARCH_SM, "Type / to search", true);
     let mut right = Division::builder();
     right.class("flex items-center gap-2 min-w-0 text-[12px] text-ink-500");
@@ -208,19 +218,121 @@ pub(crate) fn render_bar_grid(crumbs: &[Crumb], links: &[NavLink]) -> String {
     }
     right.division(|d| d.class("hidden sm:block w-px h-4 bg-line mx-0.5"));
     right.text(theme_toggle());
-    let right = right.build().to_string();
+    right.build()
+}
 
-    let bar = html::content::Header::builder()
-        .class("col-span-full sticky top-0 z-20 bg-canvas/90 backdrop-blur border-b hairline")
-        .division(|inner| {
-            inner
-                .class("w-full px-4 md:px-8 h-[var(--navbar-h)] flex items-center justify-between gap-4")
-                .text(left)
-                .text(right)
+fn grid_bar(crumbs: &[Crumb], links: &[NavLink], package_navigation: bool) -> String {
+    let desktop = Division::builder()
+        .class(if package_navigation {
+            "hidden md:flex w-full px-4 md:px-8 h-[var(--navbar-h)] items-center justify-between gap-4"
+        } else {
+            "flex w-full px-4 md:px-8 h-[var(--navbar-h)] items-center justify-between gap-4"
         })
+        .push(grid_brand(crumbs))
+        .push(grid_actions(links))
         .build();
+    let mut bar = html::content::Header::builder();
+    bar.class("col-span-full sticky top-0 z-20 bg-canvas/90 backdrop-blur border-b hairline")
+        .push(desktop);
+    if package_navigation {
+        bar.push(mobile_package_bar(crumbs, false));
+    }
+    bar.build().to_string()
+}
 
-    bar.to_string()
+fn package_menu_button(open: bool) -> String {
+    use crate::components::mobile_sidebar;
+
+    let (id, label, icon, state_class) = if open {
+        (
+            mobile_sidebar::CLOSE_ID,
+            "Close package navigation",
+            SVG_CLOSE,
+            "bg-surfaceMuted text-ink-900",
+        )
+    } else {
+        (
+            mobile_sidebar::OPEN_ID,
+            "Open package navigation",
+            SVG_HAMBURGER,
+            "text-ink-700 hover:bg-surfaceMuted hover:text-ink-900",
+        )
+    };
+    let controls = if open {
+        String::new()
+    } else {
+        format!(
+            r#" aria-controls="{}" aria-expanded="false" aria-haspopup="dialog""#,
+            mobile_sidebar::DIALOG_ID
+        )
+    };
+    // The builder lacks aria-controls; these attributes and icons are static.
+    format!(
+        r#"<button type="button" id="{id}" aria-label="{label}" class="inline-flex h-11 w-11 -ml-1 shrink-0 items-center justify-center rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent {state_class}"{controls}>{icon}</button>"#
+    )
+}
+
+/// C06 mobile chrome: menu/close on the left, breadcrumbs, then search.
+pub(crate) fn mobile_package_bar(crumbs: &[Crumb], open: bool) -> Division {
+    let mut bar = Division::builder();
+    bar.class("md:hidden flex items-center gap-2 px-3 h-[var(--navbar-h)]");
+    bar.text(package_menu_button(open));
+    bar.division(|crumbs_container| {
+        crumbs_container
+            .class("min-w-0 flex-1")
+            .text(super::breadcrumb::render_breadcrumb(crumbs))
+    });
+    bar.button(|button| {
+        button.type_("button")
+            .aria_label("Search packages")
+            .disabled(open)
+            .class(if open {
+                "inline-flex h-11 w-11 -mr-1 shrink-0 items-center justify-center text-ink-400"
+            } else {
+                "search-trigger inline-flex h-11 w-11 -mr-1 shrink-0 items-center justify-center rounded-md text-ink-700 hover:bg-surfaceMuted hover:text-ink-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+            })
+            .text(SVG_SEARCH_LG)
+    });
+    bar.build()
+}
+
+/// The C06 drawer's theme row, wired to the shared theme preference controller.
+#[must_use]
+pub(crate) fn theme_menu_item() -> Division {
+    Division::builder()
+        .class(
+            "flex min-h-[44px] items-center justify-between gap-2.5 px-2 text-[13px] text-ink-700",
+        )
+        .span(|label| label.text("Theme"))
+        .text(theme_toggle())
+        .build()
+}
+
+/// C06 drawer links retain the home destination and the desktop's primary links.
+pub(crate) fn mobile_site_links(links: &[NavLink]) -> html::content::Navigation {
+    const LINK_CLASS: &str = "flex min-h-[44px] items-center gap-2.5 px-2 rounded-md text-[13px] text-ink-700 hover:bg-surfaceMuted hover:text-ink-900 no-underline";
+    let mut nav = html::content::Navigation::builder();
+    nav.aria_label("Site navigation").class("space-y-0.5");
+    nav.anchor(|a| {
+        a.href("/")
+            .class(LINK_CLASS)
+            .text(SVG_HOME_NAV)
+            .text("Home")
+    });
+    for link in links {
+        let icon = if link.href == "/downloads" {
+            SVG_TERMINAL_ICON
+        } else {
+            SVG_DOCS
+        };
+        nav.anchor(|a| {
+            a.href(link.href.to_owned())
+                .class(LINK_CLASS)
+                .text(icon)
+                .text(link.label.to_owned())
+        });
+    }
+    nav.build()
 }
 
 // ---------------------------------------------------------------------------
@@ -684,6 +796,7 @@ mod tests {
             desktop(),
             tablet(),
             mobile_drawer(DRAWER_LINKS),
+            theme_menu_item().to_string(),
         ] {
             assert_eq!(html.matches(&button).count(), 1);
         }
@@ -721,5 +834,22 @@ mod tests {
             html.contains(">alpha</span>"),
             "expected alpha badge text in navbar: {html}",
         );
+    }
+
+    #[test]
+    fn package_navigation_uses_the_c06_mobile_menu_and_search_pattern() {
+        let html = render_package_bar_grid(&[], &[]);
+        assert!(html.contains(r#"id="package-navigation-open""#));
+        assert!(html.contains(r#"aria-controls="package-navigation-dialog""#));
+        assert!(html.contains(r#"aria-expanded="false""#));
+        assert!(html.contains(r#"aria-haspopup="dialog""#));
+        assert!(html.contains(r#"aria-label="Search packages""#));
+        assert!(html.contains("hidden md:flex"));
+        assert!(!render_bar_grid(&[], &[]).contains("package-navigation-open"));
+
+        let open = mobile_package_bar(&[], true).to_string();
+        assert!(open.contains(r#"id="package-navigation-close""#));
+        assert!(open.contains("disabled"));
+        assert!(!open.contains("search-trigger"));
     }
 }

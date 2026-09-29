@@ -84,8 +84,6 @@ pub(crate) fn render(
             href: None,
         }],
         toc_html: None,
-        importers: &[],
-        exporters: &[],
     })
 }
 
@@ -108,6 +106,8 @@ mod tests {
             wit_namespace: Some("example".to_string()),
             wit_name: Some("pkg".to_string()),
             dependencies: vec![],
+            dependents: None,
+            latest_release_at: None,
         }
     }
 

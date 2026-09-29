@@ -8,6 +8,8 @@ use wit_parser::{
     WorldItem, WorldKey,
 };
 
+use crate::package_source::urls::append_path;
+
 use super::types::{
     CaseDoc, EnumCaseDoc, FieldDoc, FlagDoc, FunctionDoc, HandleKind, InterfaceDoc, ParamDoc,
     Stability, TypeDoc, TypeKind, TypeRef, WitDocument, WitTypeKind, WorldDoc, WorldItemDoc,
@@ -117,7 +119,7 @@ pub(crate) fn convert(
                 .get(*iface_id)
                 .expect("interface id should be valid");
             for (type_name, type_id) in &iface.types {
-                let url = format!("{url_base}/interface/{iface_name}/{type_name}");
+                let url = append_path(url_base, &format!("/interface/{iface_name}/{type_name}"));
                 converter
                     .type_urls
                     .insert(*type_id, (url, type_name.clone()));
@@ -158,7 +160,7 @@ impl Converter<'_> {
             .get(id)
             .expect("interface id should be valid");
 
-        let iface_url = format!("{}/interface/{name}", self.url_base);
+        let iface_url = append_path(self.url_base, &format!("/interface/{name}"));
 
         // Collect all types, separating resource-associated functions.
         let mut resource_constructors: HashMap<TypeId, FunctionDoc> = HashMap::new();
@@ -228,7 +230,7 @@ impl Converter<'_> {
             .get(type_id)
             .expect("type id should be valid");
 
-        let url = format!("{}/interface/{iface_name}/{name}", self.url_base);
+        let url = append_path(self.url_base, &format!("/interface/{iface_name}/{name}"));
         let stability = convert_stability(&type_def.stability);
         let docs = type_def
             .docs
@@ -460,7 +462,7 @@ impl Converter<'_> {
                     if let (Some(dep_base), Some(iface_name)) =
                         (self.dep_urls.get(&pkg_key), &iface.name)
                     {
-                        let url = format!("{dep_base}/interface/{iface_name}/{name}");
+                        let url = append_path(dep_base, &format!("/interface/{iface_name}/{name}"));
                         return TypeRef::Named {
                             name: name.clone(),
                             url: Some(url),
@@ -538,7 +540,10 @@ impl Converter<'_> {
     /// Convert a function.
     fn convert_function(&self, func: &wit_parser::Function, iface_name: &str) -> FunctionDoc {
         let display_name = func.item_name().to_owned();
-        let url = format!("{}/interface/{iface_name}/{}", self.url_base, display_name);
+        let url = append_path(
+            self.url_base,
+            &format!("/interface/{iface_name}/{display_name}"),
+        );
 
         FunctionDoc {
             name: display_name,
@@ -566,7 +571,7 @@ impl Converter<'_> {
             .get(id)
             .expect("world id should be valid");
 
-        let url = format!("{}/world/{name}", self.url_base);
+        let url = append_path(self.url_base, &format!("/world/{name}"));
 
         WorldDoc {
             name: name.to_owned(),
@@ -619,9 +624,12 @@ impl Converter<'_> {
                 // the synthetic `root` world of an extracted component.  For
                 // non-synthetic worlds, keep a world-qualified URL so that two
                 // worlds exporting a function with the same name don't collide.
-                if self.primary_is_root_component && world_name == "root" {
-                    doc.url = format!("{}/function/{}", self.url_base, doc.name);
-                }
+                let suffix = if self.primary_is_root_component && world_name == "root" {
+                    format!("/function/{}", doc.name)
+                } else {
+                    format!("/world/{world_name}/function/{}", doc.name)
+                };
+                doc.url = append_path(self.url_base, &suffix);
                 WorldItemDoc::Function(doc)
             }
             WorldItem::Type { id: type_id, .. } => {
@@ -674,7 +682,7 @@ impl Converter<'_> {
 
             // Check if this is an interface in our own package.
             if self.own_interfaces.contains(&id) {
-                let iface_url = format!("{}/interface/{iface_name}", self.url_base);
+                let iface_url = append_path(self.url_base, &format!("/interface/{iface_name}"));
                 // Native interfaces drop the package prefix so they read as
                 // first-class members of this document (e.g. `convert`
                 // instead of `yoshuawuyts:wordmark/convert`).
@@ -683,7 +691,7 @@ impl Converter<'_> {
 
             // Check dep_urls for external packages.
             if let Some(dep_base) = self.dep_urls.get(&pkg_key) {
-                let url = format!("{dep_base}/interface/{iface_name}");
+                let url = append_path(dep_base, &format!("/interface/{iface_name}"));
                 return (display, Some(url));
             }
 

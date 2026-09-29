@@ -41,10 +41,6 @@ pub(crate) struct DetailSpec<'a> {
     pub extra_crumbs: &'a [crate::components::ds::breadcrumb::Crumb],
     /// Optional "On this page" ToC HTML.
     pub toc_html: Option<&'a str>,
-    /// Packages that import this one (root page only).
-    pub importers: &'a [KnownPackage],
-    /// Packages that export this one (root page only).
-    pub exporters: &'a [KnownPackage],
 }
 
 /// Render a package-family detail page.
@@ -59,7 +55,7 @@ pub(crate) fn render(spec: &DetailSpec<'_>) -> String {
         .version_detail
         .map_or(&[][..], |d| d.components.as_slice());
 
-    let nav = page_sidebar::render_sidebar(&SidebarContext {
+    let sidebar_ctx = SidebarContext {
         display_name: &display_name,
         version: spec.version,
         versions: &spec.pkg.tags,
@@ -74,14 +70,13 @@ pub(crate) fn render(spec: &DetailSpec<'_>) -> String {
         repository: &spec.pkg.repository,
         digest: spec.version_detail.map(|d| d.digest.as_str()),
         dependencies: &spec.pkg.dependencies,
-    });
+    };
+    let nav = page_sidebar::render_sidebar(&sidebar_ctx);
 
     let shell_ctx = page_shell::SidebarContext {
         pkg: spec.pkg,
         version: spec.version,
         version_detail: spec.version_detail,
-        importers: spec.importers,
-        exporters: spec.exporters,
         nav_html: Some(nav.to_string()),
     };
     page_shell::render_page_with_crumbs(

@@ -1,0 +1,212 @@
+---
+source: crates/component-frontend/src/components/ds/package_row/tests.rs
+expression: "crate::components::ds::pretty_html(&rows.build().to_string())"
+---
+<div class="divide-y divide-lineSoft">
+  <div>
+    <a href="/example/http" class="flex flex-col gap-1 py-3 -mx-2 px-2 hover:bg-surfaceMuted focus-visible:bg-surfaceMuted transition-colors motion-reduce:transition-none">
+      <span class="flex flex-wrap items-baseline gap-x-3 gap-y-1 min-w-0">
+        <span class="min-w-0 max-w-full mono text-[14px] font-medium text-ink-900 [overflow-wrap:anywhere]">
+          example/http
+        </span>
+        <span class="flex-1 basis-64 min-w-0 max-w-full text-[13px] text-ink-500 truncate" title="HTTP **interfaces**">
+          HTTP
+          <strong>
+            interfaces
+          </strong>
+        </span>
+      </span>
+      <span class="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0 text-[12px] sm:text-[13px] text-ink-500">
+        <span class="bar-sm bg-cat-blue text-cat-blueInk">
+          interface
+        </span>
+        <span class="min-w-0 max-w-full mono [overflow-wrap:anywhere]">
+          v0.2.0
+        </span>
+        <span class="inline-flex items-center gap-1 cursor-help" title="12 dependents. Other indexed repositories that directly depend on this package, counted once each.">
+          <span class="inline-flex shrink-0">
+            <span aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M6.122.392a1.75 1.75 0 0 1 1.756 0l5.25 3.045c.54.313.872.89.872 1.514V7.25a.75.75 0 0 1-1.5 0V5.677L7.75 8.432v6.384a1 1 0 0 1-1.502.865L.872 12.563A1.75 1.75 0 0 1 0 11.049V4.951c0-.624.332-1.2.872-1.514ZM7.125 1.69a.248.248 0 0 0-.25 0l-4.63 2.685L7 7.133l4.755-2.758ZM1.5 11.049a.25.25 0 0 0 .125.216l4.625 2.683V8.432L1.5 5.677Zm10.828 3.684 1.173-1.233H10.25a.75.75 0 0 1 0-1.5h3.251l-1.173-1.233a.75.75 0 1 1 1.087-1.034l2.378 2.5a.75.75 0 0 1 0 1.034l-2.378 2.5a.75.75 0 0 1-1.087-1.034Z"/>
+              </svg>
+            </span>
+          </span>
+          <span>
+            <span aria-hidden="true">
+              12
+            </span>
+            <span class="sr-only">
+              12 dependents
+            </span>
+          </span>
+        </span>
+        <span class="inline-flex items-center gap-1">
+          <span class="inline-flex shrink-0">
+            <span aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+            </span>
+          </span>
+          <time datetime="2026-09-21T06:30:00Z" title="Updated 2026-09-21">
+            <span>
+              <span aria-hidden="true">
+                3 days
+              </span>
+              <span class="sr-only">
+                Updated 3 days ago
+              </span>
+            </span>
+          </time>
+        </span>
+      </span>
+    </a>
+  </div>
+  <div>
+    <a href="/example/atlassian" class="flex flex-col gap-1 py-3 -mx-2 px-2 hover:bg-surfaceMuted focus-visible:bg-surfaceMuted transition-colors motion-reduce:transition-none">
+      <span class="flex flex-wrap items-baseline gap-x-3 gap-y-1 min-w-0">
+        <span class="min-w-0 max-w-full mono text-[14px] font-medium text-ink-900 [overflow-wrap:anywhere]">
+          example/atlassian
+        </span>
+        <span class="flex-1 basis-64 min-w-0 max-w-full text-[13px] text-ink-500 truncate" title="WebAssembly component bindings for the atlassian API, generated from an OpenAPI document.">
+          WebAssembly component bindings for the atlassian API, generated from an OpenAPI document.
+        </span>
+      </span>
+      <span class="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0 text-[12px] sm:text-[13px] text-ink-500">
+        <span class="bar-sm bg-cat-green text-cat-greenInk">
+          component
+        </span>
+        <span class="min-w-0 max-w-full mono [overflow-wrap:anywhere]">
+          v0.5.0_atlassian-1001.0.0-SNAPSHOT
+        </span>
+        <span class="inline-flex items-center gap-1 cursor-help" title="1 dependent. Other indexed repositories that directly depend on this package, counted once each.">
+          <span class="inline-flex shrink-0">
+            <span aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M6.122.392a1.75 1.75 0 0 1 1.756 0l5.25 3.045c.54.313.872.89.872 1.514V7.25a.75.75 0 0 1-1.5 0V5.677L7.75 8.432v6.384a1 1 0 0 1-1.502.865L.872 12.563A1.75 1.75 0 0 1 0 11.049V4.951c0-.624.332-1.2.872-1.514ZM7.125 1.69a.248.248 0 0 0-.25 0l-4.63 2.685L7 7.133l4.755-2.758ZM1.5 11.049a.25.25 0 0 0 .125.216l4.625 2.683V8.432L1.5 5.677Zm10.828 3.684 1.173-1.233H10.25a.75.75 0 0 1 0-1.5h3.251l-1.173-1.233a.75.75 0 1 1 1.087-1.034l2.378 2.5a.75.75 0 0 1 0 1.034l-2.378 2.5a.75.75 0 0 1-1.087-1.034Z"/>
+              </svg>
+            </span>
+          </span>
+          <span>
+            <span aria-hidden="true">
+              1
+            </span>
+            <span class="sr-only">
+              1 dependent
+            </span>
+          </span>
+        </span>
+        <span class="inline-flex items-center gap-1">
+          <span class="inline-flex shrink-0">
+            <span aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+            </span>
+          </span>
+          <time datetime="2026-09-21T06:30:00Z" title="Updated 2026-09-21">
+            <span>
+              <span aria-hidden="true">
+                3 days
+              </span>
+              <span class="sr-only">
+                Updated 3 days ago
+              </span>
+            </span>
+          </time>
+        </span>
+      </span>
+    </a>
+  </div>
+  <div class="flex flex-col gap-1 py-3 -mx-2 px-2">
+    <span class="flex flex-wrap items-baseline gap-x-3 gap-y-1 min-w-0">
+      <span class="min-w-0 max-w-full mono text-[14px] font-medium text-ink-900 [overflow-wrap:anywhere]">
+        example/long-repository-name-long-repository-name-long-repository-name-long-repository-name-long-repository-name-long-repository-name-long-repository-name-long-repository-name-
+      </span>
+      <span class="flex-1 basis-64 min-w-0 max-w-full text-[13px] text-ink-500 truncate" title="UnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescription">
+        UnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescriptionUnbrokenDescription
+      </span>
+    </span>
+    <span class="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0 text-[12px] sm:text-[13px] text-ink-500">
+      <span class="bar-sm bg-cat-slate text-cat-slateInk">
+        package
+      </span>
+      <span class="min-w-0 max-w-full mono [overflow-wrap:anywhere]">
+        v1.0.0-rc.1+abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh
+      </span>
+      <span class="inline-flex items-center gap-1 cursor-help" title="0 dependents (count unavailable). Other indexed repositories that directly depend on this package, counted once each.">
+        <span class="inline-flex shrink-0">
+          <span aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M6.122.392a1.75 1.75 0 0 1 1.756 0l5.25 3.045c.54.313.872.89.872 1.514V7.25a.75.75 0 0 1-1.5 0V5.677L7.75 8.432v6.384a1 1 0 0 1-1.502.865L.872 12.563A1.75 1.75 0 0 1 0 11.049V4.951c0-.624.332-1.2.872-1.514ZM7.125 1.69a.248.248 0 0 0-.25 0l-4.63 2.685L7 7.133l4.755-2.758ZM1.5 11.049a.25.25 0 0 0 .125.216l4.625 2.683V8.432L1.5 5.677Zm10.828 3.684 1.173-1.233H10.25a.75.75 0 0 1 0-1.5h3.251l-1.173-1.233a.75.75 0 1 1 1.087-1.034l2.378 2.5a.75.75 0 0 1 0 1.034l-2.378 2.5a.75.75 0 0 1-1.087-1.034Z"/>
+            </svg>
+          </span>
+        </span>
+        <span>
+          <span aria-hidden="true">
+            0
+          </span>
+          <span class="sr-only">
+            0 dependents (count unavailable)
+          </span>
+        </span>
+      </span>
+      <span class="inline-flex items-center gap-1">
+        <span class="inline-flex shrink-0">
+          <span aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+          </span>
+        </span>
+        <time datetime="2026-09-21T06:30:00Z" title="Updated 2026-09-21">
+          <span>
+            <span aria-hidden="true">
+              3 days
+            </span>
+            <span class="sr-only">
+              Updated 3 days ago
+            </span>
+          </span>
+        </time>
+      </span>
+    </span>
+  </div>
+  <div>
+    <a href="/example/empty" class="flex flex-col gap-1 py-3 -mx-2 px-2 hover:bg-surfaceMuted focus-visible:bg-surfaceMuted transition-colors motion-reduce:transition-none">
+      <span class="flex flex-wrap items-baseline gap-x-3 gap-y-1 min-w-0">
+        <span class="min-w-0 max-w-full mono text-[14px] font-medium text-ink-900 [overflow-wrap:anywhere]">
+          example/empty
+        </span>
+      </span>
+      <span class="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0 text-[12px] sm:text-[13px] text-ink-500">
+        <span class="bar-sm bg-cat-slate text-cat-slateInk">
+          package
+        </span>
+        <span class="min-w-0 max-w-full mono [overflow-wrap:anywhere]">
+          —
+        </span>
+        <span class="inline-flex items-center gap-1 cursor-help" title="0 dependents. Other indexed repositories that directly depend on this package, counted once each.">
+          <span class="inline-flex shrink-0">
+            <span aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M6.122.392a1.75 1.75 0 0 1 1.756 0l5.25 3.045c.54.313.872.89.872 1.514V7.25a.75.75 0 0 1-1.5 0V5.677L7.75 8.432v6.384a1 1 0 0 1-1.502.865L.872 12.563A1.75 1.75 0 0 1 0 11.049V4.951c0-.624.332-1.2.872-1.514ZM7.125 1.69a.248.248 0 0 0-.25 0l-4.63 2.685L7 7.133l4.755-2.758ZM1.5 11.049a.25.25 0 0 0 .125.216l4.625 2.683V8.432L1.5 5.677Zm10.828 3.684 1.173-1.233H10.25a.75.75 0 0 1 0-1.5h3.251l-1.173-1.233a.75.75 0 1 1 1.087-1.034l2.378 2.5a.75.75 0 0 1 0 1.034l-2.378 2.5a.75.75 0 0 1-1.087-1.034Z"/>
+              </svg>
+            </span>
+          </span>
+          <span>
+            <span aria-hidden="true">
+              0
+            </span>
+            <span class="sr-only">
+              0 dependents
+            </span>
+          </span>
+        </span>
+      </span>
+    </a>
+  </div>
+</div>

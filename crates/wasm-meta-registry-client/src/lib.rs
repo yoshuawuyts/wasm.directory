@@ -65,6 +65,8 @@ mod tests {
             created_at: String::new(),
             wit_namespace: None,
             wit_name: None,
+            dependents: None,
+            latest_release_at: None,
             dependencies: vec![dep],
         };
         assert_eq!(pkg.reference(), "ghcr.io/user/repo");

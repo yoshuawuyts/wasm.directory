@@ -27,6 +27,7 @@ pulldown-cmark = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 semver = { workspace = true }
+tower-http = { workspace = true, features = ["compression-br", "compression-gzip"] }
 wit-parser = { workspace = true }
 wstd = { workspace = true }
 wstd-axum = { workspace = true }
@@ -37,8 +38,11 @@ wasm-meta-registry-client = { workspace = true }
 [target.'cfg(not(all(target_os = "wasi", target_env = "p2")))'.dependencies]
 wasm-meta-registry-client = { workspace = true, features = ["client"] }
 [dev-dependencies]
+brotli = "8"
+flate2 = "1"
 insta = { workspace = true }
 tokio = { workspace = true }
+tokio-stream = { workspace = true }
 tower = { version = "0.5", features = ["util"] }
 
 [lints]

@@ -9,8 +9,8 @@ const BROWSE: &[FooterLink] = &[
         href: Some("/all"),
     },
     FooterLink {
-        label: "Authors",
-        href: None,
+        label: "Namespaces",
+        href: Some("/namespaces"),
     },
     FooterLink {
         label: "Registries",

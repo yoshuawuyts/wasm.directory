@@ -202,6 +202,14 @@ mod tests {
     }
 
     #[test]
+    fn summary_stops_after_the_first_html_block() {
+        assert_eq!(
+            render_summary("<script>alert(1)</script>\n\nSecond"),
+            "&lt;script&gt;alert(1)&lt;/script&gt;"
+        );
+    }
+
+    #[test]
     fn summary_escapes_source_html_and_metacharacters_once() {
         let out = render_summary(
             "A &amp; B <code>literal</code> <script>alert(1)</script> <img src=x onerror=alert(1)>.",

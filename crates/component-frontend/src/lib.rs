@@ -12,21 +12,27 @@
 // r[impl frontend.server.wasi-http]
 
 mod components;
+mod compression;
 mod escape;
 mod favicon;
 mod footer;
 mod install;
 mod layout;
 mod markdown;
+mod namespace_routes;
+mod package_source;
 mod pages;
+mod relationship_routes;
+mod relationships;
 mod relative_time;
 mod reserved;
 mod server;
 mod tailwind;
 mod wit_doc;
 
-use axum::body::Body;
-use axum::extract::{Path, Query};
+use std::sync::Arc;
+
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::{Json, Router, routing::get};
@@ -34,14 +40,29 @@ use serde::Deserialize;
 
 use wasm_meta_registry_client::{KnownPackage, RegistryClient};
 
-use crate::reserved::is_reserved;
-
 /// Build the application router with all frontend routes.
 fn app() -> Router {
-    Router::new()
+    app_with_client(RegistryClient::from_env())
+}
+
+fn app_with_client(client: RegistryClient) -> Router {
+    let router = Router::new()
         .route("/", get(home))
         .route("/all", get(all_packages))
+        .route("/namespaces", get(namespace_routes::all))
+        .route("/namespaces/", get(namespace_routes::all))
+        .route(
+            "/namespaces/{namespace}",
+            get(namespace_routes::directory_packages),
+        )
+        .route(
+            "/namespaces/{namespace}/",
+            get(namespace_routes::directory_packages),
+        )
         .route("/search", get(search))
+        .route("/search/dependents", get(relationship_routes::dependents))
+        .route("/search/imported-by", get(relationship_routes::imported_by))
+        .route("/search/exported-by", get(relationship_routes::exported_by))
         .route("/about", get(about))
         .route("/docs", get(docs))
         .route("/docs/{page}", get(docs_page))
@@ -59,8 +80,8 @@ fn app() -> Router {
         .route(tailwind::LICENSE_PATH, get(tailwind::license))
         .route("/{namespace}/{name}", get(package_redirect))
         .route("/{namespace}/{name}/", get(package_redirect))
-        .route("/{namespace}", get(namespace_page))
-        .route("/{namespace}/", get(namespace_page))
+        .route("/{namespace}", get(namespace_routes::packages))
+        .route("/{namespace}/", get(namespace_routes::packages))
         .route("/{namespace}/{name}/{version}", get(package_detail))
         .route(
             "/{namespace}/{name}/{version}/dependencies",
@@ -99,6 +120,8 @@ fn app() -> Router {
             get(child_component_detail),
         )
         .fallback(not_found)
+        .with_state(Arc::new(client));
+    compression::layer(router)
 }
 
 // r[impl frontend.server.wasi-http]
@@ -132,10 +155,9 @@ async fn robots() -> impl IntoResponse {
 
 // r[impl frontend.pages.home]
 /// Front page showing recently updated components and interfaces.
-async fn home(headers: HeaderMap) -> Response {
-    let client = RegistryClient::from_env();
+async fn home(State(client): State<Arc<RegistryClient>>) -> Response {
     let html = pages::home::render(&client).await;
-    with_cache_control(&headers, html, "public, max-age=60")
+    with_cache_control(html, "public, max-age=60")
 }
 
 /// Query parameters for the search page.
@@ -146,7 +168,7 @@ struct SearchParams {
     q: String,
 }
 
-/// Query parameters for the all-packages page.
+/// Query parameters shared by package and namespace listings.
 #[derive(Deserialize)]
 struct AllPackagesParams {
     /// Pagination offset.
@@ -163,19 +185,19 @@ fn default_all_packages_limit() -> u32 {
 
 // r[impl frontend.pages.search]
 /// Search results page.
-async fn search(headers: HeaderMap, Query(params): Query<SearchParams>) -> Response {
+async fn search(Query(params): Query<SearchParams>) -> Response {
     let client = RegistryClient::from_env();
     let html = pages::search::render(&client, &params.q).await;
-    with_cache_control(&headers, html, "public, max-age=60")
+    with_cache_control(html, "public, max-age=60")
 }
 
 // r[impl frontend.pages.all]
 /// Paginated listing of all known packages.
-async fn all_packages(headers: HeaderMap, Query(params): Query<AllPackagesParams>) -> Response {
+async fn all_packages(Query(params): Query<AllPackagesParams>) -> Response {
     let client = RegistryClient::from_env();
     let limit = params.limit.clamp(1, 200);
     let html = pages::all::render(&client, params.offset, limit).await;
-    with_cache_control(&headers, html, "public, max-age=60")
+    with_cache_control(html, "public, max-age=60")
 }
 
 /// About page — redirects to docs.
@@ -184,54 +206,47 @@ async fn about() -> Response {
 }
 
 /// Documentation page.
-async fn docs(headers: HeaderMap) -> Response {
+async fn docs() -> Response {
     let html = pages::docs::render();
-    with_cache_control(&headers, html, "public, max-age=3600")
+    with_cache_control(html, "public, max-age=3600")
 }
 
 /// Individual documentation sub-page (`/docs/<slug>`).
-async fn docs_page(headers: HeaderMap, Path(page): Path<String>) -> Response {
+async fn docs_page(Path(page): Path<String>) -> Response {
     match pages::docs::render_page(&page) {
-        Some(html) => with_cache_control(&headers, html, "public, max-age=3600"),
+        Some(html) => with_cache_control(html, "public, max-age=3600"),
         None => not_found_response(),
     }
 }
 
 /// Design system reference page.
-async fn design_system(headers: HeaderMap) -> Response {
+async fn design_system() -> Response {
     let html = pages::design_system::render();
-    with_cache_control(&headers, html, "public, max-age=3600")
+    with_cache_control(html, "public, max-age=3600")
 }
 
 /// Downloads page.
-async fn downloads(headers: HeaderMap) -> Response {
+async fn downloads() -> Response {
     let html = pages::downloads::render();
-    with_cache_control(&headers, html, "public, max-age=3600")
+    with_cache_control(html, "public, max-age=3600")
 }
 
 /// Fetch queue status page.
-async fn queue_status(headers: HeaderMap) -> Response {
+async fn queue_status() -> Response {
     let client = RegistryClient::from_env();
     let html = pages::queue::render(&client).await;
-    with_cache_control(&headers, html, "no-cache")
-}
-
-/// Namespace page — list all packages under a publisher.
-async fn namespace_page(headers: HeaderMap, Path(namespace): Path<String>) -> Response {
-    if is_reserved(&namespace) {
-        return not_found_response();
-    }
-
-    let client = RegistryClient::from_env();
-    let html = pages::namespace::render(&client, &namespace).await;
-    with_cache_control(&headers, html, "public, max-age=60")
+    with_cache_control(html, "no-cache")
 }
 
 // r[impl frontend.pages.package-redirect]
 // r[impl frontend.routing.reserved-namespaces]
 /// Redirect `/<namespace>/<name>` to `/<namespace>/<name>/<latest-version>`.
-async fn package_redirect(path: Path<(String, String)>) -> Response {
-    match resolve_package_redirect(path).await {
+async fn package_redirect(
+    State(client): State<Arc<RegistryClient>>,
+    path: Path<(String, String)>,
+    Query(source): Query<package_source::PackageSource>,
+) -> Response {
+    match resolve_package_redirect(&client, path, &source).await {
         Ok(redirect) => redirect.into_response(),
         Err(response) => *response,
     }
@@ -240,46 +255,32 @@ async fn package_redirect(path: Path<(String, String)>) -> Response {
 /// Resolve the latest-version redirect for a package, or the error response
 /// to send instead.
 async fn resolve_package_redirect(
+    client: &RegistryClient,
     Path((namespace, name)): Path<(String, String)>,
+    source: &package_source::PackageSource,
 ) -> Result<Redirect, Box<Response>> {
-    if is_reserved(&namespace) {
+    let Some(pkg) = source.fetch_package(client, &namespace, &name).await? else {
+        eprintln!("component-frontend: package not found: {namespace}/{name}");
         return Err(Box::new(not_found_response()));
-    }
-
-    let client = RegistryClient::from_env();
-    match client.fetch_package_by_wit(&namespace, &name).await {
-        Ok(Some(pkg)) => {
-            if let Some(version) = pick_redirect_version(&pkg.tags) {
-                Ok(Redirect::temporary(&format!(
-                    "/{namespace}/{name}/{version}"
-                )))
-            } else {
-                eprintln!(
-                    "component-frontend: package has no redirectable tags: {namespace}/{name}"
-                );
-                Err(Box::new(not_found_response()))
-            }
-        }
-        Ok(None) => {
-            eprintln!("component-frontend: package not found: {namespace}/{name}");
-            Err(Box::new(not_found_response()))
-        }
-        Err(e) => {
-            eprintln!("component-frontend: API error looking up {namespace}/{name}: {e}");
-            Err(Box::new(error_response(&e.to_string())))
-        }
-    }
+    };
+    let Some(version) = pick_redirect_version(&pkg.tags) else {
+        eprintln!("component-frontend: package has no redirectable tags: {namespace}/{name}");
+        return Err(Box::new(not_found_response()));
+    };
+    Ok(Redirect::temporary(&components::page_shell::url_base_for(
+        &pkg, &version,
+    )))
 }
 
 // r[impl frontend.pages.package-detail]
 // r[impl frontend.routing.package-path]
 /// Package detail page at `/<namespace>/<name>/<version>`.
 async fn package_detail(
-    headers: HeaderMap,
+    State(client): State<Arc<RegistryClient>>,
     Path((namespace, name, version)): Path<(String, String, String)>,
+    Query(source): Query<package_source::PackageSource>,
 ) -> Response {
-    let client = RegistryClient::from_env();
-    let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
+    let pkg = match source.fetch(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
@@ -289,46 +290,50 @@ async fn package_detail(
         .await
         .ok()
         .flatten();
-    let display_name = format!("{namespace}:{name}");
-    let importers = client
-        .search_packages_by_import(&display_name)
-        .await
-        .unwrap_or_default();
-    let exporters = client
-        .search_packages_by_export(&display_name)
-        .await
-        .unwrap_or_default();
-    let html = pages::package::render(
-        &pkg,
-        &version,
-        version_detail.as_ref(),
-        &importers,
-        &exporters,
-    );
-    with_cache_control(&headers, html, "public, max-age=300")
+    let html = pages::package::render(&pkg, &version, version_detail.as_ref());
+    with_cache_control(html, "public, max-age=300")
 }
 
 /// Legacy dependencies route — redirects to the main package page.
 async fn package_dependencies(
     Path((namespace, name, version)): Path<(String, String, String)>,
+    Query(source): Query<package_source::PackageSource>,
 ) -> Response {
-    Redirect::permanent(&format!("/{namespace}/{name}/{version}")).into_response()
+    use package_source::urls::encode_segment;
+
+    let path = format!(
+        "/{}/{}/{}",
+        encode_segment(&namespace),
+        encode_segment(&name),
+        encode_segment(&version)
+    );
+    match source.redirect_href(&path) {
+        Ok(href) => Redirect::permanent(&href).into_response(),
+        Err(response) => *response,
+    }
 }
 
-/// Legacy dependents route — redirects to the main package page.
+/// Legacy dependents route, now pointing to version-independent relationships.
 async fn package_dependents(
-    Path((namespace, name, version)): Path<(String, String, String)>,
+    Path((namespace, name, _version)): Path<(String, String, String)>,
 ) -> Response {
-    Redirect::permanent(&format!("/{namespace}/{name}/{version}")).into_response()
+    match wasm_meta_registry_client::RelationshipTarget::new(&format!("{namespace}:{name}"), None) {
+        Ok(target) => Redirect::permanent(&relationships::Relationship::Dependents.href(&target))
+            .into_response(),
+        Err(error) => {
+            eprintln!("component-frontend: invalid legacy dependents target: {error}");
+            not_found_response()
+        }
+    }
 }
 
 /// Interface detail page at `/<namespace>/<name>/<version>/interface/<iface>`.
 async fn interface_detail(
-    headers: HeaderMap,
+    State(client): State<Arc<RegistryClient>>,
     Path((namespace, name, version, iface)): Path<(String, String, String, String)>,
+    Query(source): Query<package_source::PackageSource>,
 ) -> Response {
-    let client = RegistryClient::from_env();
-    let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
+    let pkg = match source.fetch(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
@@ -340,12 +345,12 @@ async fn interface_detail(
         return not_found_response();
     };
     let html = pages::interface::render(&pkg, &version, Some(&version_detail), iface_doc, &doc);
-    with_cache_control(&headers, html, "public, max-age=300")
+    with_cache_control(html, "public, max-age=300")
 }
 
 /// Item detail page at `/<namespace>/<name>/<version>/interface/<iface>/<item>`.
 async fn item_detail(
-    headers: HeaderMap,
+    State(client): State<Arc<RegistryClient>>,
     Path((namespace, name, version, iface, item_name)): Path<(
         String,
         String,
@@ -353,9 +358,9 @@ async fn item_detail(
         String,
         String,
     )>,
+    Query(source): Query<package_source::PackageSource>,
 ) -> Response {
-    let client = RegistryClient::from_env();
-    let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
+    let pkg = match source.fetch(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
@@ -371,10 +376,13 @@ async fn item_detail(
     if let Some(ty) = iface_doc.types.iter().find(|t| t.name == item_name) {
         let html =
             pages::item::render_type(&pkg, &version, Some(&version_detail), &iface, ty, &doc);
-        return with_cache_control(&headers, html, "public, max-age=300");
+        return with_cache_control(html, "public, max-age=300");
     }
     if let Some(func) = iface_doc.functions.iter().find(|f| f.name == item_name) {
-        let iface_url = format!("/{namespace}/{name}/{version}/interface/{iface}");
+        let iface_url = package_source::urls::append_path(
+            &components::page_shell::url_base_for(&pkg, &version),
+            &format!("/interface/{iface}"),
+        );
         let html = pages::item::render_function(
             &pkg,
             &version,
@@ -384,7 +392,7 @@ async fn item_detail(
             func,
             &doc,
         );
-        return with_cache_control(&headers, html, "public, max-age=300");
+        return with_cache_control(html, "public, max-age=300");
     }
 
     not_found_response()
@@ -392,11 +400,11 @@ async fn item_detail(
 
 /// World detail page at `/<namespace>/<name>/<version>/world/<world_name>`.
 async fn world_detail(
-    headers: HeaderMap,
+    State(client): State<Arc<RegistryClient>>,
     Path((namespace, name, version, world_name)): Path<(String, String, String, String)>,
+    Query(source): Query<package_source::PackageSource>,
 ) -> Response {
-    let client = RegistryClient::from_env();
-    let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
+    let pkg = match source.fetch(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
@@ -412,13 +420,13 @@ async fn world_detail(
         return not_found_response();
     }
     let html = pages::world::render(&pkg, &version, Some(&version_detail), world_doc, &doc);
-    with_cache_control(&headers, html, "public, max-age=300")
+    with_cache_control(html, "public, max-age=300")
 }
 
 /// Detail page for a freestanding function declared directly on a world,
 /// at `/<namespace>/<name>/<version>/world/<world>/function/<func>`.
 async fn world_function_detail(
-    headers: HeaderMap,
+    State(client): State<Arc<RegistryClient>>,
     Path((namespace, name, version, world_name, func_name)): Path<(
         String,
         String,
@@ -426,11 +434,11 @@ async fn world_function_detail(
         String,
         String,
     )>,
+    Query(source): Query<package_source::PackageSource>,
 ) -> Response {
     use crate::wit_doc::WorldItemDoc;
 
-    let client = RegistryClient::from_env();
-    let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
+    let pkg = match source.fetch(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
@@ -452,7 +460,10 @@ async fn world_function_detail(
     let Some(func) = func else {
         return not_found_response();
     };
-    let world_url = format!("/{namespace}/{name}/{version}/world/{world_name}");
+    let world_url = package_source::urls::append_path(
+        &components::page_shell::url_base_for(&pkg, &version),
+        &format!("/world/{world_name}"),
+    );
     let html = pages::item::render_function(
         &pkg,
         &version,
@@ -462,7 +473,7 @@ async fn world_function_detail(
         func,
         &doc,
     );
-    with_cache_control(&headers, html, "public, max-age=300")
+    with_cache_control(html, "public, max-age=300")
 }
 
 /// Detail page for a freestanding function inlined onto a package page,
@@ -470,13 +481,13 @@ async fn world_function_detail(
 /// world's imports and exports for a function with the given name and
 /// returns the first match.
 async fn package_function_detail(
-    headers: HeaderMap,
+    State(client): State<Arc<RegistryClient>>,
     Path((namespace, name, version, func_name)): Path<(String, String, String, String)>,
+    Query(source): Query<package_source::PackageSource>,
 ) -> Response {
     use crate::wit_doc::WorldItemDoc;
 
-    let client = RegistryClient::from_env();
-    let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
+    let pkg = match source.fetch(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
@@ -501,7 +512,7 @@ async fn package_function_detail(
     let Some(func) = func else {
         return not_found_response();
     };
-    let pkg_url = format!("/{namespace}/{name}/{version}");
+    let pkg_url = components::page_shell::url_base_for(&pkg, &version);
     let display_name = components::page_shell::display_name_for(&pkg);
     let html = pages::item::render_function(
         &pkg,
@@ -512,7 +523,7 @@ async fn package_function_detail(
         func,
         &doc,
     );
-    with_cache_control(&headers, html, "public, max-age=300")
+    with_cache_control(html, "public, max-age=300")
 }
 
 /// Fetch and parse the WIT document for a package version, returning
@@ -540,12 +551,7 @@ async fn fetch_wit_doc(
             Some((dep.package.clone(), url))
         })
         .collect();
-    let url_base = format!(
-        "/{}/{}/{}",
-        pkg.wit_namespace.as_deref().unwrap_or("_"),
-        pkg.wit_name.as_deref().unwrap_or(&pkg.repository),
-        version
-    );
+    let url_base = components::page_shell::url_base_for(pkg, version);
     let own_oci_package = match (pkg.wit_namespace.as_deref(), pkg.wit_name.as_deref()) {
         (Some(ns), Some(n)) => Some(format!("{ns}:{n}")),
         _ => None,
@@ -563,11 +569,11 @@ async fn fetch_wit_doc(
 
 /// Module detail page at `/<namespace>/<name>/<version>/module/<child_name>`.
 async fn module_detail(
-    headers: HeaderMap,
+    State(client): State<Arc<RegistryClient>>,
     Path((namespace, name, version, child_name)): Path<(String, String, String, String)>,
+    Query(source): Query<package_source::PackageSource>,
 ) -> Response {
-    let client = RegistryClient::from_env();
-    let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
+    let pkg = match source.fetch(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
@@ -610,16 +616,16 @@ async fn module_detail(
     };
     let html =
         pages::child_component::render(&pkg, &version, version_detail.as_ref(), child, &child_name);
-    with_cache_control(&headers, html, "public, max-age=300")
+    with_cache_control(html, "public, max-age=300")
 }
 
 /// Child component detail page at `/<namespace>/<name>/<version>/component/<index>`.
 async fn child_component_detail(
-    headers: HeaderMap,
+    State(client): State<Arc<RegistryClient>>,
     Path((namespace, name, version, child_index)): Path<(String, String, String, String)>,
+    Query(source): Query<package_source::PackageSource>,
 ) -> Response {
-    let client = RegistryClient::from_env();
-    let pkg = match fetch_package_or_404(&client, &namespace, &name, &version).await {
+    let pkg = match source.fetch(&client, &namespace, &name, &version).await {
         Ok(Some(pkg)) => pkg,
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
@@ -651,44 +657,7 @@ async fn child_component_detail(
         child,
         &display_name,
     );
-    with_cache_control(&headers, html, "public, max-age=300")
-}
-
-/// Fetch a package by WIT namespace/name, validating the version exists.
-///
-/// Returns `Ok(None)` (and logs) if the namespace is reserved, the package is
-/// not found, or the version tag doesn't exist. Returns `Err(Box<Response>)` with
-/// a `502 Bad Gateway` response when the upstream API call fails, so that
-/// registry outages are surfaced correctly instead of being masked as 404s.
-async fn fetch_package_or_404(
-    client: &RegistryClient,
-    namespace: &str,
-    name: &str,
-    version: &str,
-) -> Result<Option<KnownPackage>, Box<Response>> {
-    if is_reserved(namespace) {
-        return Ok(None);
-    }
-    match client.fetch_package_by_wit(namespace, name).await {
-        Ok(Some(pkg)) => {
-            if pkg.tags.iter().any(|tag| tag == version) {
-                Ok(Some(pkg))
-            } else {
-                eprintln!(
-                    "component-frontend: version not found for {namespace}/{name}: {version}"
-                );
-                Ok(None)
-            }
-        }
-        Ok(None) => {
-            eprintln!("component-frontend: package not found: {namespace}/{name}@{version}");
-            Ok(None)
-        }
-        Err(e) => {
-            eprintln!("component-frontend: API error looking up {namespace}/{name}@{version}: {e}");
-            Err(Box::new(error_response(&e.to_string())))
-        }
-    }
+    with_cache_control(html, "public, max-age=300")
 }
 
 // r[impl frontend.pages.not-found]
@@ -723,28 +692,13 @@ fn error_response(message: &str) -> Response {
 // r[impl frontend.caching.static-pages]
 // r[impl frontend.caching.etag]
 /// Wrap an HTML string response with `Cache-Control` and a content-derived
-/// `ETag` header. Honors `If-None-Match` on the incoming request and returns
-/// `304 Not Modified` (with the matching `ETag`/`Cache-Control` headers and
-/// an empty body) when the client already has the current version.
-fn with_cache_control(
-    req_headers: &HeaderMap,
-    html: String,
-    cache_control: &'static str,
-) -> Response {
+/// weak `ETag`, shared by semantically equivalent content encodings.
+/// The compression middleware evaluates conditional requests after negotiation.
+fn with_cache_control(html: String, cache_control: &'static str) -> Response {
     let etag = compute_etag(html.as_bytes());
-    let etag_value = HeaderValue::from_str(&etag)
+    let etag_value = HeaderValue::from_str(&format!("W/{etag}"))
         .expect("etag is composed of ASCII hex digits and quotes (always a valid HeaderValue)");
     let cache_value = HeaderValue::from_static(cache_control);
-
-    if if_none_match_matches(req_headers, &etag) {
-        let mut response = Response::new(Body::empty());
-        *response.status_mut() = StatusCode::NOT_MODIFIED;
-        response.headers_mut().insert(header::ETAG, etag_value);
-        response
-            .headers_mut()
-            .insert(header::CACHE_CONTROL, cache_value);
-        return response;
-    }
 
     let mut response = axum::response::Html(html).into_response();
     response
@@ -843,9 +797,13 @@ mod tests {
     // r[verify frontend.routing.reserved-namespaces]
     #[tokio::test]
     async fn package_redirect_reserved_namespace_returns_not_found() {
-        let response = resolve_package_redirect(Path(("all".to_string(), "demo".to_string())))
-            .await
-            .expect_err("reserved namespace should not redirect");
+        let response = resolve_package_redirect(
+            &RegistryClient::new("http://127.0.0.1:1"),
+            Path(("all".to_string(), "demo".to_string())),
+            &package_source::PackageSource::default(),
+        )
+        .await
+        .expect_err("reserved namespace should not redirect");
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
         assert_eq!(
@@ -863,8 +821,9 @@ mod tests {
     #[tokio::test]
     async fn package_detail_reserved_namespace_returns_not_found() {
         let response = package_detail(
-            HeaderMap::new(),
+            State(Arc::new(RegistryClient::new("http://127.0.0.1:1"))),
             Path(("all".to_string(), "demo".to_string(), "1.0.0".to_string())),
+            Query(package_source::PackageSource::default()),
         )
         .await;
 
@@ -944,11 +903,7 @@ mod tests {
     // r[verify frontend.caching.static-pages]
     #[test]
     fn with_cache_control_sets_header() {
-        let response = with_cache_control(
-            &HeaderMap::new(),
-            "<p>Hello</p>".to_string(),
-            "public, max-age=60",
-        );
+        let response = with_cache_control("<p>Hello</p>".to_string(), "public, max-age=60");
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response
@@ -961,12 +916,8 @@ mod tests {
 
     // r[verify frontend.caching.etag]
     #[test]
-    fn with_cache_control_emits_strong_etag_for_body() {
-        let response = with_cache_control(
-            &HeaderMap::new(),
-            "<p>Hello</p>".to_string(),
-            "public, max-age=60",
-        );
+    fn with_cache_control_emits_weak_etag_for_body() {
+        let response = with_cache_control("<p>Hello</p>".to_string(), "public, max-age=60");
         let etag = response
             .headers()
             .get(header::ETAG)
@@ -974,8 +925,8 @@ mod tests {
             .to_str()
             .expect("etag should be ascii");
         assert!(
-            etag.starts_with('"') && etag.ends_with('"'),
-            "etag should be a quoted string, got {etag}"
+            etag.starts_with("W/\"") && etag.ends_with('"'),
+            "etag should be weak across content encodings, got {etag}"
         );
     }
 
@@ -999,69 +950,6 @@ mod tests {
         // than silently invalidating every client's cached ETag.
         assert_eq!(compute_etag(b""), "\"cbf29ce484222325\"");
         assert_eq!(compute_etag(b"foobar"), "\"85944171f73967e8\"");
-    }
-
-    // r[verify frontend.caching.etag]
-    #[tokio::test]
-    async fn with_cache_control_returns_304_on_matching_if_none_match() {
-        let body = "<p>Hello</p>".to_string();
-        let etag = compute_etag(body.as_bytes());
-
-        let mut req_headers = HeaderMap::new();
-        req_headers.insert(
-            header::IF_NONE_MATCH,
-            HeaderValue::from_str(&etag).expect("etag is ascii"),
-        );
-
-        let response = with_cache_control(&req_headers, body, "public, max-age=60");
-        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
-        assert_eq!(
-            response
-                .headers()
-                .get(header::ETAG)
-                .expect("etag header should be set"),
-            etag.as_str()
-        );
-        assert_eq!(
-            response
-                .headers()
-                .get(header::CACHE_CONTROL)
-                .expect("cache-control header should be set"),
-            "public, max-age=60"
-        );
-        let bytes = to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("304 response body should be readable");
-        assert!(bytes.is_empty(), "304 responses must have an empty body");
-    }
-
-    // r[verify frontend.caching.etag]
-    #[test]
-    fn with_cache_control_returns_304_on_wildcard_if_none_match() {
-        let mut req_headers = HeaderMap::new();
-        req_headers.insert(header::IF_NONE_MATCH, HeaderValue::from_static("*"));
-
-        let response = with_cache_control(
-            &req_headers,
-            "<p>Hello</p>".to_string(),
-            "public, max-age=60",
-        );
-        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
-    }
-
-    // r[verify frontend.caching.etag]
-    #[test]
-    fn with_cache_control_returns_200_when_if_none_match_does_not_match() {
-        let mut req_headers = HeaderMap::new();
-        req_headers.insert(header::IF_NONE_MATCH, HeaderValue::from_static("\"stale\""));
-
-        let response = with_cache_control(
-            &req_headers,
-            "<p>Hello</p>".to_string(),
-            "public, max-age=60",
-        );
-        assert_eq!(response.status(), StatusCode::OK);
-        assert!(response.headers().get(header::ETAG).is_some());
     }
 
     #[test]
@@ -1139,8 +1027,12 @@ mod tests {
     /// return bad-gateway when the registry API is unreachable.
     #[tokio::test]
     async fn package_redirect_handles_trailing_slash_path() {
-        let result =
-            resolve_package_redirect(Path(("wasi".to_string(), "random".to_string()))).await;
+        let result = resolve_package_redirect(
+            &RegistryClient::new("http://127.0.0.1:1"),
+            Path(("wasi".to_string(), "random".to_string())),
+            &package_source::PackageSource::default(),
+        )
+        .await;
         match result {
             Ok(redirect) => {
                 let resp = redirect.into_response();

@@ -8,6 +8,9 @@
 
 use std::fmt;
 
+mod namespaces;
+mod relationships;
+
 use crate::KnownPackage;
 use wasm_meta_registry_types::{
     NewPackage, NotifyOutcome, PackageDetail, PackageRelease, PackageVersion, PopularPackage,
@@ -71,6 +74,8 @@ impl fmt::Display for ApiError {
 ///         created_at: String::new(),
 ///         wit_namespace: None,
 ///         wit_name: None,
+///         dependents: None,
+///         latest_release_at: None,
 ///         dependencies: vec![],
 ///     }],
 ///     etag: Some("\"abc123\"".into()),
@@ -257,6 +262,18 @@ impl RegistryClient {
     // ================================================================
     // Rich API methods
     // ================================================================
+
+    /// Fetch a package from an exact OCI repository, without name-search ambiguity.
+    pub async fn fetch_package(
+        &self,
+        registry: &str,
+        repository: &str,
+    ) -> Result<Option<KnownPackage>, ApiError> {
+        let registry = percent_encode_query_component(registry);
+        let repository = percent_encode_path_component(repository);
+        let url = format!("{}/v1/packages/{registry}/{repository}", self.base_url);
+        self.fetch_optional(&url).await
+    }
 
     /// Fetch full detail for a package, including all versions and metadata.
     // r[verify client.detail]
@@ -777,7 +794,51 @@ mod tests {
     }
 
     #[cfg(not(all(target_os = "wasi", target_env = "p2")))]
-    fn spawn_single_response_server(status_line: &str, body: &str, content_type: &str) -> String {
+    #[tokio::test]
+    async fn search_and_list_preserve_optional_listing_metadata() {
+        for count in [None, Some(0_u64), Some(7)] {
+            let mut package = serde_json::json!({
+                "registry": "ghcr.io",
+                "repository": "wasi/io",
+                "description": null,
+                "tags": ["0.2.0"],
+                "last_seen_at": "2025-01-01T00:00:00Z",
+                "created_at": "2024-01-01T00:00:00Z"
+            });
+            let released = count.map(|_| "2024-12-01T00:00:00Z");
+            if let Some(count) = count {
+                let fields = package.as_object_mut().expect("package object");
+                fields.insert("dependents".into(), count.into());
+                fields.insert("latest_release_at".into(), released.into());
+            }
+            let body = serde_json::json!([package]).to_string();
+            let base = spawn_single_response_server("200 OK", &body, "application/json");
+            let search = RegistryClient::new(base)
+                .search_packages("wasi")
+                .await
+                .expect("search response");
+            let base = spawn_single_response_server("200 OK", &body, "application/json");
+            let FetchResult::Updated { packages, .. } = RegistryClient::new(base)
+                .fetch_packages(None, 10)
+                .await
+                .expect("list response")
+            else {
+                panic!("expected updated packages");
+            };
+            for result in [search, packages] {
+                let package = result.first().expect("one result");
+                assert_eq!(package.dependents, count);
+                assert_eq!(package.latest_release_at.as_deref(), released);
+            }
+        }
+    }
+
+    #[cfg(not(all(target_os = "wasi", target_env = "p2")))]
+    pub(super) fn spawn_single_response_server(
+        status_line: &str,
+        body: &str,
+        content_type: &str,
+    ) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind test listener");
         let addr = listener.local_addr().expect("get listener addr");
         let status = status_line.to_string();

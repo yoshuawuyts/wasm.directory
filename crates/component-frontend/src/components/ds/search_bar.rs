@@ -214,8 +214,8 @@ fn push_struck_example<'a>(
     })
 }
 
-/// Minimal percent-encoding for an example query placed in a `q=` parameter.
-fn encode_query(q: &str) -> String {
+/// Percent-encode a query value.
+pub(crate) fn encode_query(q: &str) -> String {
     use std::fmt::Write as _;
     let mut out = String::with_capacity(q.len());
     for b in q.bytes() {

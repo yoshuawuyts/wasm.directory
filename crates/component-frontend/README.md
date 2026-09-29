@@ -32,6 +32,101 @@ Then visit <http://localhost:8080> in your browser.
 - **Data**: Fetched from the `component-meta-registry` API via
   `wstd::http::Client`
 
+## HTTP compression and caching
+
+The shared router streams Brotli and gzip responses through `tower-http`,
+including on `wasm32-wasip2`; it does not need a Tokio runtime or native codec
+library. HTML, ordinary text, JavaScript, JSON, and SVG are eligible, with
+case-insensitive media-type matching. Already
+encoded responses, byte ranges, binary media, server-sent events, and bodyless
+statuses are not recompressed.
+
+`Accept-Encoding` quality values and wildcards select the representation, with
+Brotli preferred over gzip at equal quality. Missing, empty, unsupported, or
+disabled encodings fall back to identity when allowed. Malformed quality values
+are ignored by the negotiator. If no supported encoding or identity is
+acceptable, the response is an empty, non-cacheable `406 Not Acceptable`.
+Eligible responses include `Vary: Accept-Encoding`, including identity and
+conditional responses, while retaining their original content type and cache
+policy (the homepage remains `public, max-age=60`).
+
+HTML ETags are weak content-derived validators (`W/"..."`): the same rendered
+content is semantically equivalent across identity, gzip, and Brotli, but its
+encoded bytes differ. `If-None-Match` is checked after negotiation using weak
+comparison, including lists, multiple header fields, and `*`. Matching GET/HEAD
+requests return an empty `304` with the negotiated representation's ETag,
+cache policy, and Vary metadata. Compression is streamed, so encoded responses
+omit `Content-Length`. HEAD keeps GET's negotiated metadata but sends no
+compressor output; the WASI adapter also removes its optional Content-Length.
+
+## Package listings
+
+Search results, namespace pages, and the all-packages page share a two-row item:
+`namespace/package-name` and description above kind, version, direct dependent
+count, and relative last-update time. Identities and metadata wrap on narrow
+screens, and version tags are never truncated. Descriptions are visually
+truncated to one line with an ellipsis; the full summary remains accessible and
+the source description is available on hover.
+
+The homepage's New releases, New packages, and Popular packages cards link
+directly to the displayed version at `/{namespace}/{name}/{version}`, without
+`registry` or `repository` query parameters. New releases keep their individual
+release versions rather than redirecting to the latest release. Packages without
+a version retain the latest-version link; packages without a WIT identity remain
+unlinked.
+
+Kind uses the style guide's compact inline label, in lowercase, before the
+version. Rendered versions have one lowercase `v` prefix; stored tags and routes
+are unchanged.
+GitHub's package-dependents icon precedes the count. Hovering the icon or count
+explains that this counts other indexed repositories directly depending on the
+package, with each repository counted once.
+A clock precedes the concise release age (for example, `3 days`). Screen-reader
+text preserves the full meanings (`12 dependents`, `Updated 3 days ago`).
+Unavailable dependent counts display `0`, with the fallback identified in the
+tooltip and screen-reader text; the API value stays unknown. Missing or invalid
+dates omit the clock and date entirely, without a placeholder.
+
+Dependent counts measure distinct other indexed repositories declaring the WIT
+package as a dependency, not transitive dependents. Last updated is the newest
+semver release's publication time, falling back to when that release was first
+indexed when publication metadata is unavailable; it is not the last scan time.
+The exact date is available on hover. An unavailable date is never replaced with
+the last scan time.
+
+The [package-dependents SVG](../../vendor/octicons/README.md) is vendored with its
+MIT license and rendered using the current text color; no icon package is needed.
+
+## Namespace directory
+
+`/namespaces` lists all registered namespaces alphabetically, using the same heading,
+result summary, flowing rows, and pagination as `/all`. Each row shows the
+namespace and its indexed-package count and links to `/namespaces/{namespace}`.
+All namespace links and pagination use this explicit path, independently of the
+reserved-name list, so application routes such as `all`, `status`, or
+`design-system` cannot intercept directory navigation. Existing `/{namespace}`
+shortcuts remain available for non-reserved names without a conflicting route.
+The homepage navigation and shared footer link to the directory.
+
+Membership comes from the backend's per-namespace TOML registrations, including
+empty namespaces and those whose packages have not yet been indexed.
+Repository-owner fallbacks alone never create directory entries. Counts are
+explicitly labeled "indexed packages": repositories in that namespace with at
+least one semver release, not the number of configured packages. Empty and
+pending namespaces can therefore show zero and still link to valid empty
+package listings. Failed lookups show errors rather than invented zero counts.
+The directory's total counts registrations, independently of `/v1/stats`,
+which continues to count only namespaces present in the released package index.
+
+Both the directory and individual namespace pages accept `offset` and `limit`
+(default 100, clamped to 1–100). Exact, paginated namespace queries replace the
+old capped substring search, including for repository-owner fallbacks. Counts
+and next-page availability come from the same API response. Out-of-range pages
+retain Previous navigation; API failures return an uncached 502 error rather
+than looking like an empty registry. Successful pages retain one-minute caching
+and conditional requests. `/namespaces` is reserved for the application route;
+`/namespaces/{namespace}` serves the same paginated listing for any namespace.
+
 ## Installers
 
 The `/install/linux` and `/install/macos` routes serve the shared
@@ -41,7 +136,8 @@ either script changes. The Docker build includes only these two files from
 `scripts/`; no runtime script directory or registry API is needed.
 
 Each URL serves the exact script as browser-readable plain text, with GET/HEAD
-support and one-hour public caching. GET includes the script's `Content-Length`.
+support and one-hour public caching. Identity GET includes the script's
+`Content-Length`; negotiated compression decodes to those same script bytes.
 The shared HTTP adapter omits this optional header from HEAD responses: WASI
 otherwise checks the empty transmitted body against the GET length and rejects
 the response. HEAD keeps the remaining metadata and sends no body.
@@ -111,6 +207,62 @@ class, and check system/explicit themes and reduced motion. The existing runtime
 warning is expected; JavaScript errors or missing styles are not. Run the
 frontend tests and WASI build as well; string-only checks do not establish
 rendering equivalence.
+
+## Relationship pages
+
+Package pages group **Dependents**, **Imported by**, and **Exported by** links
+separately from the left sidebar's item tree, without a visible section heading.
+Each applicable link has the same small, decorative arrow directly after its
+label, using a 4px inline gap, to indicate navigation to a search page in
+the current tab. The full row remains clickable. The group retains an accessible
+Relationships name. Dependents always targets the package; import/export links
+appear for interface packages and individual interfaces, where they are scoped
+to that interface. Links remain available when there are no matches.
+
+On mobile, the navbar menu button opens that same sidebar and relationship
+group in the style guide's C06 drawer, preserving its C01 navigation and
+expanded groups. Relationship links are not duplicated in the page content.
+The drawer closes with its close button, Escape, the scrim, or a switch to
+desktop width. Keyboard focus stays within the open drawer and returns to its
+menu button on close.
+
+The dedicated result pages use fixed queries, separate from ordinary text search:
+
+| Route | Results |
+| --- | --- |
+| `/search/dependents?package=wasi%3Aio` | Direct and transitive dependent packages |
+| `/search/imported-by?package=wasi%3Aio` | Worlds importing any interface from the package |
+| `/search/exported-by?package=wasi%3Aio&interface=streams` | Worlds exporting the named interface |
+
+Both world queries accept an optional `interface` parameter. Package identities
+are version-independent `namespace:name` values. The old versioned
+`/{namespace}/{name}/{version}/dependents` route redirects to the new page.
+
+Results search all indexed releases and show each package or world once, at its
+newest **matching** release rather than an unrelated newer release. Result links
+carry the OCI registry and repository to disambiguate mirrors. Worlds embedded
+in compiled components link to the owning component page using the API's
+`is_synthetic` flag, even when package kind is unknown. Authored worlds named
+`root` retain their own world-detail link. Relationship rows keep matching-release
+metadata separate from ordinary listings' latest-release ages and direct counts.
+
+Once a repository is resolved, generated package-local links retain that source
+through the sidebar, breadcrumbs, version selector, WIT references, interfaces,
+types, functions, worlds, and child modules/components. Latest-version and legacy
+dependency redirects preserve it too. Missing sources, mismatched WIT identities,
+and unavailable tags never fall back to another mirror. Links to other packages
+and version-independent relationship searches remain unscoped.
+
+All three pages accept `offset` and `limit` (default 100, capped at 100).
+Pagination follows the API's deduplicated result page, independently of optional
+display totals. Empty results, out-of-range pages, invalid queries, and registry
+failures have distinct responses; upstream failures are not cached as empty
+results.
+
+Relationships reflect indexed WIT declarations, not dependency-range solving.
+Only Dependents follows transitive relationships. Import/export searches use
+each world's own declarations, and completeness depends on what the index has
+extracted.
 
 ## Favicon
 

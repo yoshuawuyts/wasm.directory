@@ -79,9 +79,9 @@ pub(crate) fn render_type(
 
     let content = format!("<div class=\"pt-8\">{body}</div>");
 
-    let iface_url = format!(
-        "/{}/{version}/interface/{iface_name}",
-        display_name.replace(':', "/")
+    let iface_url = crate::package_source::urls::append_path(
+        &crate::components::page_shell::url_base_for(pkg, version),
+        &format!("/interface/{iface_name}"),
     );
     let extra = [
         crate::components::ds::breadcrumb::Crumb {
@@ -104,8 +104,6 @@ pub(crate) fn render_type(
         sidebar_active: SidebarActive::Item(iface_name, &ty.name),
         extra_crumbs: &extra,
         toc_html: None,
-        importers: &[],
-        exporters: &[],
     })
 }
 
@@ -159,11 +157,13 @@ pub(crate) fn render_function(
         title: &title,
         header_html: &header,
         body_html: &content,
-        sidebar_active: SidebarActive::Item(owner_label, &func.name),
+        sidebar_active: if owner_url.contains("/interface/") {
+            SidebarActive::Item(owner_label, &func.name)
+        } else {
+            SidebarActive::World(owner_label)
+        },
         extra_crumbs: &extra,
         toc_html: None,
-        importers: &[],
-        exporters: &[],
     })
 }
 

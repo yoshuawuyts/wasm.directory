@@ -52,36 +52,36 @@ expression: "crate::components::ds::pretty_html(&render(\"bars\", \"09\", \"Labe
         <div class="text-[12px] text-ink-500 mb-1">
           Small · for inline use inside compact rows
         </div>
-        <div class="bar-sm bg-cat-blue text-cat-blueInk">
+        <span class="bar-sm bg-cat-blue text-cat-blueInk">
           Lorem ipsum dolor
-        </div>
-        <div class="bar-sm bg-cat-pink text-cat-pinkInk">
+        </span>
+        <span class="bar-sm bg-cat-pink text-cat-pinkInk">
           Sit amet
-        </div>
-        <div class="bar-sm bg-cat-cream text-cat-creamInk">
+        </span>
+        <span class="bar-sm bg-cat-cream text-cat-creamInk">
           Consectetur
-        </div>
-        <div class="bar-sm bg-cat-green text-cat-greenInk">
+        </span>
+        <span class="bar-sm bg-cat-green text-cat-greenInk">
           Adipiscing elit
-        </div>
-        <div class="bar-sm bg-cat-peach text-cat-peachInk">
+        </span>
+        <span class="bar-sm bg-cat-peach text-cat-peachInk">
           Sed do eiusmod
-        </div>
-        <div class="bar-sm bg-cat-lilac text-cat-lilacInk">
+        </span>
+        <span class="bar-sm bg-cat-lilac text-cat-lilacInk">
           Tempor incididunt
-        </div>
-        <div class="bar-sm bg-cat-teal text-cat-tealInk">
+        </span>
+        <span class="bar-sm bg-cat-teal text-cat-tealInk">
           Ut labore
-        </div>
-        <div class="bar-sm bg-cat-rust text-cat-rustInk">
+        </span>
+        <span class="bar-sm bg-cat-rust text-cat-rustInk">
           Et dolore magna
-        </div>
-        <div class="bar-sm bg-cat-plum text-cat-plumInk">
+        </span>
+        <span class="bar-sm bg-cat-plum text-cat-plumInk">
           Aliqua enim
-        </div>
-        <div class="bar-sm bg-cat-slate text-cat-slateInk">
+        </span>
+        <span class="bar-sm bg-cat-slate text-cat-slateInk">
           Ad minim veniam
-        </div>
+        </span>
       </div>
     </div>
   </div>
