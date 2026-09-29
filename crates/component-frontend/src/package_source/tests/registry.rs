@@ -86,6 +86,14 @@ fn add_mirror(responses: &mut HashMap<String, String>, pkg: &KnownPackage, wit: 
     for tag in &pkg.tags {
         let mut release = version(wit);
         release.tag = Some(tag.clone());
+        release.created_at = Some(
+            match (pkg.registry.as_str(), tag.as_str()) {
+                ("mirror.test", "0.1.0") => "2026-09-02T15:11:52Z",
+                ("mirror.test", "0.2.0") => "2026-09-16T10:42:09Z",
+                _ => "2026-09-20T10:00:00Z",
+            }
+            .to_owned(),
+        );
         responses.insert(
             format!(
                 "/v1/packages/version/{}/{tag}/{}",

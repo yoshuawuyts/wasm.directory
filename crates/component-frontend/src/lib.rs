@@ -30,6 +30,9 @@ mod server;
 mod tailwind;
 mod wit_doc;
 
+#[cfg(test)]
+mod version_fetch_tests;
+
 use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
@@ -38,7 +41,7 @@ use axum::response::{IntoResponse, Redirect, Response};
 use axum::{Json, Router, routing::get};
 use serde::Deserialize;
 
-use wasm_meta_registry_client::{KnownPackage, RegistryClient};
+use wasm_meta_registry_client::{KnownPackage, PackageVersion, RegistryClient};
 
 /// Build the application router with all frontend routes.
 fn app() -> Router {
@@ -285,11 +288,10 @@ async fn package_detail(
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
     };
-    let version_detail = client
-        .fetch_package_version(&pkg.registry, &pkg.repository, &version)
-        .await
-        .ok()
-        .flatten();
+    let version_detail = match fetch_version(&client, &pkg, &version).await {
+        Ok(detail) => detail,
+        Err(resp) => return *resp,
+    };
     let html = pages::package::render(&pkg, &version, version_detail.as_ref());
     with_cache_control(html, "public, max-age=300")
 }
@@ -338,8 +340,10 @@ async fn interface_detail(
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
     };
-    let Some((doc, version_detail)) = fetch_wit_doc(&client, &pkg, &version).await else {
-        return not_found_response();
+    let (doc, version_detail) = match fetch_wit_doc(&client, &pkg, &version).await {
+        Ok(Some(detail)) => detail,
+        Ok(None) => return not_found_response(),
+        Err(resp) => return *resp,
     };
     let Some(iface_doc) = doc.interfaces.iter().find(|i| i.name == iface) else {
         return not_found_response();
@@ -365,8 +369,10 @@ async fn item_detail(
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
     };
-    let Some((doc, version_detail)) = fetch_wit_doc(&client, &pkg, &version).await else {
-        return not_found_response();
+    let (doc, version_detail) = match fetch_wit_doc(&client, &pkg, &version).await {
+        Ok(Some(detail)) => detail,
+        Ok(None) => return not_found_response(),
+        Err(resp) => return *resp,
     };
     let Some(iface_doc) = doc.interfaces.iter().find(|i| i.name == iface) else {
         return not_found_response();
@@ -409,8 +415,10 @@ async fn world_detail(
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
     };
-    let Some((doc, version_detail)) = fetch_wit_doc(&client, &pkg, &version).await else {
-        return not_found_response();
+    let (doc, version_detail) = match fetch_wit_doc(&client, &pkg, &version).await {
+        Ok(Some(detail)) => detail,
+        Ok(None) => return not_found_response(),
+        Err(resp) => return *resp,
     };
     let Some(world_doc) = doc.worlds.iter().find(|w| w.name == world_name) else {
         return not_found_response();
@@ -443,8 +451,10 @@ async fn world_function_detail(
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
     };
-    let Some((doc, version_detail)) = fetch_wit_doc(&client, &pkg, &version).await else {
-        return not_found_response();
+    let (doc, version_detail) = match fetch_wit_doc(&client, &pkg, &version).await {
+        Ok(Some(detail)) => detail,
+        Ok(None) => return not_found_response(),
+        Err(resp) => return *resp,
     };
     let Some(world_doc) = doc.worlds.iter().find(|w| w.name == world_name) else {
         return not_found_response();
@@ -492,8 +502,10 @@ async fn package_function_detail(
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
     };
-    let Some((doc, version_detail)) = fetch_wit_doc(&client, &pkg, &version).await else {
-        return not_found_response();
+    let (doc, version_detail) = match fetch_wit_doc(&client, &pkg, &version).await {
+        Ok(Some(detail)) => detail,
+        Ok(None) => return not_found_response(),
+        Err(resp) => return *resp,
     };
     // For component packages the `/function/` URL space belongs exclusively to
     // the synthetic `root` world's items.  Searching all worlds would pick the
@@ -528,20 +540,19 @@ async fn package_function_detail(
 
 /// Fetch and parse the WIT document for a package version, returning
 /// both the parsed document and the version detail.
+///
+/// Missing or unparseable WIT remains absent; API failures propagate as 502s.
 async fn fetch_wit_doc(
     client: &RegistryClient,
     pkg: &KnownPackage,
     version: &str,
-) -> Option<(
-    wit_doc::WitDocument,
-    wasm_meta_registry_client::PackageVersion,
-)> {
-    let detail = client
-        .fetch_package_version(&pkg.registry, &pkg.repository, version)
-        .await
-        .ok()
-        .flatten()?;
-    let wit_text = detail.wit_text.as_deref()?;
+) -> Result<Option<(wit_doc::WitDocument, PackageVersion)>, Box<Response>> {
+    let Some(detail) = fetch_version(client, pkg, version).await? else {
+        return Ok(None);
+    };
+    let Some(wit_text) = detail.wit_text.as_deref() else {
+        return Ok(None);
+    };
     let dep_urls: std::collections::HashMap<String, String> = detail
         .dependencies
         .iter()
@@ -556,15 +567,22 @@ async fn fetch_wit_doc(
         (Some(ns), Some(n)) => Some(format!("{ns}:{n}")),
         _ => None,
     };
-    let doc = wit_doc::parse_wit_doc_with_type_docs(
+    match wit_doc::parse_wit_doc_with_type_docs(
         wit_text,
         &url_base,
         &dep_urls,
         &detail.type_docs,
         own_oci_package.as_deref(),
-    )
-    .ok()?;
-    Some((doc, detail))
+    ) {
+        Ok(doc) => Ok(Some((doc, detail))),
+        Err(e) => {
+            eprintln!(
+                "component-frontend: WIT parse error for {}/{}@{version}: {e}",
+                pkg.registry, pkg.repository
+            );
+            Ok(None)
+        }
+    }
 }
 
 /// Module detail page at `/<namespace>/<name>/<version>/module/<child_name>`.
@@ -578,11 +596,10 @@ async fn module_detail(
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
     };
-    let version_detail = client
-        .fetch_package_version(&pkg.registry, &pkg.repository, &version)
-        .await
-        .ok()
-        .flatten();
+    let version_detail = match fetch_version(&client, &pkg, &version).await {
+        Ok(detail) => detail,
+        Err(resp) => return *resp,
+    };
     let child = version_detail.as_ref().and_then(|d| {
         let modules: Vec<&wasm_meta_registry_client::ComponentSummary> = d
             .components
@@ -630,11 +647,10 @@ async fn child_component_detail(
         Ok(None) => return not_found_response(),
         Err(resp) => return *resp,
     };
-    let version_detail = client
-        .fetch_package_version(&pkg.registry, &pkg.repository, &version)
-        .await
-        .ok()
-        .flatten();
+    let version_detail = match fetch_version(&client, &pkg, &version).await {
+        Ok(detail) => detail,
+        Err(resp) => return *resp,
+    };
     let idx: usize = child_index.parse().unwrap_or(usize::MAX);
     let child = version_detail.as_ref().and_then(|d| {
         d.components
@@ -658,6 +674,28 @@ async fn child_component_detail(
         &display_name,
     );
     with_cache_control(html, "public, max-age=300")
+}
+
+/// Fetch selected-version metadata without confusing upstream failures with
+/// missing detail. API failures return a non-cacheable 502 response.
+async fn fetch_version(
+    client: &RegistryClient,
+    pkg: &KnownPackage,
+    version: &str,
+) -> Result<Option<PackageVersion>, Box<Response>> {
+    match client
+        .fetch_package_version(&pkg.registry, &pkg.repository, version)
+        .await
+    {
+        Ok(detail) => Ok(detail),
+        Err(e) => {
+            eprintln!(
+                "component-frontend: API error fetching version {}/{}@{version}: {e}",
+                pkg.registry, pkg.repository
+            );
+            Err(Box::new(error_response(&e.to_string())))
+        }
+    }
 }
 
 // r[impl frontend.pages.not-found]

@@ -35,7 +35,12 @@ async fn every_detail_handler_resolves_the_selected_mirror_and_release() {
         let uri = format!("/example/http/0.1.0{suffix}{SOURCE}");
         let response = registry.request(Method::GET, &uri).await;
         assert_eq!(response.status(), StatusCode::OK, "{uri}");
-        assert_source_destinations(&html(response).await, &["/example/http/0.1.0"]);
+        let page = html(response).await;
+        assert_source_destinations(&page, &["/example/http/0.1.0"]);
+        assert!(
+            page.contains(r#"datetime="2026-09-02T15:11:52Z""#),
+            "each detail kind must retain the selected mirror/version date: {uri}"
+        );
     }
     let requests = registry.requests();
     assert_eq!(requests.len(), DETAIL_PATHS.len() * 2);
@@ -45,6 +50,35 @@ async fn every_detail_handler_resolves_the_selected_mirror_and_release() {
             pair[1],
             "/v1/packages/version/mirror.test/0.1.0/mirrors/http"
         );
+    }
+}
+
+#[tokio::test]
+async fn publication_dates_follow_selected_version_and_repository() {
+    let registry = RegistryFixture::new(None).await;
+    for (uri, selected, other) in [
+        (
+            format!("/example/http/0.1.0{SOURCE}"),
+            "2026-09-02T15:11:52Z",
+            "2026-09-16T10:42:09Z",
+        ),
+        (
+            format!("/example/http/0.2.0{SOURCE}"),
+            "2026-09-16T10:42:09Z",
+            "2026-09-02T15:11:52Z",
+        ),
+        (
+            "/example/http/9.0.0".to_owned(),
+            "2026-09-20T10:00:00Z",
+            "2026-09-16T10:42:09Z",
+        ),
+    ] {
+        let response = registry.request(Method::GET, &uri).await;
+        assert_eq!(response.status(), StatusCode::OK, "{uri}");
+        let page = html(response).await;
+        assert!(page.contains(&format!(r#"datetime="{selected}""#)));
+        assert!(!page.contains(&format!(r#"datetime="{other}""#)));
+        assert_eq!(page.matches("data-publication-date").count(), 1);
     }
 }
 

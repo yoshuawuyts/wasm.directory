@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use sea_orm::{DatabaseConnection, FromQueryResult, Statement};
 
 use super::bind_placeholders;
+use super::publisher_time::publisher_time;
 
 const RELEASE_ROWS_SQL: &str = "\
     SELECT t.id AS tag_id, t.oci_repository_id AS repo_id, t.tag AS tag, \
@@ -76,9 +77,5 @@ pub(super) fn release_time(
     candidates: [Option<&str>; 2],
     indexed_at: DateTime<Utc>,
 ) -> DateTime<Utc> {
-    candidates
-        .into_iter()
-        .flatten()
-        .find_map(|s| DateTime::parse_from_rfc3339(s.trim()).ok())
-        .map_or(indexed_at, |t| t.with_timezone(&Utc).min(indexed_at))
+    publisher_time(candidates).map_or(indexed_at, |time| time.min(indexed_at))
 }

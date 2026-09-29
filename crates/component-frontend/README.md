@@ -32,6 +32,21 @@ Then visit <http://localhost:8080> in your browser.
 - **Data**: Fetched from the `component-meta-registry` API via
   `wstd::http::Client`
 
+## Publication dates
+
+Package-family sidebars show the publication date as a clock-icon row under
+**Project**, using the selected version's `PackageVersion.created_at`, not the
+latest package release. The API prefers a valid OCI manifest creation annotation,
+then the config blob's `created` value. These are publisher-provided creation
+timestamps, not independently verified registry push events. Raw annotations
+remain separate, and `synced_at` still means when the manifest was indexed.
+
+The date uses the shared relative-age formatter and a semantic `<time>` with
+an exact UTC timestamp and source explanation in its tooltip. Missing or
+invalid dates omit the row; indexing time is never substituted. Selected-version
+API failures produce the existing logged, non-cacheable 502 page rather than
+masquerading as absent metadata.
+
 ## HTTP compression and caching
 
 The shared router streams Brotli and gzip responses through `tower-http`,

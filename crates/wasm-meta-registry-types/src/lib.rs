@@ -448,7 +448,12 @@ pub struct PackageVersion {
     /// Total size of the manifest and its layers in bytes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size_bytes: Option<i64>,
-    /// ISO 8601 creation timestamp from the OCI manifest annotation.
+    /// RFC 3339 publisher-supplied creation time for this version's manifest.
+    ///
+    /// Uses the first valid timestamp from `org.opencontainers.image.created`,
+    /// then the config blob's `created` field. Absent when neither is usable;
+    /// never falls back to indexing time. This is OCI creation metadata, not
+    /// an independently verified registry push-event timestamp.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
     /// ISO 8601 timestamp for when the registry first recorded this manifest.
