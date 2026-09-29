@@ -74,16 +74,20 @@ async fn serve_version_response(listener: TcpListener, status: &str, body: &str)
         .expect("write version response");
 }
 
-fn failed_responses() -> [(&'static str, &'static str); 4] {
+fn failed_responses() -> [(&'static str, &'static str); 5] {
     [
         ("503 Service Unavailable", r#"{"error":"unavailable"}"#),
         ("503 Service Unavailable", MINIMAL_DETAIL),
         ("200 OK", "not valid JSON"),
         ("200 OK", r#"{"digest":42}"#),
+        (
+            "503 Service Unavailable",
+            r#"<script>window.registryInjected=true</script>fixture-upstream-private"#,
+        ),
     ]
 }
 
-fn assert_bad_gateway(response: &Response) {
+async fn assert_bad_gateway(response: Response) {
     assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
     assert_eq!(
         response
@@ -92,6 +96,29 @@ fn assert_bad_gateway(response: &Response) {
             .expect("upstream failures must have cache-control"),
         "no-cache"
     );
+    assert!(!response.headers().contains_key(header::ETAG));
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .expect("read version error page");
+    let html = String::from_utf8(body.to_vec()).expect("UTF-8 error page");
+    assert!(
+        html.contains("Could not load this package version. Please try again later."),
+        "upstream failures must show a static user-facing message"
+    );
+    for private_detail in [
+        "registryInjected",
+        "fixture-upstream-private",
+        "http://127.0.0.1",
+        "/v1/packages/version/",
+        "example/demo",
+        "sha256:abc",
+        "not valid JSON",
+    ] {
+        assert!(
+            !html.contains(private_detail),
+            "upstream diagnostics must not appear in the response: {private_detail}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -102,7 +129,7 @@ async fn version_fetch_failures_are_non_cacheable_bad_gateway() {
         })
         .await
         .expect_err("HTTP and decoding failures must not be treated as missing detail");
-        assert_bad_gateway(&response);
+        assert_bad_gateway(*response).await;
     }
 }
 
@@ -114,7 +141,7 @@ async fn wit_fetch_propagates_non_cacheable_bad_gateway() {
         })
         .await
         .expect_err("WIT lookup must propagate upstream failures instead of returning absent");
-        assert_bad_gateway(&response);
+        assert_bad_gateway(*response).await;
     }
 }
 

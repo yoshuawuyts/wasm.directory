@@ -45,7 +45,8 @@ The date uses the shared relative-age formatter and a semantic `<time>` with
 an exact UTC timestamp and source explanation in its tooltip. Missing or
 invalid dates omit the row; indexing time is never substituted. Selected-version
 API failures produce the existing logged, non-cacheable 502 page rather than
-masquerading as absent metadata.
+masquerading as absent metadata. The page shows a static message; upstream
+response bodies and endpoint details remain in server logs.
 
 ## HTTP compression and caching
 

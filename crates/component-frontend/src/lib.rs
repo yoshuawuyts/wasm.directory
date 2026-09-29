@@ -693,7 +693,9 @@ async fn fetch_version(
                 "component-frontend: API error fetching version {}/{}@{version}: {e}",
                 pkg.registry, pkg.repository
             );
-            Err(Box::new(error_response(&e.to_string())))
+            Err(Box::new(error_response(
+                "Could not load this package version. Please try again later.",
+            )))
         }
     }
 }
