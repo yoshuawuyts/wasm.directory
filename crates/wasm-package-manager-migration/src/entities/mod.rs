@@ -17,6 +17,7 @@ pub mod oci_manifest_annotation;
 pub mod oci_referrer;
 pub mod oci_repository;
 pub mod oci_tag;
+pub mod source_discovery;
 pub mod sync_meta;
 pub mod wasm_component;
 pub mod wit_package;

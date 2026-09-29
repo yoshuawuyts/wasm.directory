@@ -11,6 +11,7 @@ pub mod install;
 mod logic;
 mod models;
 mod relationships;
+mod source_discovery;
 
 use crate::config::Config;
 use crate::oci::{Client, ImageEntry, InsertResult};

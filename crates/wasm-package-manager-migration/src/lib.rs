@@ -26,6 +26,7 @@ impl MigratorTrait for Migrator {
             Box::new(migrations::m20260101_000004_create_fetch_queue::Migration),
             Box::new(migrations::m20260924_000001_add_fetch_queue_claim::Migration),
             Box::new(migrations::m20260924_000002_add_manifest_config_created::Migration),
+            Box::new(migrations::m20260925_000001_create_source_discovery::Migration),
         ]
     }
 }
