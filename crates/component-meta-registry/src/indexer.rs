@@ -108,7 +108,7 @@ impl Indexer {
         while self.work_step().await && self.is_leader {}
     }
 
-    /// Run indefinitely, with configured routine scans and independent
+    /// Run indefinitely, with daily-by-default routine scans and independent
     /// initial discovery, retries, queue pickup, and metadata backfill.
     #[allow(clippy::infinite_loop)]
     pub async fn run(mut self) {

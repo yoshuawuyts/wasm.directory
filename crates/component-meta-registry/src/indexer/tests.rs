@@ -34,7 +34,7 @@ async fn indexer(packages: Vec<PackageSource>) -> (tempfile::TempDir, Indexer) {
         .await
         .expect("open isolated manager");
     let config = Config {
-        sync_interval: 86_400,
+        sync_interval: Config::DEFAULT_SYNC_INTERVAL,
         bind: "127.0.0.1:0".into(),
         packages,
     };

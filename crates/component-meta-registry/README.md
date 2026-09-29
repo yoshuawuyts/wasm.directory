@@ -64,11 +64,11 @@ The filename (without `.toml`) must match the `namespace.name` field inside.
 component-meta-registry registry/ --bind 0.0.0.0:8080
 ```
 
-Routine discovery defaults to **3,600 seconds (1 hour)** after the last
+Routine discovery defaults to **86,400 seconds (24 hours)** after the last
 completed catalog pass, including across restarts. Override it explicitly with
 `--sync-interval <seconds>`; this is an elapsed interval, not a midnight job.
 
-Newly loaded, approved sources do not wait for that routine pass. The indexer lists
+Newly loaded, approved sources do not wait for that daily pass. The indexer lists
 their complete tag history and enqueues every supported semantic-version release
 in ascending order, skipping versions already queued or cached. Discovery
 completion means those versions were scheduled, not that ingestion succeeded:
@@ -98,8 +98,13 @@ the discovery interval, plus any upstream failure or processing backlog.
 On upgrading an existing database, each configured source gets one bounded
 tag-list reconciliation because older source rows do not prove complete history
 discovery. Already cached/queued versions are not downloaded again. The persisted
-routine watermark is retained; explicit interval overrides remain intact until
-the operator changes them.
+routine watermark is retained. Existing deployments adopt the daily default only
+after installing the new binary/image; explicit interval overrides remain intact
+until the operator changes them.
+
+The nominal broad-sweep schedule drops from 24 passes per day to one. Queue work,
+retries, backfill, minute wakeups, API requests, and health probes remain, so this
+does not imply a proportional reduction in CPU use or active billing.
 
 ## API Endpoints
 
