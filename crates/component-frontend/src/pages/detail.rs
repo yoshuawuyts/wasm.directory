@@ -64,6 +64,7 @@ pub(crate) fn render(spec: &DetailSpec<'_>) -> String {
         url_base: &url_base,
         active: spec.sidebar_active,
         annotations: spec.version_detail.and_then(|d| d.annotations.as_ref()),
+        created_at: spec.version_detail.and_then(|d| d.created_at.as_deref()),
         kind_label: page_shell::kind_label_for(spec.pkg),
         description: spec.pkg.description.as_deref(),
         registry: &spec.pkg.registry,

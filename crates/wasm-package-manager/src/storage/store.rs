@@ -48,6 +48,7 @@ mod manifest_config;
 mod namespaces;
 mod package_data;
 mod package_metadata;
+mod publisher_time;
 mod relationships;
 mod releases;
 
@@ -501,7 +502,7 @@ impl Store {
             tag,
             digest: m.digest.clone(),
             size_bytes: m.size_bytes,
-            created_at: m.oci_created.clone(),
+            created_at: publisher_time::manifest_created_at(m),
             synced_at: Some(m.created_at.to_rfc3339()),
             annotations,
             worlds,

@@ -24,6 +24,7 @@ fn context<'a>(
         url_base: "/wasi/io/0.2.0",
         active,
         annotations: None,
+        created_at: None,
         kind_label,
         description: None,
         registry: "ghcr.io",

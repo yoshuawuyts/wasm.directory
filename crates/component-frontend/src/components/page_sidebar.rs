@@ -8,8 +8,11 @@ use crate::components::ds::sigil as s;
 use crate::escape::{escape_html_attr, escape_html_text, escape_js_string, sanitize_url};
 use crate::package_source::urls::{append_path, encode_segment, with_source};
 use crate::wit_doc::WitDocument;
+use chrono::{DateTime, Utc};
 use html::content::Aside;
 use wasm_meta_registry_client::{ComponentSummary, OciAnnotations};
+
+mod publication;
 
 /// GitHub logo SVG icon (14px, ink-500).
 const SVG_GITHUB: &str = r#"<svg class="h-3.5 w-3.5 text-ink-500 flex-shrink-0" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 .2a8 8 0 0 0-2.5 15.6c.4 0 .55-.17.55-.38v-1.4c-2.22.48-2.69-1.07-2.69-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.71 1.23 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.77-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.83-2.15-.08-.2-.36-1.02.08-2.13 0 0 .67-.22 2.2.82A7.6 7.6 0 0 1 8 4.04c.68 0 1.37.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.11.16 1.93.08 2.13.52.56.83 1.28.83 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.74.54 1.49v2.21c0 .21.15.46.55.38A8 8 0 0 0 8 .2Z" /></svg>"#;
@@ -35,10 +38,10 @@ const SVG_SCALE: &str = concat!(
     "</svg>"
 );
 
-/// Lucide calendar icon (14px, ink-500).
-const SVG_CALENDAR: &str = concat!(
-    r#"<svg class="h-3.5 w-3.5 text-ink-500 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">"#,
-    include_str!("../../../../vendor/lucide/calendar.svg"),
+/// Lucide clock icon matching the navigation's 14px, 1.75-stroke format.
+const SVG_CLOCK: &str = concat!(
+    r#"<svg class="h-3.5 w-3.5 text-ink-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">"#,
+    include_str!("../../../../vendor/lucide/clock.svg"),
     "</svg>"
 );
 
@@ -70,6 +73,8 @@ pub(crate) struct SidebarContext<'a> {
     pub active: SidebarActive<'a>,
     /// OCI annotations for the current version (optional).
     pub annotations: Option<&'a OciAnnotations>,
+    /// Publisher-supplied creation time of the selected version, never index time.
+    pub created_at: Option<&'a str>,
     /// Package kind label (e.g. "Interface Types", "Component").
     pub kind_label: &'a str,
     /// Package description.
@@ -102,6 +107,10 @@ pub(crate) enum SidebarActive<'a> {
 
 /// Render the sidebar for a detail page using the DS nested sidebar.
 pub(crate) fn render_sidebar(ctx: &SidebarContext<'_>) -> Aside {
+    render_sidebar_at(ctx, Utc::now())
+}
+
+fn render_sidebar_at(ctx: &SidebarContext<'_>, now: DateTime<Utc>) -> Aside {
     let mut items: Vec<SidebarItem> = Vec::new();
 
     if let Some(doc) = ctx.doc {
@@ -119,7 +128,7 @@ pub(crate) fn render_sidebar(ctx: &SidebarContext<'_>) -> Aside {
         ctx.repository,
     );
     let header_html = build_sidebar_header(ctx);
-    let project_html = build_project_section(ctx);
+    let project_html = build_project_section(ctx, now);
     let version_html = sidebar::render_version_selector(ctx.version, &version_strs, &base_url);
     let items_html = sidebar::render_items_nav(Some("Items"), &items);
 
@@ -239,7 +248,7 @@ fn build_sidebar_header(ctx: &SidebarContext<'_>) -> String {
 ///
 /// Uses tree-link rows with icons matching the DS C01 "Project" section:
 /// GitHub logo for github.com/ghcr.io URLs, book for docs, house for homepage.
-fn build_project_section(ctx: &SidebarContext<'_>) -> Option<String> {
+fn build_project_section(ctx: &SidebarContext<'_>, now: DateTime<Utc>) -> Option<String> {
     let mut rows = Vec::new();
 
     // Registry link
@@ -276,16 +285,16 @@ fn build_project_section(ctx: &SidebarContext<'_>) -> Option<String> {
             let base = strip_with_clause(license);
             rows.push(project_icon_row(SVG_SCALE, &base));
         }
-        if let Some(created) = &ann.created {
-            let date = format_date(created);
-            rows.push(project_icon_row(SVG_CALENDAR, &date));
-        }
         if let Some(authors) = &ann.authors {
             rows.push(detail_row("Authors", authors));
         }
         if let Some(vendor) = &ann.vendor {
             rows.push(detail_row("Vendor", vendor));
         }
+    }
+
+    if let Some(publication) = publication::render(ctx, now) {
+        rows.push(publication);
     }
 
     if rows.is_empty() {
@@ -438,37 +447,6 @@ fn truncate_chars(input: &str, max: usize) -> String {
         format!("{truncated}\u{2026}")
     } else {
         input.to_owned()
-    }
-}
-
-/// Format an ISO 8601 date string to a human-friendly form.
-///
-/// `"2025-03-15T10:30:00Z"` → `"Mar 15, 2025"`
-/// Falls back to the first 10 characters if parsing fails.
-fn format_date(iso: &str) -> String {
-    // Extract YYYY-MM-DD (char-safe slice to avoid panics on non-ASCII input).
-    let date_part: String = iso.chars().take(10).collect();
-    let parts: Vec<&str> = date_part.split('-').collect();
-    if let [year, mm, dd] = parts.as_slice() {
-        let month = match *mm {
-            "01" => "Jan",
-            "02" => "Feb",
-            "03" => "Mar",
-            "04" => "Apr",
-            "05" => "May",
-            "06" => "Jun",
-            "07" => "Jul",
-            "08" => "Aug",
-            "09" => "Sep",
-            "10" => "Oct",
-            "11" => "Nov",
-            "12" => "Dec",
-            _ => return date_part.clone(),
-        };
-        let day = dd.trim_start_matches('0');
-        format!("{month} {day}, {year}")
-    } else {
-        date_part.clone()
     }
 }
 
@@ -728,10 +706,5 @@ mod tests {
         // Multi-byte chars must not panic the char-boundary truncation.
         let html = build_revision_row("日本語日本語日本語日本語日本語");
         assert!(html.contains("\u{2026}"));
-    }
-
-    #[test]
-    fn format_date_handles_non_ascii_without_panic() {
-        let _ = format_date("日本語日本語日本語");
     }
 }
