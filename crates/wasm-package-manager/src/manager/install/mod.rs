@@ -399,20 +399,54 @@ mod tests {
         assert!(!looks_like_wit_name("wasi:http@0.2@extra"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn local_component_registers_resolves_installs_and_removes() {
         let temp = tempdir().expect("temp dir");
         let manager = Manager::open_at(temp.path()).await.expect("manager");
         let mut resolve = wit_parser::Resolve::default();
+        let bar = resolve
+            .push_str("bar.wit", "package test:bar@1.0.0;\ninterface api {}\n")
+            .expect("parse dependency WIT");
         let package = resolve
-            .push_str("foo.wit", "package test:foo@1.0.0;\nworld foo {}\n")
-            .expect("parse WIT");
+            .push_str(
+                "foo.wit",
+                "package test:foo@1.0.0;\nworld foo { import test:bar/api@1.0.0; }\n",
+            )
+            .expect("parse root WIT");
+        let bar_bytes = wit_component::encode(&resolve, bar).expect("encode dependency");
         let bytes = wit_component::encode(&resolve, package).expect("encode component");
 
+        manager
+            .register_local("bar", bar_bytes)
+            .await
+            .expect("register local dependency");
         manager
             .register_local("foo", bytes.clone())
             .await
             .expect("register local component");
+        assert_eq!(
+            manager
+                .local_package_identity("foo")
+                .await
+                .expect("read local package identity")
+                .as_deref(),
+            Some("test:foo@1.0.0")
+        );
+        let plan = manager
+            .resolve_all_dependencies(&[(
+                "test:foo".to_string(),
+                crate::resolver::WitVersion::new(1, 0, 0),
+            )])
+            .expect("resolve local package as its embedded WIT identity");
+        assert_eq!(
+            plan.get("test:foo"),
+            Some(&crate::resolver::WitVersion::new(1, 0, 0))
+        );
+        assert_eq!(
+            plan.get("test:bar"),
+            Some(&crate::resolver::WitVersion::new(1, 0, 0)),
+            "the aliased local root should still plan its imported WIT dependency"
+        );
         assert!(
             manager
                 .list_all()
@@ -485,10 +519,18 @@ mod tests {
             .expect("parse replacement WIT");
         let replacement_bytes = wit_component::encode(&replacement_resolve, replacement_package)
             .expect("encode replacement component");
-        manager
-            .register_local("foo", replacement_bytes)
-            .await
-            .expect("replace local component");
+        let mut concurrent_resolve = wit_parser::Resolve::default();
+        let concurrent_package = concurrent_resolve
+            .push_str("foo.wit", "package test:foo@3.0.0;\nworld foo {}\n")
+            .expect("parse concurrent WIT");
+        let concurrent_bytes = wit_component::encode(&concurrent_resolve, concurrent_package)
+            .expect("encode concurrent component");
+        let (replacement_result, concurrent_result) = tokio::join!(
+            manager.register_local("foo", replacement_bytes),
+            manager.register_local("foo", concurrent_bytes),
+        );
+        replacement_result.expect("replace local component");
+        concurrent_result.expect("concurrent replacement");
         let entries = manager.list_all().await.expect("list all packages");
         assert_eq!(
             entries
@@ -504,7 +546,13 @@ mod tests {
             .install(resolved[0].0.clone(), &vendor_dir)
             .await
             .expect("install replacement from local cache");
-        assert_eq!(replacement.package_name.as_deref(), Some("test:foo@2.0.0"));
+        assert!(
+            matches!(
+                replacement.package_name.as_deref(),
+                Some("test:foo@2.0.0" | "test:foo@3.0.0")
+            ),
+            "one complete concurrent registration should be installed"
+        );
 
         assert!(manager.remove("local:foo").await.expect("remove local"));
         assert!(

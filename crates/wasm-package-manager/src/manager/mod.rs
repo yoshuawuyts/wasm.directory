@@ -1,6 +1,10 @@
 use oci_client::Reference;
 use oci_client::errors::{OciDistributionError, OciErrorCode};
-use std::path::Path;
+use std::{
+    collections::HashMap,
+    path::Path,
+    sync::{Arc, OnceLock, Weak},
+};
 use tokio_stream::StreamExt;
 
 mod errors;
@@ -43,6 +47,21 @@ pub enum TaskOutcome {
 /// [`Manager::notify_new_version`] requests for it. This rate-limits external
 /// notifications; background indexing never re-pulls known tags.
 const PULL_COOLDOWN_SECS: u64 = 3600;
+
+type LocalRegistrationLock = Arc<tokio::sync::Mutex<()>>;
+
+async fn local_registration_lock(name: &str) -> LocalRegistrationLock {
+    static LOCKS: OnceLock<tokio::sync::Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>> =
+        OnceLock::new();
+    let locks = LOCKS.get_or_init(Default::default);
+    let mut locks = locks.lock().await;
+    if let Some(lock) = locks.get(name).and_then(Weak::upgrade) {
+        return lock;
+    }
+    let lock = Arc::new(tokio::sync::Mutex::new(()));
+    locks.insert(name.to_string(), Arc::downgrade(&lock));
+    lock
+}
 
 /// A cache on disk
 ///
@@ -120,8 +139,18 @@ impl Manager {
         .sha256_digest();
         // The internal tag is used as the installed dependency version, so
         // keep it valid for wasm.toml's SemVer-based dependency values.
-        self.store.delete(&reference).await?;
-        self.store
+        let lock = local_registration_lock(name).await;
+        let _guard = lock.lock().await;
+        let old_digest = if let Some(tag) = reference.tag() {
+            self.store
+                .cached_manifest_for_reference(reference.registry(), reference.repository(), tag)
+                .await?
+                .map(|(digest, _)| digest)
+        } else {
+            None
+        };
+        let (_, new_digest, _, _) = self
+            .store
             .insert(
                 &reference,
                 oci_client::client::ImageData {
@@ -133,6 +162,12 @@ impl Manager {
                 false,
             )
             .await?;
+        if let Some(old_digest) = old_digest
+            && Some(old_digest.as_str()) != new_digest.as_deref()
+        {
+            let old_reference: Reference = format!("local.invalid/{name}@{old_digest}").parse()?;
+            self.store.delete(&old_reference).await?;
+        }
         Ok(())
     }
 
@@ -156,6 +191,41 @@ impl Manager {
             return Ok(None);
         }
         Ok(Some(reference))
+    }
+
+    /// Return the embedded WIT package identity for a complete local component.
+    ///
+    /// The identity includes its version when present, for example
+    /// `wasi:http@0.2.0`. Returns `None` when the registration is missing,
+    /// incomplete, or has no embedded WIT package identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the local name is invalid or cached metadata cannot
+    /// be read.
+    pub async fn local_package_identity(&self, name: &str) -> anyhow::Result<Option<String>> {
+        let Some(reference) = self.local_reference(name).await? else {
+            return Ok(None);
+        };
+        let Some(tag) = reference.tag() else {
+            return Ok(None);
+        };
+        let Some((_, manifest)) = self
+            .store
+            .cached_manifest_for_reference(reference.registry(), reference.repository(), tag)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let Some(layer) = manifest
+            .layers
+            .iter()
+            .find(|layer| layer.media_type == oci_wasm::WASM_LAYER_MEDIA_TYPE)
+        else {
+            return Ok(None);
+        };
+        let bytes = cacache::read(self.store.state_info.store_dir(), &layer.digest).await?;
+        Ok(crate::types::extract_wit_metadata(&bytes).and_then(|metadata| metadata.package_name))
     }
 
     /// Remove a package from the local store by local name or OCI reference.
@@ -558,14 +628,20 @@ impl Manager {
     pub async fn vendor(&self, layer_digest: &str, dest: &Path) -> anyhow::Result<()> {
         use anyhow::Context as _;
         let cache = self.store.state_info.store_dir();
-        cacache::reflink(cache, layer_digest, dest)
-            .await
-            .with_context(|| {
-                format!(
-                    "failed to reflink layer {layer_digest} to {}",
-                    dest.display()
-                )
+        if let Err(error) = cacache::reflink(cache, layer_digest, dest).await {
+            tracing::debug!(
+                layer_digest,
+                destination = %dest.display(),
+                %error,
+                "Reflink unavailable; copying cached layer"
+            );
+            let bytes = cacache::read(cache, layer_digest)
+                .await
+                .with_context(|| format!("failed to read cached layer {layer_digest}"))?;
+            tokio::fs::write(dest, bytes).await.with_context(|| {
+                format!("failed to copy layer {layer_digest} to {}", dest.display())
             })?;
+        }
         Ok(())
     }
 
@@ -1555,10 +1631,7 @@ impl Manager {
         &self,
         package: &str,
         version: crate::resolver::WitVersion,
-    ) -> Result<
-        std::collections::HashMap<String, crate::resolver::WitVersion>,
-        crate::resolver::ResolveError,
-    > {
+    ) -> Result<HashMap<String, crate::resolver::WitVersion>, crate::resolver::ResolveError> {
         crate::resolver::resolve_from_db(&self.store, package, version)
     }
 
@@ -1582,10 +1655,7 @@ impl Manager {
     pub fn resolve_all_dependencies(
         &self,
         roots: &[(String, crate::resolver::WitVersion)],
-    ) -> Result<
-        std::collections::HashMap<String, crate::resolver::WitVersion>,
-        crate::resolver::ResolveError,
-    > {
+    ) -> Result<HashMap<String, crate::resolver::WitVersion>, crate::resolver::ResolveError> {
         crate::resolver::resolve_all_from_db(&self.store, roots)
     }
 

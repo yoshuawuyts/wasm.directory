@@ -2353,12 +2353,6 @@ impl Store {
             InsertResult::AlreadyExists
         };
 
-        if let Some(tag) = reference.tag()
-            && let Some(d) = digest.as_deref()
-        {
-            upsert_oci_tag(&self.db, repo_id, tag, d).await?;
-        }
-
         let manifest = image.manifest.clone();
 
         // Store layers when the manifest is newly inserted, or when the
@@ -2413,6 +2407,15 @@ impl Store {
             self.repair_layer_metadata(manifest_id, &image.layers)
                 .await?;
         }
+        // Publish the mutable tag only after all cache layers and metadata
+        // have been stored successfully, so replacing a reference never
+        // exposes an incomplete manifest.
+        if let Some(tag) = reference.tag()
+            && let Some(d) = digest.as_deref()
+        {
+            upsert_oci_tag(&self.db, repo_id, tag, d).await?;
+        }
+
         let manifest_id_opt = if result == InsertResult::Inserted || repair {
             Some(manifest_id)
         } else {
@@ -2890,18 +2893,10 @@ impl Store {
 
         // The content-addressable blob cache is shared across repositories,
         // so retain layers referenced by any manifest outside this deletion.
-        let all_manifests = oci_manifest::Entity::find().all(&self.db).await?;
         let mut retained_digests: HashSet<String> = HashSet::new();
-        for other in &all_manifests {
-            if manifest_ids.contains(&other.id) {
-                continue;
-            }
-            let other_layers = oci_layer::Entity::find()
-                .filter(oci_layer::Column::OciManifestId.eq(other.id))
-                .all(&self.db)
-                .await?;
-            for l in other_layers {
-                retained_digests.insert(l.digest);
+        for layer in oci_layer::Entity::find().all(&self.db).await? {
+            if !manifest_ids.contains(&layer.oci_manifest_id) {
+                retained_digests.insert(layer.digest);
             }
         }
         let orphaned = crate::oci::compute_orphaned_layers(&layer_digests, &retained_digests);

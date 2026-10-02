@@ -182,14 +182,28 @@ impl Opts {
             // are shimmed to `0.0.0` so PubGrub can still resolve their
             // full transitive dependency graph.
             for (reference, _update, explicit_name) in &to_install {
-                let Some(name) = explicit_name.as_deref() else {
+                let package_identity = if reference.registry() == "local.invalid" {
+                    manager
+                        .local_package_identity(reference.repository())
+                        .await
+                        .map_err(crate::util::into_miette)?
+                } else {
+                    explicit_name.clone()
+                };
+                let Some(package_identity) = package_identity else {
                     continue;
                 };
-                if !looks_like_wit_name(name) {
+                if !looks_like_wit_name(&package_identity) {
                     continue;
                 }
-                let tag = reference.tag().unwrap_or_default();
-                let version = tag
+                let (name, embedded_version) = package_identity
+                    .rsplit_once('@')
+                    .map_or((package_identity.as_str(), None), |(name, version)| {
+                        (name, Some(version))
+                    });
+                let version = embedded_version
+                    .or_else(|| reference.tag())
+                    .unwrap_or_default()
                     .trim_start_matches('v')
                     .parse::<wasm_package_manager::resolver::WitVersion>()
                     .unwrap_or(wasm_package_manager::resolver::WitVersion::new(0, 0, 0));
