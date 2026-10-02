@@ -731,10 +731,6 @@ impl Manager {
                 format!("failed integrity check for cached layer {layer_digest}")
             })?;
         }
-        #[cfg(windows)]
-        if tokio::fs::try_exists(dest).await? {
-            tokio::fs::remove_file(dest).await?;
-        }
         tokio::fs::rename(&temp, dest)
             .await
             .with_context(|| format!("failed to move verified layer into {}", dest.display()))?;
@@ -1056,9 +1052,6 @@ impl Manager {
 
             // Ensure vendor directory exists
             tokio::fs::create_dir_all(vendor_dir).await?;
-
-            // Remove existing file if present before reflinking
-            let _ = tokio::fs::remove_file(&dest).await;
 
             self.vendor(&layer.digest, &dest).await?;
             vendored_files.push(dest);

@@ -254,6 +254,7 @@ impl Opts {
                 transitive_installs.push(PlannedInstall::Transitive {
                     reference: r,
                     package_name: name,
+                    version: version.to_string(),
                 });
             }
         }
@@ -360,8 +361,18 @@ impl Opts {
                         &mut lockfile,
                     );
                 }
-                PlannedInstall::Transitive { .. } => {
+                PlannedInstall::Transitive {
+                    package_name,
+                    version,
+                    ..
+                } => {
                     upsert_lockfile_type(&mut lockfile, &result);
+                    let registry = format!("{}/{}", result.registry, result.repository);
+                    if let Some(package) = lockfile.interfaces.iter_mut().find(|package| {
+                        package.name == package_name && package.registry == registry
+                    }) {
+                        package.version = version;
+                    }
                 }
             }
         }
@@ -420,6 +431,7 @@ enum PlannedInstall {
     Transitive {
         reference: Reference,
         package_name: String,
+        version: String,
     },
 }
 
@@ -454,11 +466,12 @@ impl PlannedInstall {
                 (display, ver)
             }
             PlannedInstall::Transitive {
-                reference,
                 package_name,
+                version,
+                ..
             } => {
                 let (name, ver) =
-                    package_display_parts(Some(package_name.as_str()), reference.tag());
+                    package_display_parts(Some(package_name.as_str()), Some(version.as_str()));
                 let display = if name.is_empty() {
                     package_name.clone()
                 } else {

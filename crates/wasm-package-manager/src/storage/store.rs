@@ -2584,6 +2584,7 @@ impl Store {
         position: i32,
         layer_annotations: Option<&BTreeMap<String, String>>,
     ) -> anyhow::Result<()> {
+        let _cache_lock = self.cache_mutation_lock().await?;
         let cache = self.state_info.store_dir();
         let _integrity = cacache::write(&cache, layer_digest, data).await?;
 
