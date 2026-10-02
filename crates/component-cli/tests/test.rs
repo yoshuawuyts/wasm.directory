@@ -392,7 +392,7 @@ fn test_local_registry_package_lifecycle() {
         String::from_utf8_lossy(&initialized.stderr)
     );
 
-    let installed = run(&["install", "local:foo"], Some(&project));
+    let installed = run(&["install", "--offline", "local:foo"], Some(&project));
     assert!(
         installed.status.success(),
         "local install failed: {}",

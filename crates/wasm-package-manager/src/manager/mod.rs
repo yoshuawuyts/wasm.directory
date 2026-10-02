@@ -63,6 +63,29 @@ async fn local_registration_lock(name: &str) -> LocalRegistrationLock {
     lock
 }
 
+async fn local_registration_process_lock(
+    store: &Store,
+    name: &str,
+) -> anyhow::Result<std::fs::File> {
+    let lock_dir = store.state_info.data_dir().join("local-locks");
+    tokio::fs::create_dir_all(&lock_dir).await?;
+    let lock_path = lock_dir.join(format!("{name}.lock"));
+    tokio::task::spawn_blocking(move || {
+        use fs2::FileExt as _;
+
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(lock_path)?;
+        file.lock_exclusive()?;
+        Ok::<_, std::io::Error>(file)
+    })
+    .await?
+    .map_err(Into::into)
+}
+
 /// A cache on disk
 ///
 /// # Example
@@ -141,6 +164,7 @@ impl Manager {
         // keep it valid for wasm.toml's SemVer-based dependency values.
         let lock = local_registration_lock(name).await;
         let _guard = lock.lock().await;
+        let _process_guard = local_registration_process_lock(&self.store, name).await?;
         let old_digest = if let Some(tag) = reference.tag() {
             self.store
                 .cached_manifest_for_reference(reference.registry(), reference.repository(), tag)
@@ -166,6 +190,9 @@ impl Manager {
             && Some(old_digest.as_str()) != new_digest.as_deref()
         {
             let old_reference: Reference = format!("local.invalid/{name}@{old_digest}").parse()?;
+            self.store
+                .clear_derived_metadata_for_reference(&old_reference)
+                .await?;
             self.store.delete_preserving_blobs(&old_reference).await?;
         }
         Ok(())
@@ -206,6 +233,7 @@ impl Manager {
     pub async fn local_package_identity(&self, name: &str) -> anyhow::Result<Option<String>> {
         let lock = local_registration_lock(name).await;
         let _guard = lock.lock().await;
+        let _process_guard = local_registration_process_lock(&self.store, name).await?;
         let Some(reference) = self.local_reference(name).await? else {
             return Ok(None);
         };
@@ -238,6 +266,7 @@ impl Manager {
             validate_local_name(name)?;
             let lock = local_registration_lock(name).await;
             let _guard = lock.lock().await;
+            let _process_guard = local_registration_process_lock(&self.store, name).await?;
             return self
                 .store
                 .delete_preserving_blobs(&local_reference(name)?)
@@ -715,6 +744,11 @@ impl Manager {
         };
         let _local_guard = if let Some(lock) = &local_lock {
             Some(lock.lock().await)
+        } else {
+            None
+        };
+        let _process_guard = if reference.registry() == "local.invalid" {
+            Some(local_registration_process_lock(&self.store, reference.repository()).await?)
         } else {
             None
         };

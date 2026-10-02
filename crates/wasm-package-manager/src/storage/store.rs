@@ -2482,6 +2482,53 @@ impl Store {
         Ok(())
     }
 
+    pub(crate) async fn clear_derived_metadata_for_manifest(
+        &self,
+        manifest_id: i64,
+    ) -> anyhow::Result<()> {
+        self.clear_wit_for_manifest(manifest_id).await
+    }
+
+    pub(crate) async fn clear_derived_metadata_for_reference(
+        &self,
+        reference: &Reference,
+    ) -> anyhow::Result<()> {
+        let Some(digest) = reference.digest() else {
+            return Ok(());
+        };
+        let Some(repository) = oci_repository::Entity::find()
+            .filter(oci_repository::Column::Registry.eq(reference.registry()))
+            .filter(oci_repository::Column::Repository.eq(reference.repository()))
+            .one(&self.db)
+            .await?
+        else {
+            return Ok(());
+        };
+        let manifests = oci_manifest::Entity::find()
+            .filter(oci_manifest::Column::OciRepositoryId.eq(repository.id))
+            .filter(oci_manifest::Column::Digest.eq(digest))
+            .all(&self.db)
+            .await?;
+        for manifest in manifests {
+            self.clear_derived_metadata_for_manifest(manifest.id)
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn retained_layer_digests(
+        &self,
+        excluded_manifests: &HashSet<i64>,
+    ) -> anyhow::Result<HashSet<String>> {
+        Ok(oci_layer::Entity::find()
+            .all(&self.db)
+            .await?
+            .into_iter()
+            .filter(|layer| !excluded_manifests.contains(&layer.oci_manifest_id))
+            .map(|layer| layer.digest)
+            .collect())
+    }
+
     pub(crate) async fn insert_metadata(
         &self,
         reference: &Reference,
@@ -2892,6 +2939,10 @@ impl Store {
         if manifests_to_delete.is_empty() {
             return Ok(false);
         }
+        for manifest in &manifests_to_delete {
+            self.clear_derived_metadata_for_manifest(manifest.id)
+                .await?;
+        }
 
         let mut layer_digests: HashSet<String> = HashSet::new();
         let mut manifest_ids: HashSet<i64> = HashSet::new();
@@ -2909,12 +2960,7 @@ impl Store {
         // The content-addressable blob cache is shared across repositories,
         // so retain layers referenced by any manifest outside this deletion.
         if cleanup_orphaned_blobs {
-            let mut retained_digests: HashSet<String> = HashSet::new();
-            for layer in oci_layer::Entity::find().all(&self.db).await? {
-                if !manifest_ids.contains(&layer.oci_manifest_id) {
-                    retained_digests.insert(layer.digest);
-                }
-            }
+            let retained_digests = self.retained_layer_digests(&manifest_ids).await?;
             let orphaned = crate::oci::compute_orphaned_layers(&layer_digests, &retained_digests);
             for layer_digest in &orphaned {
                 let _ = cacache::remove(self.state_info.store_dir(), layer_digest).await;

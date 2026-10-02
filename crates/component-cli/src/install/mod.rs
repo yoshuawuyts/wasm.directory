@@ -172,7 +172,10 @@ impl Opts {
         let mut resolved_transitive: HashMap<String, wasm_package_manager::resolver::WitVersion> =
             HashMap::new();
         let mut resolver_root_names: HashSet<String> = HashSet::new();
-        if !offline {
+        let has_local_roots = to_install
+            .iter()
+            .any(|(reference, _, _)| reference.registry() == "local.invalid");
+        if !offline || has_local_roots {
             let mut roots = Vec::new();
 
             // Feed CLI inputs / manifest entries into the resolver via

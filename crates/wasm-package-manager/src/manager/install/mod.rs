@@ -553,6 +553,24 @@ mod tests {
             ),
             "one complete concurrent registration should be installed"
         );
+        let current_version = replacement
+            .package_name
+            .as_deref()
+            .and_then(|identity| identity.rsplit_once('@'))
+            .map(|(_, version)| version)
+            .expect("replacement has a WIT package version")
+            .parse::<crate::resolver::WitVersion>()
+            .expect("replacement version parses");
+        let versions = manager
+            .store
+            .list_wit_package_versions("test:foo")
+            .await
+            .expect("list local package versions");
+        assert_eq!(
+            versions,
+            vec![current_version.to_string()],
+            "superseded local package metadata must not remain resolvable"
+        );
 
         assert!(manager.remove("local:foo").await.expect("remove local"));
         assert!(
