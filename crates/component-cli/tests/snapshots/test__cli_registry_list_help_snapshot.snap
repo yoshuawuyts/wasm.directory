@@ -2,7 +2,7 @@
 source: crates/component-cli/tests/test.rs
 expression: output
 ---
-List all installed packages
+List all components in the local store
 
 Usage: component registry list [OPTIONS]
 

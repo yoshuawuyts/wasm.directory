@@ -70,6 +70,97 @@ pub struct Manager {
 }
 
 impl Manager {
+    /// Register a local WebAssembly component under a local package name.
+    ///
+    /// The component is validated and stored in the global package cache. It
+    /// can then be installed using the `local:<name>` package identity without
+    /// contacting an OCI registry.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the name is invalid, the bytes are not a valid
+    /// WebAssembly component, or the package cannot be stored.
+    pub async fn register_local(&self, name: &str, package: Vec<u8>) -> anyhow::Result<()> {
+        validate_local_name(name)?;
+        let reference = local_reference(name)?;
+        let (wasm_config, layer) = oci_wasm::WasmConfig::from_raw_component(package, None)?;
+        let config = oci_wasm::ToConfig::to_config(&wasm_config)?;
+        let layer_digest = layer.sha256_digest();
+        let config_digest = oci_client::client::ImageLayer::new(
+            config.data.clone(),
+            config.media_type.clone(),
+            None,
+        )
+        .sha256_digest();
+        let config_descriptor = oci_client::manifest::OciDescriptor {
+            media_type: config.media_type.clone(),
+            digest: config_digest,
+            size: i64::try_from(config.data.len())?,
+            ..Default::default()
+        };
+        let layer_descriptor = oci_client::manifest::OciDescriptor {
+            media_type: layer.media_type.clone(),
+            digest: layer_digest.clone(),
+            size: i64::try_from(layer.data.len())?,
+            ..Default::default()
+        };
+        let manifest = oci_client::manifest::OciImageManifest {
+            schema_version: 2,
+            media_type: Some(oci_wasm::WASM_MANIFEST_MEDIA_TYPE.to_string()),
+            config: config_descriptor,
+            layers: vec![layer_descriptor],
+            ..Default::default()
+        };
+        let manifest_bytes = serde_json::to_vec(&manifest)?;
+        let manifest_digest = oci_client::client::ImageLayer::new(
+            manifest_bytes,
+            oci_wasm::WASM_MANIFEST_MEDIA_TYPE.to_string(),
+            None,
+        )
+        .sha256_digest();
+        self.store
+            .insert(
+                &reference,
+                oci_client::client::ImageData {
+                    layers: vec![layer],
+                    digest: Some(manifest_digest),
+                    config,
+                    manifest: Some(manifest),
+                },
+                false,
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Return the internal cache reference for a registered local component.
+    ///
+    /// Returns `None` when no component with `name` has been registered.
+    pub(crate) async fn local_reference(&self, name: &str) -> anyhow::Result<Option<Reference>> {
+        validate_local_name(name)?;
+        let reference = local_reference(name)?;
+        let Some(tag) = reference.tag() else {
+            return Ok(None);
+        };
+        Ok(self
+            .store
+            .cached_manifest_for_reference(reference.registry(), reference.repository(), tag)
+            .await?
+            .map(|_| reference))
+    }
+
+    /// Remove a package from the local store by local name or OCI reference.
+    ///
+    /// Returns `true` when the package was present.
+    pub async fn remove(&self, reference: &str) -> anyhow::Result<bool> {
+        if let Some(name) = reference.strip_prefix("local:") {
+            validate_local_name(name)?;
+            return self.store.delete(&local_reference(name)?).await;
+        }
+        let reference = crate::parse_reference(reference).map_err(anyhow::Error::msg)?;
+        self.store.delete(&reference).await
+    }
+
     /// Default meta-registry URL used for syncing the known-package index
     /// and for notifying the registry about newly-published versions.
     ///
@@ -109,6 +200,30 @@ impl Manager {
             .filter(|url| !url.is_empty())
             .unwrap_or_else(|| Self::DEFAULT_REGISTRY_URL.to_string())
     }
+}
+
+fn validate_local_name(name: &str) -> anyhow::Result<()> {
+    let valid = !name.is_empty()
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        && name.split('-').all(|segment| {
+            segment
+                .as_bytes()
+                .first()
+                .is_some_and(u8::is_ascii_alphanumeric)
+        });
+    anyhow::ensure!(
+        valid,
+        "invalid local component name '{name}'; use lowercase letters, digits, and hyphens"
+    );
+    Ok(())
+}
+
+fn local_reference(name: &str) -> anyhow::Result<Reference> {
+    format!("local.invalid/{name}:local")
+        .parse()
+        .map_err(Into::into)
 }
 
 impl Manager {
@@ -625,13 +740,21 @@ impl Manager {
         let wasm_layers = filter_wasm_layers(&manifest.layers);
         let (package_name, is_component, dependencies) =
             self.inspect_wasm_layers(&wasm_layers).await;
+        let package_name = package_name.or_else(|| {
+            (reference.registry() == "local.invalid")
+                .then(|| format!("local:{}", reference.repository()))
+        });
 
         let mut vendored_files = Vec::new();
         if !wasm_layers.is_empty() {
             let name = package_name.as_deref().ok_or_else(|| {
                 anyhow::anyhow!("could not determine WIT package name from `{reference}`")
             })?;
-            let filename = vendor_filename(name, reference.tag());
+            let filename = if reference.registry() == "local.invalid" {
+                vendor_filename(&format!("local:{}", reference.repository()), None)
+            } else {
+                vendor_filename(name, reference.tag())
+            };
             vendored_files = self
                 .vendor_wasm_layers(&wasm_layers, vendor_dir, &filename)
                 .await?;

@@ -94,9 +94,13 @@ impl Opts {
         let multi = MultiProgress::new();
         let display = std::sync::Arc::new(tokio::sync::Mutex::new(InstallDisplay::new(multi)));
 
+        // A local-only install is fully served from the package cache and
+        // must not contact the meta-registry.
+        let local_only_install = is_local_only_install(&self.inputs, &manifest);
+
         // Sync the local package index from the meta-registry so WIT-style
         // names and search-based lookups can be resolved.
-        if !offline {
+        if !offline && !local_only_install {
             display.lock().await.start_sync();
             let registry_url = Manager::default_registry_url();
             let sync_result = manager
@@ -604,10 +608,48 @@ fn process_top_level_result(
     result.dependencies
 }
 
+fn is_local_only_install(inputs: &[String], manifest: &wasm_manifest::Manifest) -> bool {
+    if !inputs.is_empty() {
+        return inputs.iter().all(|input| input.starts_with("local:"));
+    }
+
+    let mut dependencies = manifest.all_dependencies();
+    let Some((first_key, _, _)) = dependencies.next() else {
+        return false;
+    };
+    first_key.starts_with("local:") && dependencies.all(|(key, _, _)| key.starts_with("local:"))
+}
+
 #[cfg(test)]
 mod tests {
+    use super::is_local_only_install;
     use wasm_package_manager::manager::InstallResult;
     use wasm_package_manager::manager::install::{looks_like_wit_name, re_vendor_wit_files};
+
+    #[test]
+    fn local_only_install_detection() {
+        let local: wasm_manifest::Manifest = toml::from_str(
+            r#"
+[dependencies.components]
+"local:foo" = "local"
+"local:bar" = "local"
+"#,
+        )
+        .expect("parse local dependencies");
+        assert!(is_local_only_install(&[], &local));
+        assert!(is_local_only_install(
+            &["local:foo".into(), "local:bar".into()],
+            &wasm_manifest::Manifest::default()
+        ));
+        assert!(!is_local_only_install(
+            &[],
+            &wasm_manifest::Manifest::default()
+        ));
+        assert!(!is_local_only_install(
+            &["local:foo".into(), "ghcr.io/acme/foo:1.0.0".into()],
+            &local
+        ));
+    }
 
     #[test]
     fn looks_like_wit_name_bare() {

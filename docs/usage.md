@@ -62,6 +62,29 @@ component package pull registry.example.com/org/component:tag
 
 The package is stored locally in content-addressable storage and can be listed with `component package list`.
 
+### Registering Local Components
+
+Register a locally built component under a `local:` name, then use that name
+as an install input before publishing the package:
+
+```bash
+component registry register foo ./target/foo.wasm
+component install local:foo
+```
+
+The Rust package-manager API accepts the package bytes directly:
+
+```rust,no_run
+let manager = wasm_package_manager::manager::Manager::open().await?;
+let package_bytes = std::fs::read("./target/foo.wasm")?;
+manager.register_local("foo", package_bytes).await?;
+# Ok::<(), anyhow::Error>(())
+```
+
+`component registry list` lists all packages in the local store, including
+locally registered and pulled packages. `component registry remove` accepts
+either a `local:<name>` or an OCI reference.
+
 ### Publishing a Package
 
 `component publish` reads a `[package]` section from `wasm.toml` and

@@ -31,7 +31,11 @@ pub(crate) fn build_resolver(base: &Path) -> Result<FileSystemPackageResolver> {
 
         // Map [dependencies.components] entries to vendored .wasm files
         for name in manifest.dependencies.components.keys() {
-            let wasm_file = wasm_vendor.join(format!("{name}.wasm"));
+            let wasm_file = if name.starts_with("local:") {
+                wasm_vendor.join(crate::manager::vendor_filename(name, None))
+            } else {
+                wasm_vendor.join(format!("{name}.wasm"))
+            };
             if wasm_file.exists() {
                 overrides.insert(name.clone(), wasm_file);
             }
@@ -39,8 +43,16 @@ pub(crate) fn build_resolver(base: &Path) -> Result<FileSystemPackageResolver> {
 
         // Map [dependencies.interfaces] entries to vendored .wasm or .wit files
         for name in manifest.dependencies.interfaces.keys() {
-            let wasm_file = wit_vendor.join(format!("{name}.wasm"));
-            let wit_file = wit_vendor.join(format!("{name}.wit"));
+            let (wasm_file, wit_file) = if name.starts_with("local:") {
+                let filename = crate::manager::vendor_filename(name, None);
+                let wit_filename = Path::new(&filename).with_extension("wit");
+                (wit_vendor.join(filename), wit_vendor.join(wit_filename))
+            } else {
+                (
+                    wit_vendor.join(format!("{name}.wasm")),
+                    wit_vendor.join(format!("{name}.wit")),
+                )
+            };
             if wasm_file.exists() {
                 overrides.insert(name.clone(), wasm_file);
             } else if wit_file.exists() {

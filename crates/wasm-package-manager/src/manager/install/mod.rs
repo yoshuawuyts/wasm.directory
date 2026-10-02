@@ -119,6 +119,11 @@ pub async fn resolve_manifest_dependency(
     dep: &wasm_manifest::Dependency,
     manager: &Manager,
 ) -> anyhow::Result<(Reference, Option<String>)> {
+    if let Some(name) = key.strip_prefix("local:") {
+        let reference = resolve_local_name(name, manager).await?;
+        return Ok((reference, Some(key.to_string())));
+    }
+
     match dep {
         wasm_manifest::Dependency::Compact(s) if !s.contains('/') && looks_like_wit_name(key) => {
             // The compact value contains no '/' so it is a version string
@@ -166,6 +171,16 @@ pub async fn resolve_install_inputs(
             continue;
         }
 
+        if let Some(name) = input.strip_prefix("local:") {
+            let reference = resolve_local_name(name, manager).await.map_err(|e| {
+                InstallError::ResolveFailure {
+                    reason: e.to_string(),
+                }
+            })?;
+            result.push((reference, true, Some(input.clone())));
+            continue;
+        }
+
         // If it looks like a WIT-style name (e.g. `wasi:http`), resolve via
         // the known-package database instead of treating it as a bare OCI
         // reference (which would incorrectly default to docker.io/library/).
@@ -192,6 +207,13 @@ pub async fn resolve_install_inputs(
         }
     }
     Ok(result)
+}
+
+async fn resolve_local_name(name: &str, manager: &Manager) -> anyhow::Result<Reference> {
+    manager
+        .local_reference(name)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("local component 'local:{name}' is not registered"))
 }
 
 // ---------------------------------------------------------------------------
@@ -340,6 +362,7 @@ pub async fn resolve_dep_reference(manager: &Manager, dep: &DependencyItem) -> O
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     #[test]
     fn looks_like_wit_name_bare() {
@@ -374,6 +397,65 @@ mod tests {
     #[test]
     fn looks_like_wit_name_rejects_multiple_at() {
         assert!(!looks_like_wit_name("wasi:http@0.2@extra"));
+    }
+
+    #[tokio::test]
+    async fn local_component_registers_resolves_installs_and_removes() {
+        let temp = tempdir().expect("temp dir");
+        let manager = Manager::open_at(temp.path()).await.expect("manager");
+        let mut resolve = wit_parser::Resolve::default();
+        let package = resolve
+            .push_str("foo.wit", "package test:foo@1.0.0;\nworld foo {}\n")
+            .expect("parse WIT");
+        let bytes = wit_component::encode(&resolve, package).expect("encode component");
+
+        manager
+            .register_local("foo", bytes)
+            .await
+            .expect("register local component");
+        assert!(
+            manager
+                .list_all()
+                .await
+                .expect("list all packages")
+                .iter()
+                .any(|entry| {
+                    entry.ref_registry == "local.invalid" && entry.ref_repository == "foo"
+                })
+        );
+        let manifest = wasm_manifest::Manifest::default();
+        let inputs = vec!["local:foo".to_string()];
+        let resolved = resolve_install_inputs(&inputs, &manifest, &manager)
+            .await
+            .expect("resolve local name");
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].0.registry(), "local.invalid");
+        assert_eq!(resolved[0].0.repository(), "foo");
+        assert_eq!(resolved[0].2.as_deref(), Some("local:foo"));
+
+        let vendor_dir = temp.path().join("vendor");
+        let installed = manager
+            .install(resolved[0].0.clone(), &vendor_dir)
+            .await
+            .expect("install from local cache");
+        assert_eq!(installed.package_name.as_deref(), Some("test:foo@1.0.0"));
+        assert_eq!(installed.vendored_files.len(), 1);
+        assert!(installed.vendored_files[0].exists());
+        assert_eq!(
+            installed.vendored_files[0]
+                .file_name()
+                .and_then(|name| name.to_str()),
+            Some("local-foo.wasm")
+        );
+
+        assert!(manager.remove("local:foo").await.expect("remove local"));
+        assert!(
+            manager
+                .local_reference("foo")
+                .await
+                .expect("lookup local")
+                .is_none()
+        );
     }
 
     #[test]
