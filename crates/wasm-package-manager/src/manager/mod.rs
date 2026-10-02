@@ -67,6 +67,7 @@ async fn local_registration_process_lock(
     store: &Store,
     name: &str,
 ) -> anyhow::Result<std::fs::File> {
+    validate_local_name(name)?;
     let lock_dir = store.state_info.data_dir().join("local-locks");
     tokio::fs::create_dir_all(&lock_dir).await?;
     let lock_path = lock_dir.join(format!("{name}.lock"));
@@ -190,9 +191,6 @@ impl Manager {
             && Some(old_digest.as_str()) != new_digest.as_deref()
         {
             let old_reference: Reference = format!("local.invalid/{name}@{old_digest}").parse()?;
-            self.store
-                .clear_derived_metadata_for_reference(&old_reference)
-                .await?;
             self.store.delete_preserving_blobs(&old_reference).await?;
         }
         Ok(())
@@ -231,6 +229,7 @@ impl Manager {
     /// Returns an error if the local name is invalid or cached metadata cannot
     /// be read.
     pub async fn local_package_identity(&self, name: &str) -> anyhow::Result<Option<String>> {
+        validate_local_name(name)?;
         let lock = local_registration_lock(name).await;
         let _guard = lock.lock().await;
         let _process_guard = local_registration_process_lock(&self.store, name).await?;
@@ -264,16 +263,22 @@ impl Manager {
     pub async fn remove(&self, reference: &str) -> anyhow::Result<bool> {
         if let Some(name) = reference.strip_prefix("local:") {
             validate_local_name(name)?;
-            let lock = local_registration_lock(name).await;
-            let _guard = lock.lock().await;
-            let _process_guard = local_registration_process_lock(&self.store, name).await?;
-            return self
-                .store
-                .delete_preserving_blobs(&local_reference(name)?)
-                .await;
+            return self.delete_local_reference(&local_reference(name)?).await;
         }
         let reference = crate::parse_reference(reference).map_err(anyhow::Error::msg)?;
+        if reference.registry() == "local.invalid" {
+            return self.delete_local_reference(&reference).await;
+        }
         self.store.delete(&reference).await
+    }
+
+    async fn delete_local_reference(&self, reference: &Reference) -> anyhow::Result<bool> {
+        let name = reference.repository();
+        validate_local_name(name)?;
+        let lock = local_registration_lock(name).await;
+        let _guard = lock.lock().await;
+        let _process_guard = local_registration_process_lock(&self.store, name).await?;
+        self.store.delete_preserving_blobs(reference).await
     }
 
     /// Default meta-registry URL used for syncing the known-package index
@@ -1144,6 +1149,9 @@ impl Manager {
 
     /// Delete an image from the store by its reference.
     pub async fn delete(&self, reference: Reference) -> anyhow::Result<bool> {
+        if reference.registry() == "local.invalid" {
+            return self.delete_local_reference(&reference).await;
+        }
         self.store.delete(&reference).await
     }
 

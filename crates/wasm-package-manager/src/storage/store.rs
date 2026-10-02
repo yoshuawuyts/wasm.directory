@@ -2482,40 +2482,6 @@ impl Store {
         Ok(())
     }
 
-    pub(crate) async fn clear_derived_metadata_for_manifest(
-        &self,
-        manifest_id: i64,
-    ) -> anyhow::Result<()> {
-        self.clear_wit_for_manifest(manifest_id).await
-    }
-
-    pub(crate) async fn clear_derived_metadata_for_reference(
-        &self,
-        reference: &Reference,
-    ) -> anyhow::Result<()> {
-        let Some(digest) = reference.digest() else {
-            return Ok(());
-        };
-        let Some(repository) = oci_repository::Entity::find()
-            .filter(oci_repository::Column::Registry.eq(reference.registry()))
-            .filter(oci_repository::Column::Repository.eq(reference.repository()))
-            .one(&self.db)
-            .await?
-        else {
-            return Ok(());
-        };
-        let manifests = oci_manifest::Entity::find()
-            .filter(oci_manifest::Column::OciRepositoryId.eq(repository.id))
-            .filter(oci_manifest::Column::Digest.eq(digest))
-            .all(&self.db)
-            .await?;
-        for manifest in manifests {
-            self.clear_derived_metadata_for_manifest(manifest.id)
-                .await?;
-        }
-        Ok(())
-    }
-
     async fn retained_layer_digests(
         &self,
         excluded_manifests: &HashSet<i64>,
@@ -2939,11 +2905,6 @@ impl Store {
         if manifests_to_delete.is_empty() {
             return Ok(false);
         }
-        for manifest in &manifests_to_delete {
-            self.clear_derived_metadata_for_manifest(manifest.id)
-                .await?;
-        }
-
         let mut layer_digests: HashSet<String> = HashSet::new();
         let mut manifest_ids: HashSet<i64> = HashSet::new();
         for manifest in &manifests_to_delete {
@@ -2957,20 +2918,37 @@ impl Store {
             }
         }
 
+        // Gather all data needed for cleanup before mutating the database.
+        // Metadata and manifests are then removed atomically; blob reclamation
+        // happens only after the transaction commits.
+        let retained_digests = if cleanup_orphaned_blobs {
+            Some(self.retained_layer_digests(&manifest_ids).await?)
+        } else {
+            None
+        };
+        let txn = self.db.begin().await?;
+        for manifest in &manifests_to_delete {
+            wit_package::Entity::delete_many()
+                .filter(wit_package::Column::OciManifestId.eq(manifest.id))
+                .exec(&txn)
+                .await?;
+            wasm_component::Entity::delete_many()
+                .filter(wasm_component::Column::OciManifestId.eq(manifest.id))
+                .exec(&txn)
+                .await?;
+            oci_manifest::Entity::delete_by_id(manifest.id)
+                .exec(&txn)
+                .await?;
+        }
+        txn.commit().await?;
+
         // The content-addressable blob cache is shared across repositories,
         // so retain layers referenced by any manifest outside this deletion.
-        if cleanup_orphaned_blobs {
-            let retained_digests = self.retained_layer_digests(&manifest_ids).await?;
+        if let Some(retained_digests) = retained_digests {
             let orphaned = crate::oci::compute_orphaned_layers(&layer_digests, &retained_digests);
             for layer_digest in &orphaned {
                 let _ = cacache::remove(self.state_info.store_dir(), layer_digest).await;
             }
-        }
-
-        for manifest in &manifests_to_delete {
-            oci_manifest::Entity::delete_by_id(manifest.id)
-                .exec(&self.db)
-                .await?;
         }
         Ok(true)
     }
