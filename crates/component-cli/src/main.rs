@@ -83,7 +83,7 @@ enum Command {
     /// Detect and manage local WASM files
     #[command(subcommand)]
     Local(local::Opts),
-    /// Manage Wasm Components and WIT interfaces in OCI registries
+    /// Manage local components and packages in OCI registries
     #[command(subcommand)]
     Registry(registry::Opts),
     /// Configure the `component(1)` tool, generate completions, & manage state

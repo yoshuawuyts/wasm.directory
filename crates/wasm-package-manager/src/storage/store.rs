@@ -2812,6 +2812,21 @@ impl Store {
     }
 
     pub(crate) async fn delete(&self, reference: &Reference) -> anyhow::Result<bool> {
+        self.delete_with_blob_cleanup(reference, true).await
+    }
+
+    pub(crate) async fn delete_preserving_blobs(
+        &self,
+        reference: &Reference,
+    ) -> anyhow::Result<bool> {
+        self.delete_with_blob_cleanup(reference, false).await
+    }
+
+    async fn delete_with_blob_cleanup(
+        &self,
+        reference: &Reference,
+        cleanup_orphaned_blobs: bool,
+    ) -> anyhow::Result<bool> {
         // Find the repository.
         let Some(repo) = oci_repository::Entity::find()
             .filter(oci_repository::Column::Registry.eq(reference.registry()))
@@ -2879,9 +2894,9 @@ impl Store {
         }
 
         let mut layer_digests: HashSet<String> = HashSet::new();
-        let mut manifest_ids: Vec<i64> = Vec::new();
+        let mut manifest_ids: HashSet<i64> = HashSet::new();
         for manifest in &manifests_to_delete {
-            manifest_ids.push(manifest.id);
+            manifest_ids.insert(manifest.id);
             let layers = oci_layer::Entity::find()
                 .filter(oci_layer::Column::OciManifestId.eq(manifest.id))
                 .all(&self.db)
@@ -2893,15 +2908,17 @@ impl Store {
 
         // The content-addressable blob cache is shared across repositories,
         // so retain layers referenced by any manifest outside this deletion.
-        let mut retained_digests: HashSet<String> = HashSet::new();
-        for layer in oci_layer::Entity::find().all(&self.db).await? {
-            if !manifest_ids.contains(&layer.oci_manifest_id) {
-                retained_digests.insert(layer.digest);
+        if cleanup_orphaned_blobs {
+            let mut retained_digests: HashSet<String> = HashSet::new();
+            for layer in oci_layer::Entity::find().all(&self.db).await? {
+                if !manifest_ids.contains(&layer.oci_manifest_id) {
+                    retained_digests.insert(layer.digest);
+                }
             }
-        }
-        let orphaned = crate::oci::compute_orphaned_layers(&layer_digests, &retained_digests);
-        for layer_digest in &orphaned {
-            let _ = cacache::remove(self.state_info.store_dir(), layer_digest).await;
+            let orphaned = crate::oci::compute_orphaned_layers(&layer_digests, &retained_digests);
+            for layer_digest in &orphaned {
+                let _ = cacache::remove(self.state_info.store_dir(), layer_digest).await;
+            }
         }
 
         for manifest in &manifests_to_delete {

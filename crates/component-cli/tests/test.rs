@@ -319,11 +319,21 @@ fn test_local_registry_package_lifecycle() {
     std::fs::create_dir_all(&project).expect("create project");
 
     let mut resolve = wit_parser::Resolve::default();
+    let dependency = resolve
+        .push_str("bar.wit", "package test:bar@1.0.0;\ninterface api {}\n")
+        .expect("parse dependency WIT");
     let package = resolve
-        .push_str("foo.wit", "package test:foo@1.0.0;\nworld foo {}\n")
-        .expect("parse WIT");
+        .push_str(
+            "foo.wit",
+            "package test:foo@1.0.0;\nworld foo { import test:bar/api@1.0.0; }\n",
+        )
+        .expect("parse root WIT");
+    let dependency_path = temp.path().join("bar.wasm");
     let package_path = temp.path().join("foo.wasm");
+    let dependency_bytes =
+        wit_component::encode(&resolve, dependency).expect("encode dependency WIT package");
     let bytes = wit_component::encode(&resolve, package).expect("encode WIT package");
+    std::fs::write(&dependency_path, dependency_bytes).expect("write dependency package");
     std::fs::write(&package_path, bytes).expect("write package");
 
     let run = |args: &[&str], cwd: Option<&Path>| {
@@ -342,6 +352,21 @@ fn test_local_registry_package_lifecycle() {
         command.output().expect("run component CLI")
     };
 
+    let dependency_registered = run(
+        &[
+            "registry",
+            "register",
+            "bar",
+            dependency_path.to_str().expect("utf-8 path"),
+        ],
+        None,
+    );
+    assert!(
+        dependency_registered.status.success(),
+        "dependency registration failed: {}",
+        String::from_utf8_lossy(&dependency_registered.stderr)
+    );
+
     let registered = run(
         &[
             "registry",
@@ -356,7 +381,6 @@ fn test_local_registry_package_lifecycle() {
         "registration failed: {}",
         String::from_utf8_lossy(&registered.stderr)
     );
-
     let listed = run(&["registry", "list"], None);
     assert!(listed.status.success());
     assert!(String::from_utf8_lossy(&listed.stdout).contains("local:foo"));
@@ -377,6 +401,10 @@ fn test_local_registry_package_lifecycle() {
     assert!(
         project.join("vendor/wit/local-foo.wit").exists(),
         "local WIT package was not installed under its local name"
+    );
+    assert!(
+        project.join("vendor/wit/local-bar.wit").exists(),
+        "local transitive WIT dependency was not installed under its local name"
     );
     assert!(
         !String::from_utf8_lossy(&installed.stderr).contains("registry sync failed"),

@@ -166,7 +166,7 @@ impl Manager {
             && Some(old_digest.as_str()) != new_digest.as_deref()
         {
             let old_reference: Reference = format!("local.invalid/{name}@{old_digest}").parse()?;
-            self.store.delete(&old_reference).await?;
+            self.store.delete_preserving_blobs(&old_reference).await?;
         }
         Ok(())
     }
@@ -204,6 +204,8 @@ impl Manager {
     /// Returns an error if the local name is invalid or cached metadata cannot
     /// be read.
     pub async fn local_package_identity(&self, name: &str) -> anyhow::Result<Option<String>> {
+        let lock = local_registration_lock(name).await;
+        let _guard = lock.lock().await;
         let Some(reference) = self.local_reference(name).await? else {
             return Ok(None);
         };
@@ -234,7 +236,12 @@ impl Manager {
     pub async fn remove(&self, reference: &str) -> anyhow::Result<bool> {
         if let Some(name) = reference.strip_prefix("local:") {
             validate_local_name(name)?;
-            return self.store.delete(&local_reference(name)?).await;
+            let lock = local_registration_lock(name).await;
+            let _guard = lock.lock().await;
+            return self
+                .store
+                .delete_preserving_blobs(&local_reference(name)?)
+                .await;
         }
         let reference = crate::parse_reference(reference).map_err(anyhow::Error::msg)?;
         self.store.delete(&reference).await
@@ -621,10 +628,9 @@ impl Manager {
     ///
     /// # Errors
     ///
-    /// Returns an error if the layer is not present in the cache, if the
-    /// destination and the cache are on different filesystems, if the
-    /// filesystem does not support reflinks (known-working: APFS, XFS, btrfs,
-    /// ReFS/Windows DevDrive), or if the destination path is invalid.
+    /// Returns an error if the layer is not present in the cache or the
+    /// destination path is invalid. When reflinks are unavailable or the
+    /// destination is on another filesystem, the layer is copied instead.
     pub async fn vendor(&self, layer_digest: &str, dest: &Path) -> anyhow::Result<()> {
         use anyhow::Context as _;
         let cache = self.store.state_info.store_dir();
@@ -635,11 +641,19 @@ impl Manager {
                 %error,
                 "Reflink unavailable; copying cached layer"
             );
-            let bytes = cacache::read(cache, layer_digest)
+            let mut reader = cacache::Reader::open(cache, layer_digest)
                 .await
                 .with_context(|| format!("failed to read cached layer {layer_digest}"))?;
-            tokio::fs::write(dest, bytes).await.with_context(|| {
+            let mut file = tokio::fs::File::create(dest).await.with_context(|| {
                 format!("failed to copy layer {layer_digest} to {}", dest.display())
+            })?;
+            tokio::io::copy(&mut reader, &mut file)
+                .await
+                .with_context(|| {
+                    format!("failed to copy layer {layer_digest} to {}", dest.display())
+                })?;
+            reader.check().with_context(|| {
+                format!("failed integrity check for cached layer {layer_digest}")
             })?;
         }
         Ok(())
@@ -694,6 +708,16 @@ impl Manager {
         vendor_dir: &Path,
         progress_tx: Option<&tokio::sync::mpsc::Sender<ProgressEvent>>,
     ) -> anyhow::Result<InstallResult> {
+        let local_lock = if reference.registry() == "local.invalid" {
+            Some(local_registration_lock(reference.repository()).await)
+        } else {
+            None
+        };
+        let _local_guard = if let Some(lock) = &local_lock {
+            Some(lock.lock().await)
+        } else {
+            None
+        };
         // Fast path: a fully-cached concrete version is served by reflinking
         // from the local store with zero network round-trips.
         if let Some(result) = self
@@ -986,6 +1010,9 @@ impl Manager {
             .find_oci_reference_by_wit_name(&dep.package, dep.version.as_deref())
             .await?
         {
+            if registry == "local.invalid" {
+                return self.local_reference(&repository).await;
+            }
             let tag = self.resolve_tag_for_dep(dep, &registry, &repository).await;
             // Map SemVer build metadata (`0.1.0+meta`) onto a valid OCI tag
             // (`0.1.0_meta`) — the inverse of what `publish` does — so a `+`
