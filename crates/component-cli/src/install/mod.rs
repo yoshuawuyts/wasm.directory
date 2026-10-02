@@ -95,7 +95,9 @@ impl Opts {
         let display = std::sync::Arc::new(tokio::sync::Mutex::new(InstallDisplay::new(multi)));
 
         // Sync the local package index from the meta-registry so WIT-style
-        // names and search-based lookups can be resolved.
+        // names and search-based lookups can be resolved. Local components
+        // can import registry packages, so their roots alone do not prove that
+        // this index is unnecessary.
         if !offline {
             display.lock().await.start_sync();
             let registry_url = Manager::default_registry_url();
@@ -168,7 +170,10 @@ impl Opts {
         let mut resolved_transitive: HashMap<String, wasm_package_manager::resolver::WitVersion> =
             HashMap::new();
         let mut resolver_root_names: HashSet<String> = HashSet::new();
-        if !offline {
+        let has_local_roots = to_install
+            .iter()
+            .any(|(reference, _, _)| reference.registry() == "local.invalid");
+        if !offline || has_local_roots {
             let mut roots = Vec::new();
 
             // Feed CLI inputs / manifest entries into the resolver via
@@ -178,14 +183,28 @@ impl Opts {
             // are shimmed to `0.0.0` so PubGrub can still resolve their
             // full transitive dependency graph.
             for (reference, _update, explicit_name) in &to_install {
-                let Some(name) = explicit_name.as_deref() else {
+                let package_identity = if reference.registry() == "local.invalid" {
+                    manager
+                        .local_package_identity(reference.repository())
+                        .await
+                        .map_err(crate::util::into_miette)?
+                } else {
+                    explicit_name.clone()
+                };
+                let Some(package_identity) = package_identity else {
                     continue;
                 };
-                if !looks_like_wit_name(name) {
+                if !looks_like_wit_name(&package_identity) {
                     continue;
                 }
-                let tag = reference.tag().unwrap_or_default();
-                let version = tag
+                let (name, embedded_version) = package_identity
+                    .rsplit_once('@')
+                    .map_or((package_identity.as_str(), None), |(name, version)| {
+                        (name, Some(version))
+                    });
+                let version = embedded_version
+                    .or_else(|| reference.tag())
+                    .unwrap_or_default()
                     .trim_start_matches('v')
                     .parse::<wasm_package_manager::resolver::WitVersion>()
                     .unwrap_or(wasm_package_manager::resolver::WitVersion::new(0, 0, 0));
@@ -235,6 +254,7 @@ impl Opts {
                 transitive_installs.push(PlannedInstall::Transitive {
                     reference: r,
                     package_name: name,
+                    version: version.to_string(),
                 });
             }
         }
@@ -341,8 +361,18 @@ impl Opts {
                         &mut lockfile,
                     );
                 }
-                PlannedInstall::Transitive { .. } => {
+                PlannedInstall::Transitive {
+                    package_name,
+                    version,
+                    ..
+                } => {
                     upsert_lockfile_type(&mut lockfile, &result);
+                    let registry = format!("{}/{}", result.registry, result.repository);
+                    if let Some(package) = lockfile.interfaces.iter_mut().find(|package| {
+                        package.name == package_name && package.registry == registry
+                    }) {
+                        package.version = version;
+                    }
                 }
             }
         }
@@ -401,6 +431,7 @@ enum PlannedInstall {
     Transitive {
         reference: Reference,
         package_name: String,
+        version: String,
     },
 }
 
@@ -435,11 +466,12 @@ impl PlannedInstall {
                 (display, ver)
             }
             PlannedInstall::Transitive {
-                reference,
                 package_name,
+                version,
+                ..
             } => {
                 let (name, ver) =
-                    package_display_parts(Some(package_name.as_str()), reference.tag());
+                    package_display_parts(Some(package_name.as_str()), Some(version.as_str()));
                 let display = if name.is_empty() {
                     package_name.clone()
                 } else {

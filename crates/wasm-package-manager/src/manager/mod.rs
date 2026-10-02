@@ -1,6 +1,10 @@
 use oci_client::Reference;
 use oci_client::errors::{OciDistributionError, OciErrorCode};
-use std::path::Path;
+use std::{
+    collections::HashMap,
+    path::Path,
+    sync::{Arc, OnceLock, Weak},
+};
 use tokio_stream::StreamExt;
 
 mod errors;
@@ -44,6 +48,55 @@ pub enum TaskOutcome {
 /// notifications; background indexing never re-pulls known tags.
 const PULL_COOLDOWN_SECS: u64 = 3600;
 
+type LocalRegistrationLock = Arc<tokio::sync::Mutex<()>>;
+
+async fn local_registration_lock(name: &str) -> LocalRegistrationLock {
+    static LOCKS: OnceLock<tokio::sync::Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>> =
+        OnceLock::new();
+    let locks = LOCKS.get_or_init(Default::default);
+    let mut locks = locks.lock().await;
+    if let Some(lock) = locks.get(name).and_then(Weak::upgrade) {
+        return lock;
+    }
+    let lock = Arc::new(tokio::sync::Mutex::new(()));
+    locks.insert(name.to_string(), Arc::downgrade(&lock));
+    lock
+}
+
+async fn local_registration_process_lock(
+    store: &Store,
+    name: &str,
+) -> anyhow::Result<std::fs::File> {
+    validate_local_name(name)?;
+    let lock_dir = store.state_info.data_dir().join("local-locks");
+    tokio::fs::create_dir_all(&lock_dir).await?;
+    let lock_path = lock_dir.join(format!("{name}.lock"));
+    tokio::task::spawn_blocking(move || {
+        use fs2::FileExt as _;
+
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(lock_path)?;
+        file.lock_exclusive()?;
+        Ok::<_, std::io::Error>(file)
+    })
+    .await?
+    .map_err(Into::into)
+}
+
+struct TempVendorFile(std::path::PathBuf);
+
+static VENDOR_TEMP_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+impl Drop for TempVendorFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 /// A cache on disk
 ///
 /// # Example
@@ -70,6 +123,174 @@ pub struct Manager {
 }
 
 impl Manager {
+    /// Register a local WebAssembly component under a local package name.
+    ///
+    /// The component is validated and stored in the global package cache. It
+    /// can then be installed using the `local:<name>` package identity without
+    /// contacting an OCI registry.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the name is invalid, the bytes are not a valid
+    /// WebAssembly component, or the package cannot be stored.
+    pub async fn register_local(&self, name: &str, package: Vec<u8>) -> anyhow::Result<()> {
+        validate_local_name(name)?;
+        let reference = local_reference(name)?;
+        let (wasm_config, layer) = oci_wasm::WasmConfig::from_raw_component(package, None)?;
+        let config = oci_wasm::ToConfig::to_config(&wasm_config)?;
+        let layer_digest = layer.sha256_digest();
+        let config_digest = oci_client::client::ImageLayer::new(
+            config.data.clone(),
+            config.media_type.clone(),
+            None,
+        )
+        .sha256_digest();
+        let config_descriptor = oci_client::manifest::OciDescriptor {
+            media_type: config.media_type.clone(),
+            digest: config_digest,
+            size: i64::try_from(config.data.len())?,
+            ..Default::default()
+        };
+        let layer_descriptor = oci_client::manifest::OciDescriptor {
+            media_type: layer.media_type.clone(),
+            digest: layer_digest.clone(),
+            size: i64::try_from(layer.data.len())?,
+            ..Default::default()
+        };
+        let manifest = oci_client::manifest::OciImageManifest {
+            schema_version: 2,
+            media_type: Some(oci_wasm::WASM_MANIFEST_MEDIA_TYPE.to_string()),
+            config: config_descriptor,
+            layers: vec![layer_descriptor],
+            ..Default::default()
+        };
+        let manifest_bytes = serde_json::to_vec(&manifest)?;
+        let manifest_digest = oci_client::client::ImageLayer::new(
+            manifest_bytes,
+            oci_wasm::WASM_MANIFEST_MEDIA_TYPE.to_string(),
+            None,
+        )
+        .sha256_digest();
+        // The internal tag is used as the installed dependency version, so
+        // keep it valid for wasm.toml's SemVer-based dependency values.
+        let lock = local_registration_lock(name).await;
+        let _guard = lock.lock().await;
+        let _process_guard = local_registration_process_lock(&self.store, name).await?;
+        let old_digest = if let Some(tag) = reference.tag() {
+            self.store
+                .cached_manifest_for_reference(reference.registry(), reference.repository(), tag)
+                .await?
+                .map(|(digest, _)| digest)
+        } else {
+            None
+        };
+        let (_, new_digest, _, _) = self
+            .store
+            .insert(
+                &reference,
+                oci_client::client::ImageData {
+                    layers: vec![layer],
+                    digest: Some(manifest_digest),
+                    config,
+                    manifest: Some(manifest),
+                },
+                false,
+            )
+            .await?;
+        if let Some(old_digest) = old_digest
+            && Some(old_digest.as_str()) != new_digest.as_deref()
+        {
+            let old_reference: Reference = format!("local.invalid/{name}@{old_digest}").parse()?;
+            self.store.delete_preserving_blobs(&old_reference).await?;
+        }
+        Ok(())
+    }
+
+    /// Return the internal cache reference for a registered local component.
+    ///
+    /// Returns `None` when no component with `name` has been registered.
+    pub(crate) async fn local_reference(&self, name: &str) -> anyhow::Result<Option<Reference>> {
+        validate_local_name(name)?;
+        let reference = local_reference(name)?;
+        let Some(tag) = reference.tag() else {
+            return Ok(None);
+        };
+        let Some((_, manifest)) = self
+            .store
+            .cached_manifest_for_reference(reference.registry(), reference.repository(), tag)
+            .await?
+        else {
+            return Ok(None);
+        };
+        if !self.store.all_layers_cached(&manifest).await {
+            return Ok(None);
+        }
+        Ok(Some(reference))
+    }
+
+    /// Return the embedded WIT package identity for a complete local component.
+    ///
+    /// The identity includes its version when present, for example
+    /// `wasi:http@0.2.0`. Returns `None` when the registration is missing,
+    /// incomplete, or has no embedded WIT package identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the local name is invalid or cached metadata cannot
+    /// be read.
+    pub async fn local_package_identity(&self, name: &str) -> anyhow::Result<Option<String>> {
+        validate_local_name(name)?;
+        let lock = local_registration_lock(name).await;
+        let _guard = lock.lock().await;
+        let _process_guard = local_registration_process_lock(&self.store, name).await?;
+        let Some(reference) = self.local_reference(name).await? else {
+            return Ok(None);
+        };
+        let Some(tag) = reference.tag() else {
+            return Ok(None);
+        };
+        let Some((_, manifest)) = self
+            .store
+            .cached_manifest_for_reference(reference.registry(), reference.repository(), tag)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let Some(layer) = manifest
+            .layers
+            .iter()
+            .find(|layer| layer.media_type == oci_wasm::WASM_LAYER_MEDIA_TYPE)
+        else {
+            return Ok(None);
+        };
+        let bytes = cacache::read(self.store.state_info.store_dir(), &layer.digest).await?;
+        Ok(crate::types::extract_wit_metadata(&bytes).and_then(|metadata| metadata.package_name))
+    }
+
+    /// Remove a package from the local store by local name or OCI reference.
+    ///
+    /// Returns `true` when the package was present.
+    pub async fn remove(&self, reference: &str) -> anyhow::Result<bool> {
+        if let Some(name) = reference.strip_prefix("local:") {
+            validate_local_name(name)?;
+            return self.delete_local_reference(&local_reference(name)?).await;
+        }
+        let reference = crate::parse_reference(reference).map_err(anyhow::Error::msg)?;
+        if reference.registry() == "local.invalid" {
+            return self.delete_local_reference(&reference).await;
+        }
+        self.store.delete(&reference).await
+    }
+
+    async fn delete_local_reference(&self, reference: &Reference) -> anyhow::Result<bool> {
+        let name = reference.repository();
+        validate_local_name(name)?;
+        let lock = local_registration_lock(name).await;
+        let _guard = lock.lock().await;
+        let _process_guard = local_registration_process_lock(&self.store, name).await?;
+        self.store.delete_preserving_blobs(reference).await
+    }
+
     /// Default meta-registry URL used for syncing the known-package index
     /// and for notifying the registry about newly-published versions.
     ///
@@ -109,6 +330,30 @@ impl Manager {
             .filter(|url| !url.is_empty())
             .unwrap_or_else(|| Self::DEFAULT_REGISTRY_URL.to_string())
     }
+}
+
+fn validate_local_name(name: &str) -> anyhow::Result<()> {
+    let valid = !name.is_empty()
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        && name.split('-').all(|segment| {
+            segment
+                .as_bytes()
+                .first()
+                .is_some_and(u8::is_ascii_alphanumeric)
+        });
+    anyhow::ensure!(
+        valid,
+        "invalid local component name '{name}'; use lowercase letters and digits, with single hyphens only between non-empty segments"
+    );
+    Ok(())
+}
+
+fn local_reference(name: &str) -> anyhow::Result<Reference> {
+    format!("local.invalid/{name}:0.0.0")
+        .parse()
+        .map_err(Into::into)
 }
 
 impl Manager {
@@ -427,21 +672,69 @@ impl Manager {
     ///
     /// # Errors
     ///
-    /// Returns an error if the layer is not present in the cache, if the
-    /// destination and the cache are on different filesystems, if the
-    /// filesystem does not support reflinks (known-working: APFS, XFS, btrfs,
-    /// ReFS/Windows DevDrive), or if the destination path is invalid.
+    /// Returns an error if the layer is not present in the cache or the
+    /// destination path is invalid. When reflinks are unavailable or the
+    /// destination is on another filesystem, the layer is copied instead.
     pub async fn vendor(&self, layer_digest: &str, dest: &Path) -> anyhow::Result<()> {
         use anyhow::Context as _;
+
         let cache = self.store.state_info.store_dir();
-        cacache::reflink(cache, layer_digest, dest)
-            .await
-            .with_context(|| {
-                format!(
-                    "failed to reflink layer {layer_digest} to {}",
-                    dest.display()
-                )
+        let parent = dest
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        tokio::fs::create_dir_all(parent).await?;
+        let file_name = dest
+            .file_name()
+            .context("destination has no file name")?
+            .to_string_lossy();
+        let temp = loop {
+            let id = VENDOR_TEMP_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let temp = parent.join(format!(".{file_name}.{}.{}.tmp", std::process::id(), id));
+            match tokio::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temp)
+                .await
+            {
+                Ok(file) => {
+                    drop(file);
+                    break temp;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error).context("failed to create temporary vendor file"),
+            }
+        };
+        let cleanup = TempVendorFile(temp.clone());
+        tokio::fs::remove_file(&temp).await?;
+        if let Err(error) = cacache::reflink(cache, layer_digest, &temp).await {
+            tracing::debug!(
+                layer_digest,
+                destination = %dest.display(),
+                %error,
+                "Reflink unavailable; copying cached layer"
+            );
+            let _ = tokio::fs::remove_file(&temp).await;
+            let mut reader = cacache::Reader::open(cache, layer_digest)
+                .await
+                .with_context(|| format!("failed to read cached layer {layer_digest}"))?;
+            let mut file = tokio::fs::File::create(&temp).await.with_context(|| {
+                format!("failed to copy layer {layer_digest} to {}", temp.display())
             })?;
+            tokio::io::copy(&mut reader, &mut file)
+                .await
+                .with_context(|| {
+                    format!("failed to copy layer {layer_digest} to {}", temp.display())
+                })?;
+            file.sync_all().await?;
+            reader.check().with_context(|| {
+                format!("failed integrity check for cached layer {layer_digest}")
+            })?;
+        }
+        tokio::fs::rename(&temp, dest)
+            .await
+            .with_context(|| format!("failed to move verified layer into {}", dest.display()))?;
+        drop(cleanup);
         Ok(())
     }
 
@@ -494,6 +787,21 @@ impl Manager {
         vendor_dir: &Path,
         progress_tx: Option<&tokio::sync::mpsc::Sender<ProgressEvent>>,
     ) -> anyhow::Result<InstallResult> {
+        let local_lock = if reference.registry() == "local.invalid" {
+            Some(local_registration_lock(reference.repository()).await)
+        } else {
+            None
+        };
+        let _local_guard = if let Some(lock) = &local_lock {
+            Some(lock.lock().await)
+        } else {
+            None
+        };
+        let _process_guard = if reference.registry() == "local.invalid" {
+            Some(local_registration_process_lock(&self.store, reference.repository()).await?)
+        } else {
+            None
+        };
         // Fast path: a fully-cached concrete version is served by reflinking
         // from the local store with zero network round-trips.
         if let Some(result) = self
@@ -501,6 +809,12 @@ impl Manager {
             .await?
         {
             return Ok(result);
+        }
+
+        if reference.registry() == "local.invalid" {
+            anyhow::bail!(
+                "local component reference '{reference}' is missing from the cache; register it again"
+            );
         }
 
         // Offline mode can only serve packages already in the cache; if the
@@ -625,13 +939,21 @@ impl Manager {
         let wasm_layers = filter_wasm_layers(&manifest.layers);
         let (package_name, is_component, dependencies) =
             self.inspect_wasm_layers(&wasm_layers).await;
+        let package_name = package_name.or_else(|| {
+            (reference.registry() == "local.invalid")
+                .then(|| format!("local:{}", reference.repository()))
+        });
 
         let mut vendored_files = Vec::new();
         if !wasm_layers.is_empty() {
             let name = package_name.as_deref().ok_or_else(|| {
                 anyhow::anyhow!("could not determine WIT package name from `{reference}`")
             })?;
-            let filename = vendor_filename(name, reference.tag());
+            let filename = if reference.registry() == "local.invalid" {
+                vendor_filename(&format!("local:{}", reference.repository()), None)
+            } else {
+                vendor_filename(name, reference.tag())
+            };
             vendored_files = self
                 .vendor_wasm_layers(&wasm_layers, vendor_dir, &filename)
                 .await?;
@@ -731,9 +1053,6 @@ impl Manager {
             // Ensure vendor directory exists
             tokio::fs::create_dir_all(vendor_dir).await?;
 
-            // Remove existing file if present before reflinking
-            let _ = tokio::fs::remove_file(&dest).await;
-
             self.vendor(&layer.digest, &dest).await?;
             vendored_files.push(dest);
         }
@@ -772,6 +1091,9 @@ impl Manager {
             .find_oci_reference_by_wit_name(&dep.package, dep.version.as_deref())
             .await?
         {
+            if registry == "local.invalid" {
+                return self.local_reference(&repository).await;
+            }
             let tag = self.resolve_tag_for_dep(dep, &registry, &repository).await;
             // Map SemVer build metadata (`0.1.0+meta`) onto a valid OCI tag
             // (`0.1.0_meta`) — the inverse of what `publish` does — so a `+`
@@ -869,6 +1191,9 @@ impl Manager {
 
     /// Delete an image from the store by its reference.
     pub async fn delete(&self, reference: Reference) -> anyhow::Result<bool> {
+        if reference.registry() == "local.invalid" {
+            return self.delete_local_reference(&reference).await;
+        }
         self.store.delete(&reference).await
     }
 
@@ -1417,10 +1742,7 @@ impl Manager {
         &self,
         package: &str,
         version: crate::resolver::WitVersion,
-    ) -> Result<
-        std::collections::HashMap<String, crate::resolver::WitVersion>,
-        crate::resolver::ResolveError,
-    > {
+    ) -> Result<HashMap<String, crate::resolver::WitVersion>, crate::resolver::ResolveError> {
         crate::resolver::resolve_from_db(&self.store, package, version)
     }
 
@@ -1444,10 +1766,7 @@ impl Manager {
     pub fn resolve_all_dependencies(
         &self,
         roots: &[(String, crate::resolver::WitVersion)],
-    ) -> Result<
-        std::collections::HashMap<String, crate::resolver::WitVersion>,
-        crate::resolver::ResolveError,
-    > {
+    ) -> Result<HashMap<String, crate::resolver::WitVersion>, crate::resolver::ResolveError> {
         crate::resolver::resolve_all_from_db(&self.store, roots)
     }
 

@@ -119,6 +119,11 @@ pub async fn resolve_manifest_dependency(
     dep: &wasm_manifest::Dependency,
     manager: &Manager,
 ) -> anyhow::Result<(Reference, Option<String>)> {
+    if let Some(name) = key.strip_prefix("local:") {
+        let reference = resolve_local_name(name, manager).await?;
+        return Ok((reference, Some(key.to_string())));
+    }
+
     match dep {
         wasm_manifest::Dependency::Compact(s) if !s.contains('/') && looks_like_wit_name(key) => {
             // The compact value contains no '/' so it is a version string
@@ -166,6 +171,16 @@ pub async fn resolve_install_inputs(
             continue;
         }
 
+        if let Some(name) = input.strip_prefix("local:") {
+            let reference = resolve_local_name(name, manager).await.map_err(|e| {
+                InstallError::ResolveFailure {
+                    reason: e.to_string(),
+                }
+            })?;
+            result.push((reference, true, Some(input.clone())));
+            continue;
+        }
+
         // If it looks like a WIT-style name (e.g. `wasi:http`), resolve via
         // the known-package database instead of treating it as a bare OCI
         // reference (which would incorrectly default to docker.io/library/).
@@ -192,6 +207,13 @@ pub async fn resolve_install_inputs(
         }
     }
     Ok(result)
+}
+
+async fn resolve_local_name(name: &str, manager: &Manager) -> anyhow::Result<Reference> {
+    manager
+        .local_reference(name)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("local component 'local:{name}' is not registered"))
 }
 
 // ---------------------------------------------------------------------------
@@ -340,6 +362,7 @@ pub async fn resolve_dep_reference(manager: &Manager, dep: &DependencyItem) -> O
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     #[test]
     fn looks_like_wit_name_bare() {
@@ -374,6 +397,233 @@ mod tests {
     #[test]
     fn looks_like_wit_name_rejects_multiple_at() {
         assert!(!looks_like_wit_name("wasi:http@0.2@extra"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn local_component_registers_resolves_installs_and_removes() {
+        let temp = tempdir().expect("temp dir");
+        let manager = Manager::open_at(temp.path()).await.expect("manager");
+        let mut resolve = wit_parser::Resolve::default();
+        let bar = resolve
+            .push_str("bar.wit", "package test:bar@1.0.0;\ninterface api {}\n")
+            .expect("parse dependency WIT");
+        let package = resolve
+            .push_str(
+                "foo.wit",
+                "package test:foo@1.0.0;\nworld foo { import test:bar/api@1.0.0; }\n",
+            )
+            .expect("parse root WIT");
+        let bar_bytes = wit_component::encode(&resolve, bar).expect("encode dependency");
+        let bytes = wit_component::encode(&resolve, package).expect("encode component");
+
+        manager
+            .register_local("bar", bar_bytes)
+            .await
+            .expect("register local dependency");
+        manager
+            .register_local("foo", bytes.clone())
+            .await
+            .expect("register local component");
+        assert_eq!(
+            manager
+                .local_package_identity("foo")
+                .await
+                .expect("read local package identity")
+                .as_deref(),
+            Some("test:foo@1.0.0")
+        );
+        let plan = manager
+            .resolve_all_dependencies(&[(
+                "test:foo".to_string(),
+                crate::resolver::WitVersion::new(1, 0, 0),
+            )])
+            .expect("resolve local package as its embedded WIT identity");
+        assert_eq!(
+            plan.get("test:foo"),
+            Some(&crate::resolver::WitVersion::new(1, 0, 0))
+        );
+        assert_eq!(
+            plan.get("test:bar"),
+            Some(&crate::resolver::WitVersion::new(1, 0, 0)),
+            "the aliased local root should still plan its imported WIT dependency"
+        );
+        assert!(
+            manager
+                .list_all()
+                .await
+                .expect("list all packages")
+                .iter()
+                .any(|entry| {
+                    entry.ref_registry == "local.invalid" && entry.ref_repository == "foo"
+                })
+        );
+        let manifest = wasm_manifest::Manifest::default();
+        let inputs = vec!["local:foo".to_string()];
+        let resolved = resolve_install_inputs(&inputs, &manifest, &manager)
+            .await
+            .expect("resolve local name");
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].0.registry(), "local.invalid");
+        assert_eq!(resolved[0].0.repository(), "foo");
+        assert_eq!(resolved[0].2.as_deref(), Some("local:foo"));
+
+        let vendor_dir = temp.path().join("vendor");
+        let installed = manager
+            .install(resolved[0].0.clone(), &vendor_dir)
+            .await
+            .expect("install from local cache");
+        assert_eq!(installed.package_name.as_deref(), Some("test:foo@1.0.0"));
+        assert_eq!(installed.vendored_files.len(), 1);
+        assert!(installed.vendored_files[0].exists());
+        assert_eq!(
+            installed.vendored_files[0]
+                .file_name()
+                .and_then(|name| name.to_str()),
+            Some("local-foo.wasm")
+        );
+
+        let (_, stored_manifest) = manager
+            .store
+            .cached_manifest_for_reference("local.invalid", "foo", "0.0.0")
+            .await
+            .expect("load local manifest")
+            .expect("local manifest exists");
+        cacache::remove(
+            manager.store.state_info.store_dir(),
+            &stored_manifest.layers[0].digest,
+        )
+        .await
+        .expect("remove cached local layer");
+        assert!(
+            manager
+                .local_reference("foo")
+                .await
+                .expect("lookup local without its layer")
+                .is_none()
+        );
+        assert!(
+            resolve_install_inputs(&inputs, &manifest, &manager)
+                .await
+                .is_err(),
+            "an incomplete local registration must not resolve to an OCI pull"
+        );
+        let stale_install = manager
+            .install(resolved[0].0.clone(), &vendor_dir)
+            .await
+            .expect_err("stale local references must not fall back to OCI pulls");
+        assert!(stale_install.to_string().contains("register it again"));
+
+        let mut replacement_resolve = wit_parser::Resolve::default();
+        let replacement_package = replacement_resolve
+            .push_str("foo.wit", "package test:foo@2.0.0;\nworld foo {}\n")
+            .expect("parse replacement WIT");
+        let replacement_bytes = wit_component::encode(&replacement_resolve, replacement_package)
+            .expect("encode replacement component");
+        let mut concurrent_resolve = wit_parser::Resolve::default();
+        let concurrent_package = concurrent_resolve
+            .push_str("foo.wit", "package test:foo@3.0.0;\nworld foo {}\n")
+            .expect("parse concurrent WIT");
+        let concurrent_bytes = wit_component::encode(&concurrent_resolve, concurrent_package)
+            .expect("encode concurrent component");
+        let (replacement_result, concurrent_result) = tokio::join!(
+            manager.register_local("foo", replacement_bytes),
+            manager.register_local("foo", concurrent_bytes),
+        );
+        replacement_result.expect("replace local component");
+        concurrent_result.expect("concurrent replacement");
+        let entries = manager.list_all().await.expect("list all packages");
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|entry| {
+                    entry.ref_registry == "local.invalid" && entry.ref_repository == "foo"
+                })
+                .count(),
+            1
+        );
+
+        let replacement = manager
+            .install(resolved[0].0.clone(), &vendor_dir)
+            .await
+            .expect("install replacement from local cache");
+        assert!(
+            matches!(
+                replacement.package_name.as_deref(),
+                Some("test:foo@2.0.0" | "test:foo@3.0.0")
+            ),
+            "one complete concurrent registration should be installed"
+        );
+        let current_version = replacement
+            .package_name
+            .as_deref()
+            .and_then(|identity| identity.rsplit_once('@'))
+            .map(|(_, version)| version)
+            .expect("replacement has a WIT package version")
+            .parse::<crate::resolver::WitVersion>()
+            .expect("replacement version parses");
+        let versions = manager
+            .store
+            .list_wit_package_versions("test:foo")
+            .await
+            .expect("list local package versions");
+        assert_eq!(
+            versions,
+            vec![current_version.to_string()],
+            "superseded local package metadata must not remain resolvable"
+        );
+
+        assert!(manager.remove("local:foo").await.expect("remove local"));
+        assert!(
+            manager
+                .local_reference("foo")
+                .await
+                .expect("lookup local")
+                .is_none()
+        );
+        assert!(
+            manager
+                .list_all()
+                .await
+                .expect("list after remove")
+                .iter()
+                .all(|entry| entry.ref_registry != "local.invalid" || entry.ref_repository != "foo")
+        );
+    }
+
+    #[tokio::test]
+    async fn removing_local_registration_preserves_shared_layer_blobs() {
+        let temp = tempdir().expect("temp dir");
+        let manager = Manager::open_at(temp.path()).await.expect("manager");
+        let mut resolve = wit_parser::Resolve::default();
+        let package = resolve
+            .push_str("foo.wit", "package test:foo@1.0.0;\nworld foo {}\n")
+            .expect("parse WIT");
+        let bytes = wit_component::encode(&resolve, package).expect("encode component");
+
+        manager
+            .register_local("foo", bytes.clone())
+            .await
+            .expect("register first local name");
+        manager
+            .register_local("bar", bytes)
+            .await
+            .expect("register second local name");
+
+        assert!(
+            manager
+                .remove("local:foo")
+                .await
+                .expect("remove first name")
+        );
+        let reference = manager
+            .local_reference("bar")
+            .await
+            .expect("lookup second name")
+            .expect("second registration remains");
+        manager
+            .install(reference, &temp.path().join("vendor"))
+            .await
+            .expect("shared blob remains available");
     }
 
     #[test]

@@ -302,6 +302,125 @@ fn test_cli_registry_list_help_snapshot() {
     assert_snapshot!(output);
 }
 
+#[test]
+fn test_local_registry_package_lifecycle() {
+    use std::path::Path;
+
+    let temp = TempDir::new().expect("temp dir");
+    let home = temp.path().join("home");
+    let data = temp.path().join("data");
+    let config = temp.path().join("config");
+    let state = temp.path().join("state");
+    let project = temp.path().join("project");
+    std::fs::create_dir_all(&home).expect("create home");
+    std::fs::create_dir_all(&data).expect("create data");
+    std::fs::create_dir_all(&config).expect("create config");
+    std::fs::create_dir_all(&state).expect("create state");
+    std::fs::create_dir_all(&project).expect("create project");
+
+    let mut resolve = wit_parser::Resolve::default();
+    let dependency = resolve
+        .push_str("bar.wit", "package test:bar@1.0.0;\ninterface api {}\n")
+        .expect("parse dependency WIT");
+    let package = resolve
+        .push_str(
+            "foo.wit",
+            "package test:foo@1.0.0;\nworld foo { import test:bar/api@1.0.0; }\n",
+        )
+        .expect("parse root WIT");
+    let dependency_path = temp.path().join("bar.wasm");
+    let package_path = temp.path().join("foo.wasm");
+    let dependency_bytes =
+        wit_component::encode(&resolve, dependency).expect("encode dependency WIT package");
+    let bytes = wit_component::encode(&resolve, package).expect("encode WIT package");
+    std::fs::write(&dependency_path, dependency_bytes).expect("write dependency package");
+    std::fs::write(&package_path, bytes).expect("write package");
+
+    let run = |args: &[&str], cwd: Option<&Path>| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_component"));
+        command
+            .args(args)
+            .env("HOME", &home)
+            .env("XDG_DATA_HOME", &data)
+            .env("XDG_CONFIG_HOME", &config)
+            .env("XDG_STATE_HOME", &state)
+            .env("COMPONENT_REGISTRY_URL", "http://127.0.0.1:1")
+            .env_remove("COMPONENT_DATABASE_URL");
+        if let Some(cwd) = cwd {
+            command.current_dir(cwd);
+        }
+        command.output().expect("run component CLI")
+    };
+
+    let dependency_registered = run(
+        &[
+            "registry",
+            "register",
+            "bar",
+            dependency_path.to_str().expect("utf-8 path"),
+        ],
+        None,
+    );
+    assert!(
+        dependency_registered.status.success(),
+        "dependency registration failed: {}",
+        String::from_utf8_lossy(&dependency_registered.stderr)
+    );
+
+    let registered = run(
+        &[
+            "registry",
+            "register",
+            "foo",
+            package_path.to_str().expect("utf-8 path"),
+        ],
+        None,
+    );
+    assert!(
+        registered.status.success(),
+        "registration failed: {}",
+        String::from_utf8_lossy(&registered.stderr)
+    );
+    let listed = run(&["registry", "list"], None);
+    assert!(listed.status.success());
+    assert!(String::from_utf8_lossy(&listed.stdout).contains("local:foo"));
+
+    let initialized = run(&["init"], Some(&project));
+    assert!(
+        initialized.status.success(),
+        "init failed: {}",
+        String::from_utf8_lossy(&initialized.stderr)
+    );
+
+    let installed = run(&["install", "--offline", "local:foo"], Some(&project));
+    assert!(
+        installed.status.success(),
+        "local install failed: {}",
+        String::from_utf8_lossy(&installed.stderr)
+    );
+    assert!(
+        project.join("vendor/wit/local-foo.wit").exists(),
+        "local WIT package was not installed under its local name"
+    );
+    assert!(
+        project.join("vendor/wit/local-bar.wit").exists(),
+        "local transitive WIT dependency was not installed under its local name"
+    );
+    assert!(
+        !String::from_utf8_lossy(&installed.stderr).contains("registry sync failed"),
+        "local-only install should not sync the remote registry"
+    );
+
+    let removed = run(&["registry", "remove", "local:foo"], None);
+    assert!(
+        removed.status.success(),
+        "remove failed: {}",
+        String::from_utf8_lossy(&removed.stderr)
+    );
+    let listed = run(&["registry", "list"], None);
+    assert!(!String::from_utf8_lossy(&listed.stdout).contains("local:foo"));
+}
+
 // r[verify cli.registry-known.help]
 #[test]
 fn test_cli_registry_known_help_snapshot() {

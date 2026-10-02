@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use comfy_table::{ContentArrangement, Table};
+use std::path::PathBuf;
 use wasm_package_manager::manager::Manager;
 use wasm_package_manager::oci::{ImageEntry, InsertResult};
 use wasm_package_manager::{Reference, format_size};
@@ -13,13 +14,18 @@ mod publish;
 mod search;
 mod sync;
 
-/// Manage Wasm Components and WIT interfaces in OCI registries
+/// Manage locally cached components and OCI registry packages
 #[derive(clap::Parser)]
 pub(crate) enum Opts {
     /// Fetch OCI metadata for a component
     Show,
     /// Pull a component from the registry
     Pull(PullOpts),
+    /// Register a local component package
+    Register(RegisterOpts),
+    /// Remove a component from the local store by local name or OCI reference
+    #[command(name = "remove")]
+    Remove(RemoveOpts),
     /// List all available tags for a component
     Tags(TagsOpts),
     /// Search for packages across configured registries
@@ -32,7 +38,7 @@ pub(crate) enum Opts {
     Publish(publish::PublishOpts),
     /// Delete a package from the local store
     Delete(DeleteOpts),
-    /// List all installed packages
+    /// List all components in the local store
     List(ListOpts),
     /// List all known packages (previously synced or pulled)
     Known(KnownOpts),
@@ -45,6 +51,20 @@ pub(crate) struct PullOpts {
     /// The reference to pull
     #[arg(value_parser = crate::util::parse_reference)]
     reference: Reference,
+}
+
+#[derive(clap::Args)]
+pub(crate) struct RegisterOpts {
+    /// The local package name (available as `local:<name>`)
+    name: String,
+    /// Path to the component package file
+    file: PathBuf,
+}
+
+#[derive(clap::Args)]
+pub(crate) struct RemoveOpts {
+    /// Local name (local:foo) or OCI reference
+    reference: String,
 }
 
 #[derive(clap::Args)]
@@ -93,6 +113,20 @@ impl Opts {
                         "package '{}' already exists in the local store",
                         opts.reference.whole()
                     );
+                }
+                Ok(())
+            }
+            Opts::Register(opts) => {
+                let package = tokio::fs::read(&opts.file).await?;
+                store.register_local(&opts.name, package).await?;
+                println!("Registered local:{}", opts.name);
+                Ok(())
+            }
+            Opts::Remove(opts) => {
+                if store.remove(&opts.reference).await? {
+                    println!("Removed '{}'", opts.reference);
+                } else {
+                    println!("Package '{}' not found in local store", opts.reference);
                 }
                 Ok(())
             }
@@ -192,8 +226,17 @@ fn render_list_table(images: &[ImageEntry]) -> String {
     table.set_header(vec!["PACKAGE", "TAG", "SIZE"]);
 
     for image in images {
-        let reference = format!("{}/{}", image.ref_registry, image.ref_repository);
-        let tag = image.ref_tag.as_deref().unwrap_or("-");
+        let is_local = image.ref_registry == "local.invalid";
+        let reference = if is_local {
+            format!("local:{}", image.ref_repository)
+        } else {
+            format!("{}/{}", image.ref_registry, image.ref_repository)
+        };
+        let tag = if is_local {
+            "-"
+        } else {
+            image.ref_tag.as_deref().unwrap_or("-")
+        };
         let size = format_size(image.size_on_disk);
         table.add_row(vec![&reference, tag, &size]);
     }
@@ -227,6 +270,15 @@ mod tests {
                 manifest: OciImageManifest::default(),
                 size_on_disk: 512,
             },
+            ImageEntry {
+                ref_registry: "local.invalid".into(),
+                ref_repository: "example".into(),
+                ref_mirror_registry: None,
+                ref_tag: Some("local".into()),
+                ref_digest: None,
+                manifest: OciImageManifest::default(),
+                size_on_disk: 256,
+            },
         ];
 
         let output = render_list_table(&images);
@@ -244,6 +296,10 @@ mod tests {
         // Second image (no tag → dash)
         assert!(output.contains("ghcr.io/example/logger"));
         assert!(output.contains("512 B"));
+
+        // Local packages are shown in the same all-components list using
+        // their public local namespace identity.
+        assert!(output.contains("local:example"));
     }
 
     #[test]

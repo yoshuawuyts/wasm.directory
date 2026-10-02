@@ -99,6 +99,7 @@ wit2cli = { path = "crates/wit2cli", version = "0.3.0" }
 
 # shared dependencies
 anyhow = "1.0.100"
+fs2 = "0.4.3"
 futures-concurrency = "7.7.1"
 tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread"] }
 tokio-stream = "0.1"

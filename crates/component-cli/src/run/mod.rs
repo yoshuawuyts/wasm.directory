@@ -121,7 +121,7 @@ impl Opts {
             // `resolve_local_package(None)` errors when there is no local
             // package, so reaching this arm always implies an explicit input.
             let input = input.expect("remote resolution requires an explicit input");
-            self.resolve_remote_bytes(input, offline).await?
+            Box::pin(self.resolve_remote_bytes(input, offline)).await?
         };
 
         // 3. Validate — must be a Wasm Component.
@@ -411,10 +411,14 @@ fn resolve_manifest_key(input: &str) -> miette::Result<Option<PathBuf>> {
     // Reconstruct the vendor filename from lockfile data.  The on-disk
     // file is named after the `namespace:package@version` declared in
     // the WIT metadata (e.g. `yoshuawuyts-acp-3.0.0.wasm`).
-    let filename = wasm_package_manager::manager::vendor_filename(
-        &package.name,
-        Some(package.version.as_str()),
-    );
+    let filename = if package.name.starts_with("local:") {
+        wasm_package_manager::manager::vendor_filename(&package.name, None)
+    } else {
+        wasm_package_manager::manager::vendor_filename(
+            &package.name,
+            Some(package.version.as_str()),
+        )
+    };
 
     let vendored_path = PathBuf::from("vendor/wasm").join(filename);
     if !vendored_path.exists() {

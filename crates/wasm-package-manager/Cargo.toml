@@ -28,6 +28,7 @@ miette = { workspace = true }
 dirs = { workspace = true }
 docker_credential = { workspace = true }
 futures-concurrency = { workspace = true }
+fs2 = { workspace = true }
 oci-client = { workspace = true }
 oci-wasm = { workspace = true }
 serde = { workspace = true }

@@ -1,6 +1,5 @@
 ---
 source: crates/component-cli/tests/test.rs
-assertion_line: 88
 expression: output
 ---
 Unified WebAssembly developer tools
@@ -14,7 +13,7 @@ Commands:
   publish   Publish a component or WIT interface to an OCI registry
   compose   Compose Wasm components from WAC scripts
   local     Detect and manage local WASM files
-  registry  Manage Wasm Components and WIT interfaces in OCI registries
+  registry  Manage local components and packages in OCI registries
   self      Configure the `component(1)` tool, generate completions, & manage state
   help      Print this message or the help of the given subcommand(s)
 

@@ -354,6 +354,27 @@ fn sort_versioned_tags(mut versioned: Vec<(semver::Version, String)>) -> Vec<Str
 }
 
 impl Store {
+    async fn cache_mutation_lock(&self) -> anyhow::Result<std::fs::File> {
+        let lock_path = self.state_info.data_dir().join("cache-mutations.lock");
+        tokio::task::spawn_blocking(move || {
+            use fs2::FileExt as _;
+
+            let parent = lock_path
+                .parent()
+                .context("cache lock path has no parent directory")?;
+            std::fs::create_dir_all(parent)?;
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .read(true)
+                .write(true)
+                .open(&lock_path)?;
+            file.lock_exclusive()?;
+            Ok::<_, anyhow::Error>(file)
+        })
+        .await?
+    }
+
     /// Build a [`PackageVersion`] from a manifest row + an optional tag.
     ///
     /// Populates annotations, layers, dependencies, referrers, `wit_text`,
@@ -2291,6 +2312,7 @@ impl Store {
         Option<OciImageManifest>,
         Option<i64>,
     )> {
+        let _cache_lock = self.cache_mutation_lock().await?;
         let digest = reference.digest().map(str::to_owned).or(image.digest);
         let manifest_str = serde_json::to_string(&image.manifest)?;
         let size_on_disk: u64 = image
@@ -2353,12 +2375,6 @@ impl Store {
             InsertResult::AlreadyExists
         };
 
-        if let Some(tag) = reference.tag()
-            && let Some(d) = digest.as_deref()
-        {
-            upsert_oci_tag(&self.db, repo_id, tag, d).await?;
-        }
-
         let manifest = image.manifest.clone();
 
         // Store layers when the manifest is newly inserted, or when the
@@ -2413,6 +2429,15 @@ impl Store {
             self.repair_layer_metadata(manifest_id, &image.layers)
                 .await?;
         }
+        // Publish the mutable tag only after all cache layers and metadata
+        // have been stored successfully, so replacing a reference never
+        // exposes an incomplete manifest.
+        if let Some(tag) = reference.tag()
+            && let Some(d) = digest.as_deref()
+        {
+            upsert_oci_tag(&self.db, repo_id, tag, d).await?;
+        }
+
         let manifest_id_opt = if result == InsertResult::Inserted || repair {
             Some(manifest_id)
         } else {
@@ -2477,6 +2502,19 @@ impl Store {
             .await?;
         txn.commit().await?;
         Ok(())
+    }
+
+    async fn retained_layer_digests(
+        &self,
+        excluded_manifests: &HashSet<i64>,
+    ) -> anyhow::Result<HashSet<String>> {
+        Ok(oci_layer::Entity::find()
+            .all(&self.db)
+            .await?
+            .into_iter()
+            .filter(|layer| !excluded_manifests.contains(&layer.oci_manifest_id))
+            .map(|layer| layer.digest)
+            .collect())
     }
 
     pub(crate) async fn insert_metadata(
@@ -2546,6 +2584,7 @@ impl Store {
         position: i32,
         layer_annotations: Option<&BTreeMap<String, String>>,
     ) -> anyhow::Result<()> {
+        let _cache_lock = self.cache_mutation_lock().await?;
         let cache = self.state_info.store_dir();
         let _integrity = cacache::write(&cache, layer_digest, data).await?;
 
@@ -2809,6 +2848,26 @@ impl Store {
     }
 
     pub(crate) async fn delete(&self, reference: &Reference) -> anyhow::Result<bool> {
+        self.delete_with_blob_cleanup(reference, true).await
+    }
+
+    pub(crate) async fn delete_preserving_blobs(
+        &self,
+        reference: &Reference,
+    ) -> anyhow::Result<bool> {
+        self.delete_with_blob_cleanup(reference, false).await
+    }
+
+    async fn delete_with_blob_cleanup(
+        &self,
+        reference: &Reference,
+        cleanup_orphaned_blobs: bool,
+    ) -> anyhow::Result<bool> {
+        let _cache_lock = if cleanup_orphaned_blobs {
+            Some(self.cache_mutation_lock().await?)
+        } else {
+            None
+        };
         // Find the repository.
         let Some(repo) = oci_repository::Entity::find()
             .filter(oci_repository::Column::Registry.eq(reference.registry()))
@@ -2874,11 +2933,10 @@ impl Store {
         if manifests_to_delete.is_empty() {
             return Ok(false);
         }
-
         let mut layer_digests: HashSet<String> = HashSet::new();
-        let mut manifest_ids: Vec<i64> = Vec::new();
+        let mut manifest_ids: HashSet<i64> = HashSet::new();
         for manifest in &manifests_to_delete {
-            manifest_ids.push(manifest.id);
+            manifest_ids.insert(manifest.id);
             let layers = oci_layer::Entity::find()
                 .filter(oci_layer::Column::OciManifestId.eq(manifest.id))
                 .all(&self.db)
@@ -2888,36 +2946,48 @@ impl Store {
             }
         }
 
-        // Layers retained by other manifests in the same repo (not being
-        // deleted): their digests are still needed.
-        let all_manifests = oci_manifest::Entity::find()
-            .filter(oci_manifest::Column::OciRepositoryId.eq(repo_id))
-            .all(&self.db)
-            .await?;
-        let mut retained_digests: HashSet<String> = HashSet::new();
-        for other in &all_manifests {
-            if manifest_ids.contains(&other.id) {
-                continue;
-            }
-            let other_layers = oci_layer::Entity::find()
-                .filter(oci_layer::Column::OciManifestId.eq(other.id))
-                .all(&self.db)
+        // Gather all data needed for cleanup before mutating the database.
+        // Metadata and manifests are then removed atomically; blob reclamation
+        // happens only after the transaction commits.
+        let retained_digests = if cleanup_orphaned_blobs {
+            Some(self.retained_layer_digests(&manifest_ids).await?)
+        } else {
+            None
+        };
+        let txn = self.db.begin().await?;
+        for manifest in &manifests_to_delete {
+            wit_package::Entity::delete_many()
+                .filter(wit_package::Column::OciManifestId.eq(manifest.id))
+                .exec(&txn)
                 .await?;
-            for l in other_layers {
-                retained_digests.insert(l.digest);
-            }
+            wasm_component::Entity::delete_many()
+                .filter(wasm_component::Column::OciManifestId.eq(manifest.id))
+                .exec(&txn)
+                .await?;
+            oci_manifest::Entity::delete_by_id(manifest.id)
+                .exec(&txn)
+                .await?;
         }
-        let orphaned = crate::oci::compute_orphaned_layers(&layer_digests, &retained_digests);
+        txn.commit().await?;
+
+        // The content-addressable blob cache is shared across repositories,
+        // so retain layers referenced by any manifest outside this deletion.
+        if let Some(retained_digests) = retained_digests {
+            self.remove_orphaned_blobs(&layer_digests, &retained_digests)
+                .await;
+        }
+        Ok(true)
+    }
+
+    async fn remove_orphaned_blobs(
+        &self,
+        layer_digests: &HashSet<String>,
+        retained_digests: &HashSet<String>,
+    ) {
+        let orphaned = crate::oci::compute_orphaned_layers(layer_digests, retained_digests);
         for layer_digest in &orphaned {
             let _ = cacache::remove(self.state_info.store_dir(), layer_digest).await;
         }
-
-        for manifest in &manifests_to_delete {
-            oci_manifest::Entity::delete_by_id(manifest.id)
-                .exec(&self.db)
-                .await?;
-        }
-        Ok(true)
     }
 
     pub(crate) async fn search_known_packages(

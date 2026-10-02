@@ -2,23 +2,25 @@
 source: crates/component-cli/tests/test.rs
 expression: output
 ---
-Manage Wasm Components and WIT interfaces in OCI registries
+Manage local components and packages in OCI registries
 
 Usage: component registry [OPTIONS] <COMMAND>
 
 Commands:
-  show     Fetch OCI metadata for a component
-  pull     Pull a component from the registry
-  tags     List all available tags for a component
-  search   Search for packages across configured registries
-  sync     Force-sync the package index from the configured meta-registry
-  notify   Notify a meta-registry that a new version of a package is available
-  publish  Open a prefilled issue to add a component or interface to the registry
-  delete   Delete a package from the local store
-  list     List all installed packages
-  known    List all known packages (previously synced or pulled)
-  inspect  Inspect the metadata of a package on the registry
-  help     Print this message or the help of the given subcommand(s)
+  show      Fetch OCI metadata for a component
+  pull      Pull a component from the registry
+  register  Register a local component package
+  remove    Remove a component from the local store by local name or OCI reference
+  tags      List all available tags for a component
+  search    Search for packages across configured registries
+  sync      Force-sync the package index from the configured meta-registry
+  notify    Notify a meta-registry that a new version of a package is available
+  publish   Open a prefilled issue to add a component or interface to the registry
+  delete    Delete a package from the local store
+  list      List all components in the local store
+  known     List all known packages (previously synced or pulled)
+  inspect   Inspect the metadata of a package on the registry
+  help      Print this message or the help of the given subcommand(s)
 
 Options:
   -h, --help     Print help
