@@ -627,6 +627,12 @@ impl Manager {
             return Ok(result);
         }
 
+        if reference.registry() == "local.invalid" {
+            anyhow::bail!(
+                "local component reference '{reference}' is missing from the cache; register it again"
+            );
+        }
+
         // Offline mode can only serve packages already in the cache; if the
         // fast path missed there is nothing more we can do without network.
         if self.offline {

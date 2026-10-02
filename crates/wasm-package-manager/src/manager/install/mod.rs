@@ -410,7 +410,7 @@ mod tests {
         let bytes = wit_component::encode(&resolve, package).expect("encode component");
 
         manager
-            .register_local("foo", bytes)
+            .register_local("foo", bytes.clone())
             .await
             .expect("register local component");
         assert!(
@@ -473,6 +473,11 @@ mod tests {
                 .is_err(),
             "an incomplete local registration must not resolve to an OCI pull"
         );
+        let stale_install = manager
+            .install(resolved[0].0.clone(), &vendor_dir)
+            .await
+            .expect_err("stale local references must not fall back to OCI pulls");
+        assert!(stale_install.to_string().contains("register it again"));
 
         let mut replacement_resolve = wit_parser::Resolve::default();
         let replacement_package = replacement_resolve
@@ -517,6 +522,42 @@ mod tests {
                 .iter()
                 .all(|entry| entry.ref_registry != "local.invalid" || entry.ref_repository != "foo")
         );
+    }
+
+    #[tokio::test]
+    async fn removing_local_registration_preserves_shared_layer_blobs() {
+        let temp = tempdir().expect("temp dir");
+        let manager = Manager::open_at(temp.path()).await.expect("manager");
+        let mut resolve = wit_parser::Resolve::default();
+        let package = resolve
+            .push_str("foo.wit", "package test:foo@1.0.0;\nworld foo {}\n")
+            .expect("parse WIT");
+        let bytes = wit_component::encode(&resolve, package).expect("encode component");
+
+        manager
+            .register_local("foo", bytes.clone())
+            .await
+            .expect("register first local name");
+        manager
+            .register_local("bar", bytes)
+            .await
+            .expect("register second local name");
+
+        assert!(
+            manager
+                .remove("local:foo")
+                .await
+                .expect("remove first name")
+        );
+        let reference = manager
+            .local_reference("bar")
+            .await
+            .expect("lookup second name")
+            .expect("second registration remains");
+        manager
+            .install(reference, &temp.path().join("vendor"))
+            .await
+            .expect("shared blob remains available");
     }
 
     #[test]

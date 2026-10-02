@@ -2888,12 +2888,9 @@ impl Store {
             }
         }
 
-        // Layers retained by other manifests in the same repo (not being
-        // deleted): their digests are still needed.
-        let all_manifests = oci_manifest::Entity::find()
-            .filter(oci_manifest::Column::OciRepositoryId.eq(repo_id))
-            .all(&self.db)
-            .await?;
+        // The content-addressable blob cache is shared across repositories,
+        // so retain layers referenced by any manifest outside this deletion.
+        let all_manifests = oci_manifest::Entity::find().all(&self.db).await?;
         let mut retained_digests: HashSet<String> = HashSet::new();
         for other in &all_manifests {
             if manifest_ids.contains(&other.id) {
