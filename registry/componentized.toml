@@ -2,60 +2,13 @@
 name = "componentized"
 registry = "ghcr.io/componentized"
 
-# componentized/valkey - WIT interface
+
+# componentized/cli
+
 [[interface]]
-name = "valkey"
-repository = "valkey/interface"
+name = "cli"
+repository = "cli"
 
-# componentized/services - WIT interface
-[[interface]]
-name = "services"
-repository = "services/interface"
-
-# componentized/valkey - components
-[[component]]
-name = "valkey-cli"
-repository = "valkey/cli"
-
-[[component]]
-name = "valkey-ops"
-repository = "valkey/valkey-ops"
-
-[[component]]
-name = "valkey-client"
-repository = "valkey/valkey-client"
-
-[[component]]
-name = "keyvalue-to-valkey"
-repository = "valkey/keyvalue-to-valkey"
-
-[[component]]
-name = "sample-http-incrementor"
-repository = "valkey/sample-http-incrementor"
-
-# componentized/logging - components
-[[component]]
-name = "logging-levels"
-repository = "logging/levels"
-
-[[component]]
-name = "logging-to-stdout"
-repository = "logging/to-stdout"
-
-# componentized/filesystem - components
-[[component]]
-name = "filesystem-chroot"
-repository = "filesystem/chroot"
-
-[[component]]
-name = "filesystem-readonly"
-repository = "filesystem/readonly"
-
-[[component]]
-name = "filesystem-tracing"
-repository = "filesystem/tracing"
-
-# componentized/cli - components
 [[component]]
 name = "cli-stderr-to-stdout"
 repository = "cli/stderr-to-stdout"
@@ -64,7 +17,36 @@ repository = "cli/stderr-to-stdout"
 name = "cli-stdout-to-stderr"
 repository = "cli/stdout-to-stderr"
 
-# componentized/config - components
+
+# componentized/component
+
+[[interface]]
+name = "component"
+repository = "component"
+
+[[component]]
+name = "component-extract-wit"
+repository = "component/extract-wit"
+
+[[component]]
+name = "component-filesystem-loader"
+repository = "component/filesystem-loader"
+
+[[component]]
+name = "component-http-loader"
+repository = "component/http-loader"
+
+[[component]]
+name = "component-wac-loader"
+repository = "component/wac-loader"
+
+
+# componentized/config
+
+[[interface]]
+name = "config"
+repository = "config"
+
 [[component]]
 name = "config-defaults"
 repository = "config/defaults"
@@ -89,15 +71,107 @@ repository = "config/remap"
 name = "config-scope"
 repository = "config/scope"
 
-# componentized/static-config - component
-[[component]]
-name = "static-config-factory"
-repository = "static-config/factory"
 
-# componentized/services - components
+# componentized/constants
+
+[[interface]]
+name = "constants"
+repository = "constants"
+
+[[component]]
+name = "constants-config"
+repository = "constants/config"
+
+[[component]]
+name = "constants-factory"
+repository = "constants/factory"
+
+[[component]]
+name = "constants-math"
+repository = "constants/math"
+
+[[component]]
+name = "constants-types"
+repository = "constants/types"
+
+
+# componentized/filesystem
+
+[[interface]]
+name = "filesystem"
+repository = "filesystem"
+
+[[component]]
+name = "filesystem-chroot"
+repository = "filesystem/chroot"
+
+[[component]]
+name = "filesystem-readonly"
+repository = "filesystem/readonly"
+
+[[component]]
+name = "filesystem-tracing"
+repository = "filesystem/tracing"
+
+
+# componentized/http
+
+[[interface]]
+name = "http"
+repository = "http"
+
+[[component]]
+name = "client"
+repository = "http/client"
+
+
+# componentized/logging
+
+[[interface]]
+name = "logging"
+repository = "logging"
+
+[[component]]
+name = "logging-levels"
+repository = "logging/levels"
+
+[[component]]
+name = "logging-to-stdout"
+repository = "logging/to-stdout"
+
+
+# componentized/oci
+
+[[interface]]
+name = "oci"
+repository = "oci"
+
+[[component]]
+name = "oci-client"
+repository = "oci/client"
+
+
+# componentized/services
+
+[[interface]]
+name = "services"
+repository = "services"
+
 [[component]]
 name = "services-credential-config"
 repository = "services/credential-config"
+
+[[component]]
+name = "services-filesystem-credential-admin"
+repository = "services/filesystem-credential-admin"
+
+[[component]]
+name = "services-filesystem-credential-store"
+repository = "services/filesystem-credential-store"
+
+[[component]]
+name = "services-filesystem-lifecycle"
+repository = "services/filesystem-lifecycle"
 
 [[component]]
 name = "services-keyvalue-credential-admin"
@@ -116,28 +190,16 @@ name = "services-lifecycle-host-http"
 repository = "services/lifecycle-host-http"
 
 [[component]]
-name = "services-filesystem-lifecycle"
-repository = "services/filesystem-lifecycle"
-
-[[component]]
-name = "services-filesystem-credential-store"
-repository = "services/filesystem-credential-store"
-
-[[component]]
-name = "services-filesystem-credential-admin"
-repository = "services/filesystem-credential-admin"
-
-[[component]]
-name = "services-valkey-lifecycle"
-repository = "services/valkey-lifecycle"
+name = "services-valkey-credential-admin"
+repository = "services/valkey-credential-admin"
 
 [[component]]
 name = "services-valkey-credential-store"
 repository = "services/valkey-credential-store"
 
 [[component]]
-name = "services-valkey-credential-admin"
-repository = "services/valkey-credential-admin"
+name = "services-valkey-lifecycle"
+repository = "services/valkey-lifecycle"
 
 [[component]]
 name = "services-webhook-credential-admin"
@@ -146,3 +208,168 @@ repository = "services/webhook-credential-admin"
 [[component]]
 name = "services-webhook-credential-store"
 repository = "services/webhook-credential-store"
+
+
+# componentized/sockets
+
+[[interface]]
+name = "sockets"
+repository = "sockets"
+
+[[component]]
+name = "sockets-gate"
+repository = "sockets/gate"
+
+[[component]]
+name = "sockets-gate-ip-name-lookup"
+repository = "sockets/gate-ip-name-lookup"
+
+[[component]]
+name = "sockets-gate-types"
+repository = "sockets/gate-types"
+
+[[component]]
+name = "sockets-latch-cidr"
+repository = "sockets/latch-cidr"
+
+[[component]]
+name = "sockets-latch-cidr-bind"
+repository = "sockets/latch-cidr-bind"
+
+[[component]]
+name = "sockets-latch-cidr-egress"
+repository = "sockets/latch-cidr-egress"
+
+[[component]]
+name = "sockets-latch-cidr-ingress"
+repository = "sockets/latch-cidr-ingress"
+
+[[component]]
+name = "sockets-latch-defer-all"
+repository = "sockets/latch-defer-all"
+
+[[component]]
+name = "sockets-latch-delegate-tcp"
+repository = "sockets/latch-delegate-tcp"
+
+[[component]]
+name = "sockets-latch-delegate-udp"
+repository = "sockets/latch-delegate-udp"
+
+[[component]]
+name = "sockets-latch-deny-all"
+repository = "sockets/latch-deny-all"
+
+[[component]]
+name = "sockets-latch-deny-bind"
+repository = "sockets/latch-deny-bind"
+
+[[component]]
+name = "sockets-latch-deny-connect"
+repository = "sockets/latch-deny-connect"
+
+[[component]]
+name = "sockets-latch-deny-connect-unless-lookup-address"
+repository = "sockets/latch-deny-connect-unless-lookup-address"
+
+[[component]]
+name = "sockets-latch-deny-ip-name-lookup"
+repository = "sockets/latch-deny-ip-name-lookup"
+
+[[component]]
+name = "sockets-latch-deny-ip-name-lookup-config"
+repository = "sockets/latch-deny-ip-name-lookup-config"
+
+[[component]]
+name = "sockets-latch-deny-ipv4"
+repository = "sockets/latch-deny-ipv4"
+
+[[component]]
+name = "sockets-latch-deny-ipv6"
+repository = "sockets/latch-deny-ipv6"
+
+[[component]]
+name = "sockets-latch-deny-private-networks-cidr-config"
+repository = "sockets/latch-deny-private-networks-cidr-config"
+
+[[component]]
+name = "sockets-latch-deny-random"
+repository = "sockets/latch-deny-random"
+
+[[component]]
+name = "sockets-latch-deny-tcp"
+repository = "sockets/latch-deny-tcp"
+
+[[component]]
+name = "sockets-latch-deny-udp"
+repository = "sockets/latch-deny-udp"
+
+[[component]]
+name = "sockets-latch-dry-run"
+repository = "sockets/latch-dry-run"
+
+[[component]]
+name = "sockets-latch-ip-name-lookup-glob"
+repository = "sockets/latch-ip-name-lookup-glob"
+
+[[component]]
+name = "sockets-latch-n2"
+repository = "sockets/latch-n2"
+
+[[component]]
+name = "sockets-latch-n3"
+repository = "sockets/latch-n3"
+
+[[component]]
+name = "sockets-latch-n4"
+repository = "sockets/latch-n4"
+
+[[component]]
+name = "sockets-latch-n5"
+repository = "sockets/latch-n5"
+
+[[component]]
+name = "sockets-latch-trace"
+repository = "sockets/latch-trace"
+
+[[component]]
+name = "sockets-trace"
+repository = "sockets/trace"
+
+[[component]]
+name = "sockets-trace-ip-name-lookup"
+repository = "sockets/trace-ip-name-lookup"
+
+[[component]]
+name = "sockets-trace-types"
+repository = "sockets/trace-types"
+
+
+# componentized/static-config
+
+[[component]]
+name = "static-config-factory"
+repository = "static-config/factory"
+
+
+# componentized/valkey
+
+[[interface]]
+name = "valkey"
+repository = "valkey"
+
+[[component]]
+name = "valkey-cli"
+repository = "valkey/cli"
+
+[[component]]
+name = "valkey-ops"
+repository = "valkey/ops"
+
+[[component]]
+name = "valkey-client"
+repository = "valkey/client"
+
+[[component]]
+name = "valkey-as-keyvalue"
+repository = "valkey/as-keyvalue"
