@@ -354,6 +354,27 @@ fn sort_versioned_tags(mut versioned: Vec<(semver::Version, String)>) -> Vec<Str
 }
 
 impl Store {
+    async fn cache_mutation_lock(&self) -> anyhow::Result<std::fs::File> {
+        let lock_path = self.state_info.data_dir().join("cache-mutations.lock");
+        tokio::task::spawn_blocking(move || {
+            use fs2::FileExt as _;
+
+            let parent = lock_path
+                .parent()
+                .context("cache lock path has no parent directory")?;
+            std::fs::create_dir_all(parent)?;
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .read(true)
+                .write(true)
+                .open(&lock_path)?;
+            file.lock_exclusive()?;
+            Ok::<_, anyhow::Error>(file)
+        })
+        .await?
+    }
+
     /// Build a [`PackageVersion`] from a manifest row + an optional tag.
     ///
     /// Populates annotations, layers, dependencies, referrers, `wit_text`,
@@ -2291,6 +2312,7 @@ impl Store {
         Option<OciImageManifest>,
         Option<i64>,
     )> {
+        let _cache_lock = self.cache_mutation_lock().await?;
         let digest = reference.digest().map(str::to_owned).or(image.digest);
         let manifest_str = serde_json::to_string(&image.manifest)?;
         let size_on_disk: u64 = image
@@ -2840,6 +2862,11 @@ impl Store {
         reference: &Reference,
         cleanup_orphaned_blobs: bool,
     ) -> anyhow::Result<bool> {
+        let _cache_lock = if cleanup_orphaned_blobs {
+            Some(self.cache_mutation_lock().await?)
+        } else {
+            None
+        };
         // Find the repository.
         let Some(repo) = oci_repository::Entity::find()
             .filter(oci_repository::Column::Registry.eq(reference.registry()))
@@ -2945,12 +2972,21 @@ impl Store {
         // The content-addressable blob cache is shared across repositories,
         // so retain layers referenced by any manifest outside this deletion.
         if let Some(retained_digests) = retained_digests {
-            let orphaned = crate::oci::compute_orphaned_layers(&layer_digests, &retained_digests);
-            for layer_digest in &orphaned {
-                let _ = cacache::remove(self.state_info.store_dir(), layer_digest).await;
-            }
+            self.remove_orphaned_blobs(&layer_digests, &retained_digests)
+                .await;
         }
         Ok(true)
+    }
+
+    async fn remove_orphaned_blobs(
+        &self,
+        layer_digests: &HashSet<String>,
+        retained_digests: &HashSet<String>,
+    ) {
+        let orphaned = crate::oci::compute_orphaned_layers(layer_digests, retained_digests);
+        for layer_digest in &orphaned {
+            let _ = cacache::remove(self.state_info.store_dir(), layer_digest).await;
+        }
     }
 
     pub(crate) async fn search_known_packages(

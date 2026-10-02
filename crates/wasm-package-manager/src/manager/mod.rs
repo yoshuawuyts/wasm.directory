@@ -87,6 +87,16 @@ async fn local_registration_process_lock(
     .map_err(Into::into)
 }
 
+struct TempVendorFile(std::path::PathBuf);
+
+static VENDOR_TEMP_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+impl Drop for TempVendorFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 /// A cache on disk
 ///
 /// # Example
@@ -667,29 +677,68 @@ impl Manager {
     /// destination is on another filesystem, the layer is copied instead.
     pub async fn vendor(&self, layer_digest: &str, dest: &Path) -> anyhow::Result<()> {
         use anyhow::Context as _;
+
         let cache = self.store.state_info.store_dir();
-        if let Err(error) = cacache::reflink(cache, layer_digest, dest).await {
+        let parent = dest
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        tokio::fs::create_dir_all(parent).await?;
+        let file_name = dest
+            .file_name()
+            .context("destination has no file name")?
+            .to_string_lossy();
+        let temp = loop {
+            let id = VENDOR_TEMP_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let temp = parent.join(format!(".{file_name}.{}.{}.tmp", std::process::id(), id));
+            match tokio::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temp)
+                .await
+            {
+                Ok(file) => {
+                    drop(file);
+                    break temp;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error).context("failed to create temporary vendor file"),
+            }
+        };
+        let cleanup = TempVendorFile(temp.clone());
+        tokio::fs::remove_file(&temp).await?;
+        if let Err(error) = cacache::reflink(cache, layer_digest, &temp).await {
             tracing::debug!(
                 layer_digest,
                 destination = %dest.display(),
                 %error,
                 "Reflink unavailable; copying cached layer"
             );
+            let _ = tokio::fs::remove_file(&temp).await;
             let mut reader = cacache::Reader::open(cache, layer_digest)
                 .await
                 .with_context(|| format!("failed to read cached layer {layer_digest}"))?;
-            let mut file = tokio::fs::File::create(dest).await.with_context(|| {
-                format!("failed to copy layer {layer_digest} to {}", dest.display())
+            let mut file = tokio::fs::File::create(&temp).await.with_context(|| {
+                format!("failed to copy layer {layer_digest} to {}", temp.display())
             })?;
             tokio::io::copy(&mut reader, &mut file)
                 .await
                 .with_context(|| {
-                    format!("failed to copy layer {layer_digest} to {}", dest.display())
+                    format!("failed to copy layer {layer_digest} to {}", temp.display())
                 })?;
+            file.sync_all().await?;
             reader.check().with_context(|| {
                 format!("failed integrity check for cached layer {layer_digest}")
             })?;
         }
+        #[cfg(windows)]
+        if tokio::fs::try_exists(dest).await? {
+            tokio::fs::remove_file(dest).await?;
+        }
+        tokio::fs::rename(&temp, dest)
+            .await
+            .with_context(|| format!("failed to move verified layer into {}", dest.display()))?;
+        drop(cleanup);
         Ok(())
     }
 
