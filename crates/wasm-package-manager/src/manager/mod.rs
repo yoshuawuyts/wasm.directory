@@ -118,6 +118,9 @@ impl Manager {
             None,
         )
         .sha256_digest();
+        // The internal tag is used as the installed dependency version, so
+        // keep it valid for wasm.toml's SemVer-based dependency values.
+        self.store.delete(&reference).await?;
         self.store
             .insert(
                 &reference,
@@ -142,11 +145,17 @@ impl Manager {
         let Some(tag) = reference.tag() else {
             return Ok(None);
         };
-        Ok(self
+        let Some((_, manifest)) = self
             .store
             .cached_manifest_for_reference(reference.registry(), reference.repository(), tag)
             .await?
-            .map(|_| reference))
+        else {
+            return Ok(None);
+        };
+        if !self.store.all_layers_cached(&manifest).await {
+            return Ok(None);
+        }
+        Ok(Some(reference))
     }
 
     /// Remove a package from the local store by local name or OCI reference.
@@ -215,13 +224,13 @@ fn validate_local_name(name: &str) -> anyhow::Result<()> {
         });
     anyhow::ensure!(
         valid,
-        "invalid local component name '{name}'; use lowercase letters, digits, and hyphens"
+        "invalid local component name '{name}'; use lowercase letters and digits, with single hyphens only between non-empty segments"
     );
     Ok(())
 }
 
 fn local_reference(name: &str) -> anyhow::Result<Reference> {
-    format!("local.invalid/{name}:local")
+    format!("local.invalid/{name}:0.0.0")
         .parse()
         .map_err(Into::into)
 }

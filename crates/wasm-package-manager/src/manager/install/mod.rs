@@ -448,6 +448,59 @@ mod tests {
             Some("local-foo.wasm")
         );
 
+        let (_, stored_manifest) = manager
+            .store
+            .cached_manifest_for_reference("local.invalid", "foo", "0.0.0")
+            .await
+            .expect("load local manifest")
+            .expect("local manifest exists");
+        cacache::remove(
+            manager.store.state_info.store_dir(),
+            &stored_manifest.layers[0].digest,
+        )
+        .await
+        .expect("remove cached local layer");
+        assert!(
+            manager
+                .local_reference("foo")
+                .await
+                .expect("lookup local without its layer")
+                .is_none()
+        );
+        assert!(
+            resolve_install_inputs(&inputs, &manifest, &manager)
+                .await
+                .is_err(),
+            "an incomplete local registration must not resolve to an OCI pull"
+        );
+
+        let mut replacement_resolve = wit_parser::Resolve::default();
+        let replacement_package = replacement_resolve
+            .push_str("foo.wit", "package test:foo@2.0.0;\nworld foo {}\n")
+            .expect("parse replacement WIT");
+        let replacement_bytes = wit_component::encode(&replacement_resolve, replacement_package)
+            .expect("encode replacement component");
+        manager
+            .register_local("foo", replacement_bytes)
+            .await
+            .expect("replace local component");
+        let entries = manager.list_all().await.expect("list all packages");
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|entry| {
+                    entry.ref_registry == "local.invalid" && entry.ref_repository == "foo"
+                })
+                .count(),
+            1
+        );
+
+        let replacement = manager
+            .install(resolved[0].0.clone(), &vendor_dir)
+            .await
+            .expect("install replacement from local cache");
+        assert_eq!(replacement.package_name.as_deref(), Some("test:foo@2.0.0"));
+
         assert!(manager.remove("local:foo").await.expect("remove local"));
         assert!(
             manager
@@ -455,6 +508,14 @@ mod tests {
                 .await
                 .expect("lookup local")
                 .is_none()
+        );
+        assert!(
+            manager
+                .list_all()
+                .await
+                .expect("list after remove")
+                .iter()
+                .all(|entry| entry.ref_registry != "local.invalid" || entry.ref_repository != "foo")
         );
     }
 
