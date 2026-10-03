@@ -38,6 +38,9 @@ impl Manager {
     /// lookups (e.g. `ba:sample-wasi-http-rust`) can resolve to the correct
     /// OCI repository.
     ///
+    /// Tags for which `exclude` returns `true` are ignored, and removed from
+    /// the index if previously indexed.
+    ///
     /// # Errors
     ///
     /// Returns an error if offline mode is enabled or if network operations fail.
@@ -47,8 +50,9 @@ impl Manager {
         wit_namespace: Option<&str>,
         wit_name: Option<&str>,
         kind: Option<PackageKind>,
+        exclude: &(dyn Fn(&str) -> bool + Sync),
     ) -> anyhow::Result<KnownPackage> {
-        self.index_package_inner(reference, wit_namespace, wit_name, kind, false)
+        self.index_package_inner(reference, wit_namespace, wit_name, kind, exclude, false)
             .await
     }
 
@@ -66,8 +70,9 @@ impl Manager {
         wit_namespace: Option<&str>,
         wit_name: Option<&str>,
         kind: Option<PackageKind>,
+        exclude: &(dyn Fn(&str) -> bool + Sync),
     ) -> anyhow::Result<KnownPackage> {
-        self.index_package_inner(reference, wit_namespace, wit_name, kind, true)
+        self.index_package_inner(reference, wit_namespace, wit_name, kind, exclude, true)
             .await
     }
 
@@ -129,6 +134,7 @@ impl Manager {
         wit_namespace: Option<&str>,
         wit_name: Option<&str>,
         kind: Option<PackageKind>,
+        exclude: &(dyn Fn(&str) -> bool + Sync),
         refetch: bool,
     ) -> anyhow::Result<KnownPackage> {
         if self.offline {
@@ -145,6 +151,18 @@ impl Manager {
                 repository: repository.to_string(),
             }
             .into());
+        }
+
+        // Excluded tags are hidden from the index, so retract any that were
+        // indexed before the exclusion was added.
+        let (excluded, tags): (Vec<String>, Vec<String>) =
+            tags.into_iter().partition(|t| exclude(t));
+        let retracted = self
+            .store
+            .retract_tags(registry, repository, &excluded)
+            .await?;
+        if retracted > 0 {
+            tracing::info!(%registry, %repository, retracted, "Retracted excluded versions");
         }
 
         // Tags like `latest`, `nightly`, or `sha256-...` cannot be resolved by

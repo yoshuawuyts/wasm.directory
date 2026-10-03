@@ -9,6 +9,8 @@
 
 use std::path::Path;
 
+use regex::RegexSet;
+
 use crate::registry_file::{Namespace, RegistryFile};
 
 /// Top-level configuration for the meta-registry server.
@@ -30,6 +32,7 @@ use crate::registry_file::{Namespace, RegistryFile};
 ///         namespace: "wasi".to_string(),
 ///         name: "io".to_string(),
 ///         kind: PackageKind::Interface,
+///         exclude: Default::default(),
 ///     }],
 /// };
 ///
@@ -62,6 +65,7 @@ pub struct Config {
 ///     namespace: "wasi".to_string(),
 ///     name: "clocks".to_string(),
 ///     kind: PackageKind::Interface,
+///     exclude: Default::default(),
 /// };
 ///
 /// assert_eq!(source.registry, "ghcr.io/webassembly");
@@ -80,6 +84,8 @@ pub struct PackageSource {
     pub name: String,
     /// Whether the package is a component or interface type.
     pub kind: PackageKind,
+    /// Tags matching any of these patterns are left out of the index.
+    pub exclude: RegexSet,
 }
 
 /// Re-export from the shared types crate.
@@ -280,6 +286,51 @@ registry = "ghcr.io/empty"
         assert_eq!(file.namespace.name, "empty");
         assert!(file.component.is_empty());
         assert!(file.interface.is_empty());
+    }
+
+    #[test]
+    fn test_parse_registry_file_exclude() {
+        let toml = r#"
+[namespace]
+name = "example"
+registry = "ghcr.io/example"
+
+[[component]]
+name = "my-app"
+repository = "my-app"
+exclude = ["[_.]debug$", "[-.]dev$"]
+
+[[interface]]
+name = "my-api"
+repository = "my-api"
+"#;
+
+        let file = RegistryFile::from_toml(toml).unwrap();
+        let sources = file.into_package_sources();
+        let exclude = &sources[0].exclude;
+        assert!(exclude.is_match("1.0.0-alpha_debug"));
+        assert!(exclude.is_match("1.0.0-dev"));
+        assert!(!exclude.is_match("1.0.0"));
+        assert!(!exclude.is_match("1.0.0-debugger"));
+        // Entries without `exclude` keep every tag.
+        assert!(sources[1].exclude.is_empty());
+    }
+
+    #[test]
+    fn test_parse_registry_file_invalid_exclude() {
+        let toml = r#"
+[namespace]
+name = "example"
+registry = "ghcr.io/example"
+
+[[component]]
+name = "my-app"
+repository = "my-app"
+exclude = ["(unclosed"]
+"#;
+
+        let err = RegistryFile::from_toml(toml).unwrap_err().to_string();
+        assert!(err.contains("exclude"), "{err}");
     }
 
     // r[verify registry.parse.invalid-toml]

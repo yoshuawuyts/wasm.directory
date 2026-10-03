@@ -55,6 +55,7 @@ repository = "sample-wasi-http-rust/sample-wasi-http-rust"
 - **`[[interface]]`** — a WIT interface type package
 - **`name`** — the package name under the namespace (e.g., `wasi:io`)
 - **`repository`** — the OCI repository path, relative to the namespace's `registry`
+- **`exclude`** — optional list of regular expressions for tags to leave out of the index
 
 The filename (without `.toml`) must match the `namespace.name` field inside.
 

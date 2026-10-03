@@ -3,17 +3,21 @@
 //! Provides search and listing endpoints backed by the `wasm-package-manager`
 //! known packages database.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::{Json, Router, routing::get, routing::post};
+use axum::{Extension, Json, Router, routing::get, routing::post};
+use regex::RegexSet;
 use serde::Deserialize;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
+use wasm_package_manager::Reference;
 use wasm_package_manager::manager::Manager;
 
+use crate::config::PackageSource;
 use crate::stats_cache::{STATS_TTL, StatsCache};
 
 mod namespaces;
@@ -157,6 +161,19 @@ pub fn router_with_namespaces(
     state: AppState,
     namespaces: &[crate::registry_file::Namespace],
 ) -> Router {
+    router_with_registry(state, namespaces, &[])
+}
+
+/// Build the API router from the full registry configuration.
+///
+/// Like [`router_with_namespaces`], and additionally rejects notifications
+/// for tags that a package's `exclude` patterns leave out of the index.
+pub fn router_with_registry(
+    state: AppState,
+    namespaces: &[crate::registry_file::Namespace],
+    packages: &[PackageSource],
+) -> Router {
+    let exclusions = Arc::new(TagExclusions::new(packages));
     let registered = Arc::new(
         namespaces
             .iter()
@@ -211,8 +228,42 @@ pub fn router_with_namespaces(
         )
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
-        .layer(axum::Extension(registered))
+        .layer(Extension(registered))
+        .layer(Extension(exclusions))
         .with_state(state)
+}
+
+/// Configured tag exclusions, keyed by OCI registry and repository.
+///
+/// Keys use the parsed reference, so they match the coordinates that known
+/// packages are stored and notified under.
+#[derive(Debug, Default)]
+struct TagExclusions(HashMap<(String, String), RegexSet>);
+
+impl TagExclusions {
+    fn new(packages: &[PackageSource]) -> Self {
+        let map = packages
+            .iter()
+            .filter(|source| !source.exclude.is_empty())
+            .filter_map(|source| {
+                let reference: Reference = format!("{}/{}", source.registry, source.repository)
+                    .parse()
+                    .ok()?;
+                let key = (
+                    reference.registry().to_owned(),
+                    reference.repository().to_owned(),
+                );
+                Some((key, source.exclude.clone()))
+            })
+            .collect();
+        Self(map)
+    }
+
+    fn is_excluded(&self, registry: &str, repository: &str, tag: &str) -> bool {
+        self.0
+            .get(&(registry.to_owned(), repository.to_owned()))
+            .is_some_and(|exclude| exclude.is_match(tag))
+    }
 }
 
 /// Health check endpoint.
@@ -469,8 +520,11 @@ fn validate_notify_input(registry: &str, repository: &str, tag: &str) -> Option<
 /// * Enforces a freshness window (the same 1-hour cooldown used by the
 ///   periodic indexer). Repeated notifications for a tag that was just
 ///   pulled are returned as `{"status":"skipped"}`.
+/// * Skips tags matching the package's `exclude` patterns, which the
+///   indexer would otherwise retract again on its next pass.
 async fn notify_new_version(
     State(manager): State<AppState>,
+    Extension(exclusions): Extension<Arc<TagExclusions>>,
     Path((registry, repository)): Path<(String, String)>,
     Query(params): Query<NotifyParams>,
 ) -> Result<axum::response::Response, AppError> {
@@ -482,6 +536,13 @@ async fn notify_new_version(
             Json(serde_json::json!({ "error": error })),
         )
             .into_response());
+    }
+
+    if exclusions.is_excluded(&registry, repository, tag) {
+        let outcome = wasm_meta_registry_types::NotifyOutcome::Skipped {
+            reason: "excluded".to_string(),
+        };
+        return Ok((StatusCode::ACCEPTED, Json(outcome)).into_response());
     }
 
     let manager = manager.read().await;
@@ -633,6 +694,68 @@ mod tests {
             .await
             .expect("second request failed");
         assert_eq!(resp.status(), StatusCode::ACCEPTED);
+        let outcome: NotifyOutcome = resp.json().await.expect("invalid json");
+        assert_eq!(outcome, NotifyOutcome::Enqueued);
+
+        server.abort();
+    }
+
+    /// Notifications for tags matching a package's `exclude` patterns are
+    /// skipped, while other tags of the same package are still enqueued.
+    #[tokio::test]
+    async fn notify_endpoint_skips_excluded_tags() {
+        use wasm_meta_registry_types::NotifyOutcome;
+
+        let (_data_dir, manager) = isolated_manager().await;
+        let packages = crate::RegistryFile::from_toml(
+            r#"
+[namespace]
+name = "example"
+registry = "example.test/owner"
+
+[[component]]
+name = "app"
+repository = "app"
+exclude = ["[_.]debug$"]
+"#,
+        )
+        .expect("valid registry file")
+        .into_package_sources();
+        manager
+            .add_known_package("example.test", "owner/app", None, None)
+            .await
+            .expect("failed to register known package");
+
+        let state = Arc::new(tokio::sync::RwLock::new(manager));
+        let app = router_with_registry(state, &[], &packages);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("failed to bind listener");
+        let addr = listener.local_addr().expect("failed to get local addr");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("server error");
+        });
+
+        let client = reqwest::Client::new();
+        let notify = |tag: &str| {
+            client
+                .post(format!(
+                    "http://{addr}/v1/packages/notify/example.test/owner/app?tag={tag}"
+                ))
+                .send()
+        };
+
+        let resp = notify("1.0.0.debug").await.expect("request failed");
+        assert_eq!(resp.status(), StatusCode::ACCEPTED);
+        let outcome: NotifyOutcome = resp.json().await.expect("invalid json");
+        assert_eq!(
+            outcome,
+            NotifyOutcome::Skipped {
+                reason: "excluded".to_string()
+            }
+        );
+
+        let resp = notify("1.0.0").await.expect("request failed");
         let outcome: NotifyOutcome = resp.json().await.expect("invalid json");
         assert_eq!(outcome, NotifyOutcome::Enqueued);
 

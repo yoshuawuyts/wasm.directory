@@ -169,6 +169,7 @@ impl Indexer {
             }
         };
 
+        let exclude = |tag: &str| source.exclude.is_match(tag);
         let result = if self.refetch {
             self.manager
                 .index_package_refetch(
@@ -176,6 +177,7 @@ impl Indexer {
                     Some(&source.namespace),
                     Some(&source.name),
                     Some(source.kind),
+                    &exclude,
                 )
                 .await
         } else {
@@ -185,6 +187,7 @@ impl Indexer {
                     Some(&source.namespace),
                     Some(&source.name),
                     Some(source.kind),
+                    &exclude,
                 )
                 .await
         };
