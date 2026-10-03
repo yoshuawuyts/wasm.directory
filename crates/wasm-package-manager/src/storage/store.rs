@@ -3388,6 +3388,73 @@ impl Store {
         Ok(())
     }
 
+    /// Remove excluded tags of a repository from the index.
+    ///
+    /// Drops the tags' fetch queue rows, so lifting the exclusion later
+    /// enqueues them again, and their tag rows. A manifest that no other tag
+    /// of the repository points at is deleted along with its metadata.
+    ///
+    /// Returns the number of tag rows removed.
+    pub(crate) async fn retract_tags(
+        &self,
+        registry: &str,
+        repository: &str,
+        tags: &[String],
+    ) -> anyhow::Result<u64> {
+        if tags.is_empty() {
+            return Ok(0);
+        }
+        let tag_names = || tags.iter().map(String::as_str);
+
+        fetch_queue::Entity::delete_many()
+            .filter(fetch_queue::Column::Registry.eq(registry))
+            .filter(fetch_queue::Column::Repository.eq(repository))
+            .filter(fetch_queue::Column::Tag.is_in(tag_names()))
+            .exec(&self.db)
+            .await?;
+
+        let Some(repo) = oci_repository::Entity::find()
+            .filter(oci_repository::Column::Registry.eq(registry))
+            .filter(oci_repository::Column::Repository.eq(repository))
+            .one(&self.db)
+            .await?
+        else {
+            return Ok(0);
+        };
+        let rows = oci_tag::Entity::find()
+            .filter(oci_tag::Column::OciRepositoryId.eq(repo.id))
+            .filter(oci_tag::Column::Tag.is_in(tag_names()))
+            .all(&self.db)
+            .await?;
+        if rows.is_empty() {
+            return Ok(0);
+        }
+        oci_tag::Entity::delete_many()
+            .filter(oci_tag::Column::Id.is_in(rows.iter().map(|t| t.id)))
+            .exec(&self.db)
+            .await?;
+
+        let digests: HashSet<&str> = rows.iter().map(|t| t.manifest_digest.as_str()).collect();
+        for digest in digests {
+            // Another tag (e.g. the release build) may share the manifest.
+            let still_tagged = oci_tag::Entity::find()
+                .filter(oci_tag::Column::OciRepositoryId.eq(repo.id))
+                .filter(oci_tag::Column::ManifestDigest.eq(digest))
+                .count(&self.db)
+                .await?
+                > 0;
+            if !still_tagged {
+                let reference = Reference::with_digest(
+                    registry.to_owned(),
+                    repository.to_owned(),
+                    digest.to_owned(),
+                );
+                self.delete(&reference).await?;
+            }
+        }
+        Ok(rows.len() as u64)
+    }
+
     #[allow(dead_code)]
     pub(crate) async fn enqueue_reindex(
         &self,
@@ -4423,6 +4490,83 @@ mod smoke_tests {
         assert_eq!(queued, ["2.0.0", "2.1.0"]);
         let cached: Vec<_> = known.cached.into_iter().collect();
         assert_eq!(cached, ["1.0.0"]);
+    }
+
+    #[tokio::test]
+    async fn retract_tags_removes_excluded_tags_and_orphaned_manifests() {
+        let store = Store::open_in_memory().await.unwrap();
+        let (registry, repository) = ("ghcr.io", "user/repo");
+        let repo_id =
+            upsert_oci_repository_full(store.db(), registry, repository, None, None, None)
+                .await
+                .unwrap();
+        for digest in ["sha256:release", "sha256:debug"] {
+            let (manifest_id, _) = upsert_oci_manifest(
+                store.db(),
+                repo_id,
+                digest,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                &HashMap::new(),
+            )
+            .await
+            .unwrap();
+            insert_oci_layer(store.db(), manifest_id, digest, None, Some(1), 0)
+                .await
+                .unwrap();
+        }
+        // `1.0.0-dev` shares the release manifest, `1.0.0-debug` has its own.
+        for (tag, digest) in [
+            ("1.0.0", "sha256:release"),
+            ("1.0.0-dev", "sha256:release"),
+            ("1.0.0-debug", "sha256:debug"),
+        ] {
+            upsert_oci_tag(store.db(), repo_id, tag, digest)
+                .await
+                .unwrap();
+            store
+                .record_completed(registry, repository, tag)
+                .await
+                .unwrap();
+        }
+        // A pending pull of an excluded tag is dropped as well.
+        store
+            .enqueue_pull(registry, repository, "1.1.0-debug", 0)
+            .await
+            .unwrap();
+
+        let excluded = ["1.0.0-dev", "1.0.0-debug", "1.1.0-debug"].map(String::from);
+        let retracted = store
+            .retract_tags(registry, repository, &excluded)
+            .await
+            .unwrap();
+        assert_eq!(retracted, 2);
+
+        let known = store.known_tags(registry, repository).await.unwrap();
+        assert_eq!(known.queued.into_iter().collect::<Vec<_>>(), ["1.0.0"]);
+        assert_eq!(known.cached.into_iter().collect::<Vec<_>>(), ["1.0.0"]);
+        let manifests: Vec<String> = oci_manifest::Entity::find()
+            .filter(oci_manifest::Column::OciRepositoryId.eq(repo_id))
+            .all(store.db())
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|m| m.digest)
+            .collect();
+        assert_eq!(manifests, ["sha256:release"]);
+
+        // Retracting again is a no-op.
+        assert_eq!(
+            store
+                .retract_tags(registry, repository, &excluded)
+                .await
+                .unwrap(),
+            0
+        );
     }
 
     #[tokio::test]

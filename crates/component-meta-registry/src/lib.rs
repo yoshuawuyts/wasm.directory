@@ -67,4 +67,4 @@ pub mod stats_cache;
 pub use config::Config;
 pub use indexer::Indexer;
 pub use registry_file::RegistryFile;
-pub use server::{router, router_with_namespaces};
+pub use server::{router, router_with_namespaces, router_with_registry};

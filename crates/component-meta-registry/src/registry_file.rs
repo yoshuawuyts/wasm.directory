@@ -1,6 +1,7 @@
 //! Per-namespace registry file parsing.
 
-use serde::Deserialize;
+use regex::RegexSet;
+use serde::{Deserialize, Deserializer};
 
 use crate::config::{PackageKind, PackageSource};
 
@@ -74,6 +75,7 @@ pub struct Namespace {
 /// let entry = PackageEntry {
 ///     name: "clocks".to_string(),
 ///     repository: "wasi/clocks".to_string(),
+///     exclude: Default::default(),
 /// };
 ///
 /// assert_eq!(entry.name, "clocks");
@@ -85,6 +87,16 @@ pub struct PackageEntry {
     pub name: String,
     /// OCI repository path, relative to the namespace's registry.
     pub repository: String,
+    /// Regular expressions for tags to leave out of the index. A tag is
+    /// excluded when any pattern matches part of it.
+    #[serde(default, deserialize_with = "deserialize_regex_set")]
+    pub exclude: RegexSet,
+}
+
+/// Compile a list of patterns, rejecting invalid ones at load time.
+fn deserialize_regex_set<'de, D: Deserializer<'de>>(deserializer: D) -> Result<RegexSet, D::Error> {
+    let patterns = Vec::<String>::deserialize(deserializer)?;
+    RegexSet::new(patterns).map_err(serde::de::Error::custom)
 }
 
 impl RegistryFile {
@@ -155,6 +167,7 @@ impl RegistryFile {
                 namespace: namespace.clone(),
                 name: entry.name,
                 kind: PackageKind::Component,
+                exclude: entry.exclude,
             });
         }
         for entry in self.interface {
@@ -164,6 +177,7 @@ impl RegistryFile {
                 namespace: namespace.clone(),
                 name: entry.name,
                 kind: PackageKind::Interface,
+                exclude: entry.exclude,
             });
         }
         sources

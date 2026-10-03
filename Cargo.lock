@@ -1245,6 +1245,7 @@ dependencies = [
  "chrono",
  "clap",
  "dirs 7.0.0",
+ "regex",
  "reqwest 0.13.5",
  "sea-orm",
  "serde",
