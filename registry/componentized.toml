@@ -146,3 +146,7 @@ repository = "services/webhook-credential-admin"
 [[component]]
 name = "services-webhook-credential-store"
 repository = "services/webhook-credential-store"
+
+[[interface]]
+name = "http"
+repository = "http"
