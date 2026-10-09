@@ -269,6 +269,14 @@ exposes a search API. It consists of:
   When several replicas share a Postgres database, only the replica holding
   the indexer advisory lock runs the indexer. The last discovery time is
   stored in the database, so restarts don't trigger an early full pass.
+  Routine discovery defaults to a configurable 1-hour interval. Per-source
+  discovery state independently schedules full first-time history and retries,
+  even after a recent global pass. Its completion timestamp means all supported
+  tags were enumerated and queued, not that releases are ready: ingestion and
+  failure remain tracked by the fetch queue. Bounded discovery, queue, and
+  publish-time backfill steps are interleaved; backfill retains its independent
+  hourly-or-shorter retry cadence and idle queue/lease checks remain minutely.
+  Source authorization still comes from the registry files loaded at startup.
 - **`server.rs`** — [axum] HTTP router with search endpoints.
 
 [axum]: https://docs.rs/axum
