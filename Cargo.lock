@@ -7606,6 +7606,7 @@ dependencies = [
  "oci-client",
  "oci-wasm",
  "pubgrub",
+ "reqwest 0.13.5",
  "sea-orm",
  "semver",
  "serde",
