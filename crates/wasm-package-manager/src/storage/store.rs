@@ -51,6 +51,7 @@ mod package_metadata;
 mod publisher_time;
 mod relationships;
 mod releases;
+mod source_discovery;
 
 pub use manifest_config::PendingConfig;
 pub(crate) use manifest_config::created_from_config;

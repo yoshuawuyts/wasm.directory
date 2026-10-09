@@ -5,6 +5,7 @@ mod db_config;
 mod indexer_lease;
 mod known_package;
 mod models;
+mod source_discovery_state;
 mod store;
 
 pub use config::StateInfo;
@@ -12,6 +13,7 @@ pub use db_config::{Backend, DbConfig, redact_url};
 pub use indexer_lease::IndexerLease;
 pub use known_package::{KnownPackage, KnownPackageParams};
 pub use models::Migrations;
+pub use source_discovery_state::SourceDiscoveryState;
 pub(crate) use store::created_from_config;
 pub use store::{FetchTask, FetchTaskKind, PendingConfig};
 pub(crate) use store::{KnownTags, Store};
