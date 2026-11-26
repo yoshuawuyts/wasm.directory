@@ -1,0 +1,53 @@
+[namespace]
+name = "eryx"
+registry = "ghcr.io/eryx-org/commands"
+
+# eryx-org/eryx-recipes: CLI tools built from upstream source as WASI command
+# components. Each imports only WASI interfaces.
+[[component]]
+name = "awk"
+repository = "eryx/awk"
+
+[[component]]
+name = "coreutils"
+repository = "eryx/coreutils"
+
+[[component]]
+name = "curl"
+repository = "eryx/curl"
+
+[[component]]
+name = "diffutils"
+repository = "eryx/diffutils"
+
+[[component]]
+name = "gcx"
+repository = "eryx/gcx"
+
+[[component]]
+name = "gh"
+repository = "eryx/gh"
+
+[[component]]
+name = "jaq"
+repository = "eryx/jaq"
+
+[[component]]
+name = "jq"
+repository = "eryx/jq"
+
+[[component]]
+name = "rg"
+repository = "eryx/rg"
+
+[[component]]
+name = "sd"
+repository = "eryx/sd"
+
+[[component]]
+name = "sed"
+repository = "eryx/sed"
+
+[[component]]
+name = "sqlite3"
+repository = "eryx/sqlite3"
